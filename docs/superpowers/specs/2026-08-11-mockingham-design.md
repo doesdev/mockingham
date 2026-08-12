@@ -200,13 +200,13 @@ override > fixture > spec example/examples > default > enum pick > format produc
 ```
 
 `preferExamples` (default `true`) is what puts spec examples above generation: if
-the API author wrote an example, honour it. Set `false` to always generate.
+the API author wrote an example, honor it. Set `false` to always generate.
 
 ### Formats and constraints
 
 Producers for: `date-time`, `date`, `time`, `duration`, `uuid`, `email`, `uri`,
 `hostname`, `ipv4`, `ipv6`, `byte`, `binary`, `password`, plus `int32`/`int64`/
-`float`/`double` numerics. Constraints honoured: `minLength`, `maxLength`,
+`float`/`double` numerics. Constraints honored: `minLength`, `maxLength`,
 `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`,
 `minItems`, `maxItems`, `uniqueItems`, `enum`, `const`, `nullable`,
 `oneOf`/`anyOf` (seeded pick, discriminator-aware), `allOf` (merged).
@@ -441,7 +441,7 @@ idempotency: {
 ```
 
 Auto-enabled for an operation when the spec declares an `Idempotency-Key` header
-parameter. Behaviour:
+parameter. Behavior:
 
 - First request stores `{ status, headers, body, fingerprint }` under the scoped key.
 - Replay returns the stored response plus `Idempotent-Replay: true`.

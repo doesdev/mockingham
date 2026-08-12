@@ -1,0 +1,31 @@
+{
+  "name": "mockingham",
+  "version": "0.1.0",
+  "description": "OpenAPI driven HTTP mock server",
+  "homepage": "https://github.com/doesdev/mockingham#readme",
+  "bugs": {
+    "url": "https://github.com/doesdev/mockingham/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/doesdev/mockingham.git"
+  },
+  "license": "MIT",
+  "author": "Andrew Carpenter",
+  "type": "module",
+  "main": "src/index.ts",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test 'test/**/*.test.ts'",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -42,6 +42,9 @@ Breaking any of these is a defect even if tests pass.
   function that needs them — never at module top level.
 - Tests live in `test/` mirroring `src/`, written in TypeScript, run by `node:test`.
 - Write the test first, watch it fail, then implement.
+- **US English spelling** everywhere — identifiers, test names, comments, docs.
+  Write `honor`, `behavior`, `serialize`, `normalize`, `canceled`, not the
+  British variants.
 
 ## Shell conventions
 
