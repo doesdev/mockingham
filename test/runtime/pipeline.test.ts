@@ -1,0 +1,92 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { createResponders } from '../../src/runtime/pipeline.ts'
+import type { Operation, ResponseSpec } from '../../src/spec/types.ts'
+
+function spec(status: number): ResponseSpec {
+  return {
+    status,
+    headers: {},
+    content: {
+      'application/json': {
+        schema: { type: 'object', properties: { a: { type: 'string' } } },
+        examples: { empty: { value: { a: '' } } }
+      }
+    }
+  }
+}
+
+function operation(responses: ResponseSpec[]): Operation {
+  return { method: 'get', path: '/x', parameters: [], responses }
+}
+
+function build(responses: ResponseSpec[], prefer?: string) {
+  return createResponders({
+    operation: operation(responses),
+    request: new Request('http://mock/x', prefer ? { headers: { prefer } } : undefined),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {}
+  })
+}
+
+test('selection is memoized', () => {
+  // selectResponse builds a fresh { spec, source } each call, so identity across
+  // two calls is proof the second one did not recompute. Laziness itself is
+  // proven behaviorally by test/server/stage-order.test.ts — an unauthenticated
+  // request to a response-less operation gets 401 rather than the 501 that only
+  // an eager selection could produce.
+  const responders = build([spec(200)])
+  assert.strictEqual(responders.selection(), responders.selection())
+})
+
+test('selection returns undefined when the operation declares nothing', () => {
+  assert.equal(build([]).selection(), undefined)
+})
+
+test('generate produces a value for the selected status', () => {
+  const value = build([spec(200)]).generate() as Record<string, unknown>
+  assert.equal(typeof value['a'], 'string')
+})
+
+test('generate for an explicit status uses that response', () => {
+  const responders = build([spec(200), spec(404)])
+  assert.equal(typeof (responders.generate(404) as Record<string, unknown>)['a'], 'string')
+})
+
+test('generate returns undefined when nothing is selected', () => {
+  assert.equal(build([]).generate(), undefined)
+})
+
+test('generate returns undefined for a status with no JSON content', () => {
+  const responders = createResponders({
+    operation: operation([{ status: 204, headers: {}, content: {} }]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {}
+  })
+  assert.equal(responders.generate(), undefined)
+})
+
+test('example returns a named example', () => {
+  assert.deepEqual(build([spec(200)]).example(200, 'empty'), { a: '' })
+})
+
+test('example returns undefined for an unknown name', () => {
+  assert.equal(build([spec(200)]).example(200, 'nope'), undefined)
+})
+
+test('rngFor is stable for the same label', () => {
+  const responders = build([spec(200)])
+  assert.equal(responders.rngFor('a').next(), responders.rngFor('a').next())
+})
+
+test('rngFor differs across labels', () => {
+  const responders = build([spec(200)])
+  assert.notEqual(responders.rngFor('a').next(), responders.rngFor('b').next())
+})
+
+test('Prefer still selects a declared status', () => {
+  assert.equal(build([spec(200), spec(404)], 'status=404').selection()?.spec.status, 404)
+})

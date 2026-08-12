@@ -1,9 +1,6 @@
 import { createRouter } from '../spec/routes.ts'
 import type { Api, Operation } from '../spec/types.ts'
-import { generateValue } from '../generate/generate.ts'
-import type { GenerateOptions } from '../generate/generate.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
-import type { Rng } from '../generate/rng.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
 import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
@@ -13,12 +10,13 @@ import type { Ctx, OverrideNode, Resolvers } from '../runtime/types.ts'
 import type { Stage } from '../runtime/types.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
-import { preferred, selectResponse } from '../runtime/select.ts'
+import { preferred } from '../runtime/select.ts'
 import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
 import type { ErrorBodyMode } from '../runtime/errors.ts'
 import { validateRequest } from '../runtime/validate.ts'
 import { checkAuth } from '../runtime/auth.ts'
 import type { AuthConfig } from '../runtime/auth.ts'
+import { createResponders } from '../runtime/pipeline.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -34,8 +32,6 @@ export interface HandlerOptions {
   validateRequests?: boolean
   auth?: AuthConfig
 }
-
-const JSON_TYPE = 'application/json'
 
 function requestKey(
   operation: Operation,
@@ -98,10 +94,15 @@ export function createHandler(
     if (!matched) {
       const allowed = router.allowedMethods(url.pathname)
       if (allowed.length > 0) {
-        return new Response(null, {
-          status: 405,
-          headers: { allow: allowed.join(', ') }
-        })
+        const response = await fail(
+          undefined,
+          405,
+          'MOCK_METHOD_NOT_ALLOWED',
+          `Allowed methods: ${allowed.join(', ')}`,
+          seed
+        )
+        response.headers.set('allow', allowed.join(', '))
+        return response
       }
       return await fail(undefined, 404, 'MOCK_NOT_FOUND', `No operation for ${url.pathname}`, seed)
     }
@@ -118,49 +119,21 @@ export function createHandler(
     // Stages 3 and 4 (auth, validation) are built below, once ctx exists.
     // Stages 5 and 6 (idempotency, failure) arrive with plan 4.
 
-    // Stage 7 — status selection. The selection itself has to happen here
-    // because the ctx helpers below close over it, but its 501 is DEFERRED
-    // until after the stages: reporting "declares no responses" above stage 3
-    // would tell an unauthenticated caller which operations exist and what
-    // they look like. Until then `selected` is allowed to stay undefined and
-    // the generate/example helpers simply have nothing to offer.
     const key = requestKey(operation, params, seed)
     const exampleName = preferred(request, 'example')
-    const selected = selectResponse(operation, request, config.status)
 
-    const chosen = selected?.spec
-    const source = selected?.source ?? 'default'
-    const generateOptions: GenerateOptions = {
-      maxDepth: options.maxDepth,
-      preferExamples: options.preferExamples,
-      resolvers,
-      schemaNames: api.schemaNames
-    }
-
-    const rngFor = (label: string): Rng => createRng(`${key}|${label}`)
-
-    const mediaFor = (status: number) =>
-      operation.responses.find((r) => r.status === status)?.content[JSON_TYPE]
-
-    const generateFor = (status?: number): unknown => {
-      const target = status === undefined ? chosen?.status : status
-      if (target === undefined) return undefined
-      const media = mediaFor(target)
-      if (!media) return undefined
-      return generateValue(media.schema, rngFor(String(target)), {
-        ...generateOptions,
-        ctx
-      })
-    }
-
-    const exampleFor = (status?: number, name?: string): unknown => {
-      const target = status === undefined ? chosen?.status : status
-      if (target === undefined) return undefined
-      const media = mediaFor(target)
-      if (!media) return undefined
-      if (name === undefined) return media.example
-      return media.examples?.[name]?.value
-    }
+    const responders = createResponders({
+      operation,
+      request,
+      staticStatus: config.status,
+      key,
+      generateOptions: {
+        maxDepth: options.maxDepth,
+        preferExamples: options.preferExamples,
+        resolvers,
+        schemaNames: api.schemaNames
+      }
+    })
 
     const ctx: Ctx = createContext({
       request,
@@ -168,11 +141,11 @@ export function createHandler(
       operation,
       params,
       body: parsed.body.value,
-      rng: rngFor('ctx'),
+      rng: responders.rngFor('ctx'),
       requestKey: key,
       counters,
-      generate: generateFor,
-      example: exampleFor
+      generate: responders.generate,
+      example: responders.example
     })
 
     // Stages 3 through 6. Auth runs before validation so an unauthenticated
@@ -221,9 +194,9 @@ export function createHandler(
       if (short) return short
     }
 
-    // The deferred stage-7 failure, now that auth and validation have had their
-    // say. An unauthenticated caller never reaches this line.
-    if (!chosen) {
+    // Stage 7 — status selection, now that every short-circuiting stage has run.
+    const selected = responders.selection()
+    if (!selected) {
       return await fail(
         operation,
         501,
@@ -233,10 +206,11 @@ export function createHandler(
         ctx
       )
     }
+    const chosen = selected.spec
 
     // Stage 10 — the full response callback replaces stages 7 through 10.
     // It runs after ctx exists so the callback can reach ctx.generate and
-    // ctx.example, both of which are bound to the selected response.
+    // ctx.example, which trigger selection on demand.
     if (config.respond) {
       try {
         return await config.respond(ctx)
@@ -252,15 +226,15 @@ export function createHandler(
       headerOverrides: config.headers(chosen.status),
       globals: options.headers,
       resolvers,
-      rngFor,
-      generateOptions,
+      rngFor: responders.rngFor,
+      generateOptions: responders.generateOptions,
       exampleName,
-      generate: generateFor,
-      example: exampleFor,
+      generate: responders.generate,
+      example: responders.example,
       debug: options.debugHeaders
         ? {
             seed: String(fnv1a(key)),
-            source,
+            source: selected.source,
             operationId: operation.operationId
           }
         : undefined
