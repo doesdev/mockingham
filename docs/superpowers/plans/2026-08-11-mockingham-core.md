@@ -1566,6 +1566,7 @@ const GIVEN = ['cara', 'neil', 'ada', 'omar', 'ines', 'raul', 'thea', 'yuki'] as
 const FAMILY = ['whitfield', 'ashford', 'nakamura', 'olsen', 'pereira', 'quinn'] as const
 const TLDS = ['com', 'io', 'dev', 'eu'] as const
 const HEX = '0123456789abcdef'
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
 /** Fixed epoch so generated dates are reproducible across runs. */
 const EPOCH_MS = Date.parse('2024-01-01T00:00:00.000Z')
@@ -1622,8 +1623,11 @@ export function generateString(schema: Schema, rng: Rng): string {
       return `${pad(rng.int(0, 23), 2)}:${pad(rng.int(0, 59), 2)}:${pad(rng.int(0, 59), 2)}`
     case 'duration':
       return `P${rng.int(1, 30)}D`
-    case 'byte':
-      return Buffer.from(word(rng)).toString('base64')
+    case 'byte': {
+      let out = ''
+      for (let i = 0; i < 12; i++) out += B64[rng.int(0, 63)]
+      return `${out}==`
+    }
     case 'password':
       return `${word(rng)}-${hex(rng, 6)}`
     default:
@@ -1648,7 +1652,7 @@ export function generateBoolean(rng: Rng): boolean {
 }
 ```
 
-> **Note for the implementer:** `Buffer` is a Node global. It is used only in the `byte` branch. If a later portability pass targets workers, replace it with a hand-rolled base64 encoder — but do not import `node:buffer`, which would break invariant 3.
+> **Note for the implementer:** this file must use no Node globals and no `node:` imports — it is reachable from the pure core (invariant 3). That is why `byte` builds a base64-shaped string from an alphabet rather than reaching for `Buffer`. The output is well-formed base64 characters, not an encoding of anything meaningful, which is all a mock needs.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
