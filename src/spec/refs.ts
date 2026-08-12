@@ -42,6 +42,12 @@ export function resolveDocument(
     const record = node as Record<string, unknown>
     const ref = record['$ref']
     if (typeof ref === 'string') {
+      const target = lookup(ref)
+      // A target already in byNode is a real schema, mid-construction. Return
+      // its live object so the cycle forms — however many alias hops away it is.
+      // This check must precede the `resolving` guard, or an alias chain like
+      // `A -> B` where B recurses back through A is rejected as circular.
+      if (byNode.has(target)) return byNode.get(target)
       if (resolving.has(ref)) {
         throw new Error(
           `mockingham: circular $ref chain at "${ref}" — a reference resolves ` +
@@ -49,12 +55,13 @@ export function resolveDocument(
         )
       }
       resolving.add(ref)
-      const resolved = walk(lookup(ref))
+      const resolved = walk(target)
       resolving.delete(ref)
       return resolved
     }
 
     const out: Record<string, unknown> = {}
+    // register before recursing so a $ref back to this node returns this live object
     byNode.set(node, out)
     for (const [key, value] of Object.entries(record)) out[key] = walk(value)
     return out

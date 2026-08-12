@@ -61,6 +61,26 @@ test('does not mutate the input document', () => {
   assert.deepEqual((doc as any).x, { $ref: '#/components/schemas/User' })
 })
 
+test('resolves a recursive schema reached through an alias', () => {
+  const doc = {
+    components: {
+      schemas: {
+        A: { $ref: '#/components/schemas/B' },
+        B: {
+          type: 'object',
+          properties: { self: { $ref: '#/components/schemas/A' } }
+        }
+      }
+    }
+  }
+  const out = resolveDocument(doc) as any
+  const b = out.components.schemas.B
+  assert.equal(b.type, 'object')
+  // A is an alias for B, so B.self must be B itself
+  assert.strictEqual(b.properties.self, b)
+  assert.strictEqual(out.components.schemas.A, b)
+})
+
 test('throws on a reference chain that never reaches a schema', () => {
   const doc = {
     components: {
