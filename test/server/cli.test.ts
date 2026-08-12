@@ -101,6 +101,30 @@ test('mockingham with a missing document argument still exits non-zero', async (
   assert.equal(exitCode, 1)
 })
 
+test('mockingham with an unknown flag exits 1 with a clean message, not a stack trace', async () => {
+  // Regression from the --help fix: parseArgs used to be called outside the
+  // entry point's try, so a bad argument threw during top-level module
+  // evaluation instead of being caught — a raw stack trace on stderr instead
+  // of the same one clean line every other CLI misuse gets.
+  const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>(
+    (resolve, reject) => {
+      const child = spawn(process.execPath, [cliPath, '--bogus'], {
+        stdio: ['ignore', 'ignore', 'pipe']
+      })
+      let stderr = ''
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
+      child.once('error', reject)
+      child.once('exit', (code) => resolve({ exitCode: code, stderr }))
+    }
+  )
+
+  assert.equal(exitCode, 1)
+  assert.ok(stderr.includes('unknown option --bogus'))
+  // A stack trace names the module job that ran the throwing code; a clean
+  // console.error(...) message never does.
+  assert.ok(!stderr.includes('ModuleJob'))
+})
+
 test('startCli serves the document over a real port', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mockingham-cli-'))
   const path = join(directory, 'api.json')

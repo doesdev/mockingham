@@ -171,18 +171,22 @@ export async function startCli(
 }
 
 if (import.meta.main) {
-  // `--help` is not misuse — `mockingham --help` must exit 0, and this is the
-  // one call site that can act on that without changing `startCli`'s
-  // contract. A genuinely missing document argument still reaches `startCli`
-  // below and throws, which IS misuse and should exit non-zero.
-  if (parseArgs(process.argv.slice(2)).help) {
-    console.log(USAGE)
-  } else {
-    try {
+  try {
+    // `--help` is not misuse — `mockingham --help` must exit 0, and this is
+    // the one call site that can act on that without changing `startCli`'s
+    // contract. A genuinely missing document argument still reaches
+    // `startCli` below and throws, which IS misuse and should exit non-zero.
+    // `parseArgs` itself must stay inside this `try`: it can throw too (an
+    // unknown flag, a bad `--port`), and before this wrapping that throw hit
+    // top-level module evaluation instead of this catch — a stack trace
+    // instead of the same one clean line every other CLI misuse gets.
+    if (parseArgs(process.argv.slice(2)).help) {
+      console.log(USAGE)
+    } else {
       await startCli(process.argv.slice(2))
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error))
-      process.exitCode = 1
     }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
   }
 }
