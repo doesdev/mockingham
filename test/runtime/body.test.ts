@@ -5,7 +5,7 @@ import type { Operation } from '../../src/spec/types.ts'
 
 function op(overrides: Partial<Operation> = {}): Operation {
   return {
-    method: 'post', path: '/things', parameters: [], responses: [], ...overrides
+    method: 'post', path: '/things', parameters: [], responses: [], callbacks: [], ...overrides
   }
 }
 

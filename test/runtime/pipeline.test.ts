@@ -17,7 +17,7 @@ function spec(status: number): ResponseSpec {
 }
 
 function operation(responses: ResponseSpec[]): Operation {
-  return { method: 'get', path: '/x', parameters: [], responses }
+  return { method: 'get', path: '/x', parameters: [], responses, callbacks: [] }
 }
 
 function build(responses: ResponseSpec[], prefer?: string) {
