@@ -353,6 +353,25 @@ export function createHandler(
   }
 
   /**
+   * The response body as a string, read from a clone. A `Response` body is
+   * one-shot: reading the original to store it would consume it before the
+   * caller ever saw it. A null body (a 204, say) stays null rather than becoming
+   * an empty string, so a replay reproduces "no body" rather than "empty body".
+   */
+  async function captureBody(response: Response): Promise<string | null> {
+    if (response.body === null) return null
+    return await response.clone().text()
+  }
+
+  function headersOf(response: Response): Record<string, string> {
+    const out: Record<string, string> = {}
+    response.headers.forEach((value, name) => {
+      out[name] = value
+    })
+    return out
+  }
+
+  /**
    * THE SINGLE EXIT. Every response leaves through here — a 404 built before any
    * operation was known, a body-parse 400, a stage short-circuit, a rendered
    * body, and the boundary 500 alike. Stage 11 (idempotency capture, then the
@@ -370,7 +389,31 @@ export function createHandler(
       response = internalError(error)
     }
 
-    // Stage 11 lands here in Tasks 7 and 8.
+    // ── Stage 11 ──
+    const claimed = trace.claimed
+    if (claimed !== undefined) {
+      // A 5xx is never stored. Storing a chaos-injected 503 would make every
+      // retry replay that 503 until the TTL expired, defeating the retry the
+      // idempotency key exists to make safe. Releasing the key on a throw is the
+      // other half of the wedge fix from the phases 7-9 design §2.4 — the TTL
+      // covers a process that dies, this covers a callback that threw.
+      if (trace.error !== undefined || response.status >= 500) {
+        await store.delete(claimed.key)
+      } else {
+        await store.set(
+          claimed.key,
+          {
+            state: 'done',
+            fingerprint: claimed.fingerprint,
+            status: response.status,
+            headers: headersOf(response),
+            body: await captureBody(response)
+          },
+          idempotency.ttlMs
+        )
+      }
+    }
+
     return response
   }
 

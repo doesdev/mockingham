@@ -61,18 +61,132 @@ test('an operation with no key parameter is untouched', async () => {
   assert.equal((await handle(request())).status, 200)
 })
 
-test('a second request against an unresolved key is in flight', async () => {
-  // Stage 11 does not store anything yet, so the first request's claim is still
-  // outstanding when the second arrives. This is the honest end state of the
-  // read half on its own — Task 7 turns this pair into a replay.
-  const handle = createHandler(api, { seed: 'idem' }).fetch
+/**
+ * A counter in the response is what makes the replay test able to fail.
+ * Generation is deterministic, so two real executions already return identical
+ * bytes — a replay test that only compares bodies passes with idempotency
+ * removed entirely. Counting executions is the mechanism under test.
+ */
+function counting() {
+  let runs = 0
+  return {
+    runs: () => runs,
+    operations: {
+      createOrder: {
+        respond: (ctx: Ctx) => {
+          runs += 1
+          return ctx.respond(201, { run: runs })
+        }
+      }
+    }
+  }
+}
 
-  await handle(order('k1'))
+test('a replay returns the first response byte-for-byte and does not re-execute', async () => {
+  const spy = counting()
+  const handle = createHandler(api, { seed: 'idem', operations: spy.operations }).fetch
+
+  const first = await handle(order('k1'))
+  const firstBody = await first.text()
   const second = await handle(order('k1'))
+  const secondBody = await second.text()
 
-  assert.equal(second.status, 409)
-  assert.equal(
-    ((await second.json()) as { error: { code: string } }).error.code,
-    'MOCK_IDEMPOTENCY_IN_FLIGHT'
-  )
+  assert.equal(secondBody, firstBody)
+  assert.equal(secondBody, '{"run":1}')
+  assert.equal(spy.runs(), 1)
+  assert.equal(first.headers.get('idempotent-replay'), null)
+  assert.equal(second.headers.get('idempotent-replay'), 'true')
+})
+
+test('config.methods enables an operation the document did not mark', async () => {
+  const handle = createHandler(api, {
+    seed: 'idem',
+    idempotency: { methods: ['POST'] }
+  }).fetch
+  const request = () =>
+    new Request('http://mock/plain', { method: 'POST', headers: { 'idempotency-key': 'k9' } })
+
+  await handle(request())
+  assert.equal((await handle(request())).headers.get('idempotent-replay'), 'true')
+})
+
+test('a claimed key is released when the request throws', async () => {
+  // The wedge case: without this, every retry sees a marker that never resolves.
+  let attempts = 0
+  const handle = createHandler(api, {
+    seed: 'idem',
+    operations: {
+      createOrder: {
+        respond: (ctx) => {
+          attempts += 1
+          if (attempts === 1) throw new Error('boom')
+          return ctx.respond(201, { ok: true })
+        }
+      }
+    }
+  }).fetch
+
+  assert.equal((await handle(order('k3'))).status, 500)
+  const retry = await handle(order('k3'))
+
+  assert.equal(retry.status, 201)
+  assert.equal(attempts, 2)
+})
+
+test('a 5xx is not stored, so a retry re-runs', async () => {
+  let attempts = 0
+  const handle = createHandler(api, {
+    seed: 'idem',
+    decide: () => (attempts === 0 ? { status: 503 } : undefined),
+    operations: {
+      createOrder: {
+        respond: (ctx) => {
+          attempts += 1
+          return ctx.respond(201, { ok: true })
+        }
+      }
+    }
+  }).fetch
+
+  assert.equal((await handle(order('k4'))).status, 503)
+  assert.equal((await handle(order('k4'))).status, 503)
+})
+
+test('a 4xx IS stored and replays', async () => {
+  // A client error is a real answer to the key. Only 5xx is excluded, because a
+  // 5xx is precisely what the caller retries the key to survive.
+  const handle = createHandler(api, {
+    seed: 'idem',
+    operations: { createOrder: { respond: (ctx) => ctx.respond(422, { bad: true }) } }
+  }).fetch
+
+  assert.equal((await handle(order('k5'))).status, 422)
+  const replay = await handle(order('k5'))
+
+  assert.equal(replay.status, 422)
+  assert.equal(replay.headers.get('idempotent-replay'), 'true')
+})
+
+test('a stored record expires', async () => {
+  let value = 0
+  let runs = 0
+  const handle = createHandler(api, {
+    seed: 'idem',
+    now: () => value,
+    idempotency: { ttlMs: 1_000 },
+    operations: {
+      createOrder: {
+        respond: (ctx) => {
+          runs += 1
+          return ctx.respond(201, { run: runs })
+        }
+      }
+    }
+  }).fetch
+
+  await handle(order('k6'))
+  value += 2_000
+  await handle(order('k6'))
+
+  assert.equal(runs, 2)
 })

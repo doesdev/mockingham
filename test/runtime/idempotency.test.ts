@@ -185,7 +185,7 @@ test('a first request claims the key and writes an in-flight marker', async () =
 })
 
 test('a stored response replays with the Idempotent-Replay header', async () => {
-  const { stage, store, raw } = stageFor()
+  const { stage, store, raw, claimed } = stageFor()
   const ctx = buildCtx({ request: keyed('k1'), operation: post() })
   const key = recordKey({ key: 'k1', operation: post(), scope: ['key', 'route', 'bodyHash'] })
   await store.set(key, {
@@ -203,6 +203,10 @@ test('a stored response replays with the Idempotent-Replay header', async () => 
   assert.equal(response?.headers.get('content-type'), 'application/json')
   assert.equal(await response?.text(), '{"id":7}')
   assert.equal(ctx.decisions.idempotency, 'replayed')
+  // A replay must not re-claim the key — a spurious claim would let the single
+  // exit overwrite the stored record with this replayed 201 as if it were a
+  // fresh answer.
+  assert.deepEqual(claimed, [])
 })
 
 test('a different body under the same key conflicts', async () => {
@@ -221,6 +225,9 @@ test('a different body under the same key conflicts', async () => {
   assert.equal(response?.status, 409)
   assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_MISMATCH' }])
   assert.equal(ctx.decisions.idempotency, 'mismatch')
+  // A mismatch must not claim the key — a spurious claim would let the single
+  // exit store this 409 as if it were the operation's real response.
+  assert.deepEqual(second.claimed, [])
 })
 
 test('a different body replays when the scope does not compare bodies', async () => {
@@ -238,6 +245,9 @@ test('a different body replays when the scope does not compare bodies', async ()
   assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_IN_FLIGHT' }])
   assert.equal(response?.status, 409)
   assert.equal(ctx.decisions.idempotency, 'in-flight')
+  // In flight must not claim the key — a spurious claim would let the single
+  // exit store this 409 as if it were the operation's real response.
+  assert.deepEqual(second.claimed, [])
 })
 
 test('a matching body against an unresolved marker is in-flight', async () => {
@@ -252,6 +262,9 @@ test('a matching body against an unresolved marker is in-flight', async () => {
   assert.equal(response?.status, 409)
   assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_IN_FLIGHT' }])
   assert.equal(ctx.decisions.idempotency, 'in-flight')
+  // In flight must not claim the key — a spurious claim would let the single
+  // exit store this 409 as if it were the operation's real response.
+  assert.deepEqual(second.claimed, [])
 })
 
 test('conflictStatus is configurable', async () => {
