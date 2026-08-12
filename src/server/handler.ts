@@ -1,27 +1,21 @@
 import { createRouter } from '../spec/routes.ts'
-import type { Api, Operation, ResponseSpec } from '../spec/types.ts'
+import type { Api, Operation } from '../spec/types.ts'
 import { generateValue } from '../generate/generate.ts'
 import type { GenerateOptions } from '../generate/generate.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
 import type { Rng } from '../generate/rng.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
-import { compileTarget, resolveTarget } from '../resolve/target.ts'
 import { applyOverrides } from '../resolve/layer.ts'
 import { parseBody } from '../runtime/body.ts'
 import { buildHeaders } from '../runtime/headers.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, OverrideNode, Resolvers } from '../runtime/types.ts'
+import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
+import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+import { preferred, selectResponse } from '../runtime/select.ts'
 
-export interface StatusConfig {
-  body?: OverrideNode
-  headers?: Record<string, OverrideNode>
-}
-
-export type OperationConfig = {
-  status?: number
-  respond?: (ctx: Ctx) => Response | Promise<Response>
-} & { [status: number]: StatusConfig }
+export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
 export interface HandlerOptions {
   seed?: string
@@ -47,30 +41,6 @@ function requestKey(
   return `${seed}|${operation.method}|${operation.path}|${ordered}`
 }
 
-function preferred(request: Request, key: string): string | undefined {
-  const header = request.headers.get('prefer')
-  if (header === null) return undefined
-  const matched = new RegExp(`${key}=([^;,\\s]+)`).exec(header)
-  return matched?.[1]
-}
-
-/**
- * Every configured target that matches, in declaration order.
- *
- * These are deliberately not merged into one config object. A broad target and
- * a specific one both setting `200.body` must layer — the specific one refining
- * the broad one's result — and merging with Object.assign would drop the broad
- * body entirely. Body overrides are instead applied in sequence below.
- */
-function matchingConfigs(
-  operation: Operation,
-  compiled: Array<{ matches(op: Operation): boolean; config: OperationConfig }>
-): OperationConfig[] {
-  return compiled
-    .filter((entry) => entry.matches(operation))
-    .map((entry) => entry.config)
-}
-
 export function createHandler(
   api: Api,
   options: HandlerOptions = {}
@@ -79,14 +49,7 @@ export function createHandler(
   const seed = options.seed ?? 'mockingham'
   const resolvers = compileResolvers(options.resolvers)
 
-  // Targets are validated here so a typo fails at construction rather than
-  // silently never firing.
-  const compiled = Object.entries(options.operations ?? {}).map(
-    ([target, config]) => {
-      resolveTarget(target, api.operations)
-      return { matches: compileTarget(target).matches, config }
-    }
-  )
+  const compiled = compileConfigs(options.operations, api.operations)
 
   const counters: Counters = createCounters()
 
@@ -115,15 +78,7 @@ export function createHandler(
     }
 
     const { operation, params } = matched
-    const configs = matchingConfigs(operation, compiled)
-
-    // For the scalar settings, the last matching config that defines one wins.
-    let staticStatus: number | undefined
-    let respond: OperationConfig['respond']
-    for (const entry of configs) {
-      if (entry.status !== undefined) staticStatus = entry.status
-      if (entry.respond !== undefined) respond = entry.respond
-    }
+    const config = resolveConfigs(operation, compiled)
 
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
@@ -139,26 +94,10 @@ export function createHandler(
 
     // Stage 7 — status selection.
     const key = requestKey(operation, params, seed)
-    const wanted = preferred(request, 'status')
     const exampleName = preferred(request, 'example')
+    const selected = selectResponse(operation, request, config.status)
 
-    let source = 'default'
-    let spec: ResponseSpec | undefined
-    if (wanted !== undefined) {
-      spec = operation.responses.find((r) => r.status === Number.parseInt(wanted, 10))
-      if (spec) source = 'prefer'
-    }
-    if (!spec && staticStatus !== undefined) {
-      spec = operation.responses.find((r) => r.status === staticStatus)
-      if (spec) source = 'config'
-    }
-    if (!spec) {
-      spec =
-        operation.responses.find((r) => r.status >= 200 && r.status < 300) ??
-        operation.responses[0]
-    }
-
-    if (!spec) {
+    if (!selected) {
       return Response.json(
         {
           error: {
@@ -170,7 +109,8 @@ export function createHandler(
       )
     }
 
-    const chosen = spec
+    const chosen = selected.spec
+    const source = selected.source
     const generateOptions: GenerateOptions = {
       maxDepth: options.maxDepth,
       preferExamples: options.preferExamples,
@@ -216,24 +156,13 @@ export function createHandler(
     // Stage 10 — the full response callback replaces stages 7 through 10.
     // It runs after ctx exists so the callback can reach ctx.generate and
     // ctx.example, both of which are bound to the selected response.
-    if (respond) {
-      return await respond(ctx)
+    if (config.respond) {
+      return await config.respond(ctx)
     }
 
     // Stage 8 — generate the body.
-    // Collect this status's overrides across every matching config. Bodies stay
-    // a list so they layer; headers are flat, so a shallow merge in declaration
-    // order is already the right precedence.
-    const bodyOverrides: OverrideNode[] = []
-    let headerOverrides: Record<string, OverrideNode> = {}
-    for (const entry of configs) {
-      const forStatus = entry[chosen.status]
-      if (forStatus === undefined) continue
-      if (forStatus.body !== undefined) bodyOverrides.push(forStatus.body)
-      if (forStatus.headers) {
-        headerOverrides = { ...headerOverrides, ...forStatus.headers }
-      }
-    }
+    const bodyOverrides = config.bodies(chosen.status)
+    const headerOverrides = config.headers(chosen.status)
 
     const headers = await buildHeaders({
       spec: chosen,
