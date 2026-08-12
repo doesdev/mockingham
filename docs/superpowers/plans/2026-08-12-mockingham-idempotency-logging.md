@@ -3101,19 +3101,31 @@ test('within defaults to openFor', async () => {
 
 test('two policies matching one operation keep separate circuits', async () => {
   const store = createMemoryStore()
+  // NOTE the second target's spelling. A bare '*' has no space in it, so
+  // `compileTarget` reads it as an operationId and it matches NOTHING — which
+  // would make the second assertion below pass for entirely the wrong reason.
+  // '* /x' is the match-any-method form. See src/resolve/target.ts.
   const policies: FailurePolicy[] = [
     { match: 'x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 503 } },
-    { match: '*', rate: 1, circuit: { after: 2, openFor: 1_000, then: 504 } }
+    { match: '* /x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 504 } }
   ]
 
   await checkFailure(input({ policies, store, counter: () => 1 }).args)
 
-  // The first policy fired and returned, so only its counter moved — and it
-  // moved under its OWN key. Sharing one key per operation is the bug: the
-  // second policy's failures would land on the first policy's counter and open
-  // a circuit neither policy asked for.
+  // Both policies match this operation, but the first one fired and returned,
+  // so only its counter moved — and it moved under its OWN key. Sharing one key
+  // per operation is the bug: the second policy's failures would land on the
+  // first policy's counter and open a circuit neither policy asked for.
   assert.equal(await store.get('circuit-count|0|x'), 1)
-  assert.equal(await store.get('circuit-count|1|*'), undefined)
+  assert.equal(await store.get('circuit-count|1|* /x'), undefined)
+})
+
+test('a bare star target matches nothing, so the fixture above is honest', () => {
+  // Guards the note above: if compileTarget ever started treating a bare '*' as
+  // a wildcard, the previous test would still pass but would stop proving what
+  // it claims. This is the canary for that.
+  assert.equal(compileTarget('*').matches(operation), false)
+  assert.equal(compileTarget('* /x').matches(operation), true)
 })
 ```
 
