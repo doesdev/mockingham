@@ -2197,8 +2197,6 @@ export function createHandler(
     })
 
     // Stage 8 — generate the body.
-    const media = chosen.content[JSON_TYPE]
-
     // Collect this status's overrides across every matching config. Bodies stay
     // a list so they layer; headers are flat, so a shallow merge in declaration
     // order is already the right precedence.
@@ -2235,12 +2233,10 @@ export function createHandler(
     if (exampleName !== undefined) {
       body = exampleFor(chosen.status, exampleName)
     }
-    if (body === undefined && media) {
-      body = generateValue(media.schema, rngFor(String(chosen.status)), {
-        ...generateOptions,
-        ctx
-      })
-    }
+    // Deliberately the same call ctx.generate(status) makes, rather than a
+    // second copy of it — a response callback and the pipeline must never
+    // produce different bodies for the same status.
+    if (body === undefined) body = generateFor(chosen.status)
 
     // Stage 9 — apply the override layers, broad targets first so specific ones
     // refine their result rather than replacing it.
