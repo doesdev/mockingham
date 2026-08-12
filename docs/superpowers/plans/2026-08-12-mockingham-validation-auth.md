@@ -1033,6 +1033,31 @@ function evaluate(node: OverrideNode, ctx: unknown): unknown {
 }
 ```
 
+**Resolvers are user callbacks too**, and this is the site most easily missed.
+In `src/resolve/resolvers.ts`, import `markCallback` from `../runtime/errors.ts`
+and route all FOUR user-function invocations through one helper — the `bySchema`,
+`byName`, and `byFormat` branches of `resolve()`, plus the one in
+`resolveHeader()`:
+
+```ts
+function callResolver(fn: Resolver, request: Ctx): unknown {
+  try {
+    return fn(request)
+  } catch (error) {
+    // A resolver is a user callback like any override, so the boundary must be
+    // able to tell its failure from a defect in mockingham's own code.
+    throw markCallback(error)
+  }
+}
+```
+
+Note the asymmetry that hides this: an ASYNC resolver that rejects is already
+covered, because its promise lands in the generated tree and is settled by
+`settle`'s tagged `Promise.all`. Only the synchronous throw is mislabeled.
+
+The import chain `resolvers.ts` → `errors.ts` does not cycle: `generate.ts`
+imports `ResolverLookup` from `resolvers.ts` type-only, which is erased.
+
 - [ ] **Step 5: Add the `Stage` type**
 
 Append to `src/runtime/types.ts`:
