@@ -14,7 +14,8 @@ import type { Stage } from '../runtime/types.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred, selectResponse } from '../runtime/select.ts'
-import { envelope, isCallbackError, markCallback } from '../runtime/errors.ts'
+import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
+import type { ErrorBodyMode } from '../runtime/errors.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -26,6 +27,7 @@ export interface HandlerOptions {
   resolvers?: Resolvers
   headers?: Record<string, OverrideNode>
   operations?: Record<string, OperationConfig>
+  errorBody?: ErrorBodyMode
 }
 
 const JSON_TYPE = 'application/json'
@@ -54,6 +56,35 @@ export function createHandler(
 
   const counters: Counters = createCounters()
 
+  const mode: ErrorBodyMode = options.errorBody ?? 'contract'
+
+  const fail = (
+    operation: Operation | undefined,
+    status: number,
+    code: string,
+    message: string,
+    key: string,
+    ctx?: unknown,
+    errors?: Array<{ path: string; message: string }>
+  ): Promise<Response> =>
+    buildError({
+      operation,
+      status,
+      code,
+      message,
+      errors,
+      mode,
+      ctx,
+      rng: createRng(`${key}|error|${status}`),
+      generateOptions: {
+        maxDepth: options.maxDepth,
+        preferExamples: options.preferExamples,
+        resolvers,
+        schemaNames: api.schemaNames
+      },
+      debugHeaders: options.debugHeaders
+    })
+
   async function run(request: Request): Promise<Response> {
     // Stage 1 — route match.
     const url = new URL(request.url)
@@ -67,10 +98,7 @@ export function createHandler(
           headers: { allow: allowed.join(', ') }
         })
       }
-      return Response.json(
-        envelope('MOCK_NOT_FOUND', `No operation for ${url.pathname}`),
-        { status: 404 }
-      )
+      return await fail(undefined, 404, 'MOCK_NOT_FOUND', `No operation for ${url.pathname}`, seed)
     }
 
     const { operation, params } = matched
@@ -79,9 +107,7 @@ export function createHandler(
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
-      return Response.json(envelope(parsed.code, parsed.message), {
-        status: parsed.status
-      })
+      return await fail(operation, parsed.status, parsed.code, parsed.message, requestKey(operation, params, seed))
     }
 
     // Stages 3, 4, 5, and 6 (auth, validation, idempotency, failure) arrive
@@ -93,12 +119,12 @@ export function createHandler(
     const selected = selectResponse(operation, request, config.status)
 
     if (!selected) {
-      return Response.json(
-        envelope(
-          'MOCK_NO_RESPONSE',
-          `Operation ${operation.method} ${operation.path} declares no responses`
-        ),
-        { status: 501 }
+      return await fail(
+        operation,
+        501,
+        'MOCK_NO_RESPONSE',
+        `Operation ${operation.method} ${operation.path} declares no responses`,
+        key
       )
     }
 

@@ -27,3 +27,30 @@ test('marking a non-object is safe and stays unmarked', () => {
   assert.equal(isCallbackError(null), false)
   assert.equal(isCallbackError(undefined), false)
 })
+
+import { buildError } from '../../src/runtime/errors.ts'
+import { createRng } from '../../src/generate/rng.ts'
+import type { Operation } from '../../src/spec/types.ts'
+
+const bare: Operation = {
+  method: 'get', path: '/x', parameters: [], responses: []
+}
+
+test('buildError uses the envelope when nothing is declared', async () => {
+  const response = await buildError({
+    operation: bare, status: 500, code: 'MOCK_X', message: 'boom',
+    mode: 'contract', rng: createRng('e'), generateOptions: {}
+  })
+  assert.equal(response.status, 500)
+  assert.deepEqual(await response.json(), {
+    error: { code: 'MOCK_X', message: 'boom' }
+  })
+})
+
+test('buildError with no operation uses the envelope', async () => {
+  const response = await buildError({
+    operation: undefined, status: 404, code: 'MOCK_NOT_FOUND', message: 'gone',
+    mode: 'contract', rng: createRng('e'), generateOptions: {}
+  })
+  assert.equal(((await response.json()) as any).error.code, 'MOCK_NOT_FOUND')
+})
