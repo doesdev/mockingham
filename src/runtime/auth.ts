@@ -1,6 +1,6 @@
 import type { SecurityRequirement, SecurityScheme } from '../spec/types.ts'
 import { markCallback } from './errors.ts'
-import type { Ctx } from './types.ts'
+import type { Ctx, Fail, Stage } from './types.ts'
 
 export type Principal = { sub?: string; scopes?: string[] } & Record<string, unknown>
 
@@ -161,4 +161,31 @@ export async function checkAuth(input: AuthInput): Promise<AuthOutcome> {
   }
 
   return firstFailure ?? missing(Object.keys(security[0] ?? {})[0] ?? 'unknown')
+}
+
+export interface AuthStageInput {
+  security: SecurityRequirement[] | undefined
+  schemes: Record<string, SecurityScheme>
+  config: AuthConfig
+  fail: Fail
+}
+
+/** Pipeline stage 3. */
+export function createAuthStage(input: AuthStageInput): Stage {
+  return async function authStage(ctx) {
+    const outcome = await checkAuth({
+      security: input.security,
+      schemes: input.schemes,
+      config: input.config,
+      ctx
+    })
+    if (outcome.ok) {
+      ctx.auth = outcome.principal
+      return undefined
+    }
+    // A scheme may hand back a fully formed response (a WWW-Authenticate
+    // challenge, say); that wins over the generic on-contract error.
+    if (outcome.response) return outcome.response
+    return await input.fail(outcome.status, outcome.code, outcome.message, ctx)
+  }
 }

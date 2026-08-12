@@ -58,3 +58,17 @@ export type OverrideNode = unknown
  * returning `undefined` continues to the next stage.
  */
 export type Stage = (ctx: Ctx) => Promise<Response | undefined>
+
+/**
+ * Builds an on-contract error response. Bound by the handler to one operation
+ * and one request key, so a stage supplies only what it actually decided.
+ * Keeping the binding out here is what lets a stage factory live beside the
+ * module it belongs to instead of inside `handler.ts`.
+ */
+export type Fail = (
+  status: number,
+  code: string,
+  message: string,
+  ctx?: Ctx,
+  errors?: Array<{ path: string; message: string }>
+) => Promise<Response>

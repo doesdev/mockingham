@@ -6,18 +6,18 @@ import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
-import type { Ctx, OverrideNode, Resolvers } from '../runtime/types.ts'
+import type { Ctx, Fail, OverrideNode, Resolvers } from '../runtime/types.ts'
 import type { Stage } from '../runtime/types.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
 import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
 import type { ErrorBodyMode } from '../runtime/errors.ts'
-import { validateRequest } from '../runtime/validate.ts'
-import { checkAuth } from '../runtime/auth.ts'
+import { createValidationStage } from '../runtime/validate.ts'
+import { createAuthStage } from '../runtime/auth.ts'
 import type { AuthConfig } from '../runtime/auth.ts'
 import { createResponders } from '../runtime/pipeline.ts'
-import { checkFailure, compilePolicies } from '../runtime/failure.ts'
+import { createFailureStage, compilePolicies } from '../runtime/failure.ts'
 import type { Directive, FailurePolicy } from '../runtime/failure.ts'
 import { createMemoryStore } from '../runtime/store.ts'
 import type { Store } from '../runtime/store.ts'
@@ -81,67 +81,87 @@ export function createHandler(
 
   const mode: ErrorBodyMode = options.errorBody ?? 'contract'
 
-  const fail = (
-    operation: Operation | undefined,
-    status: number,
-    code: string,
-    message: string,
-    key: string,
-    ctx?: unknown,
-    errors?: Array<{ path: string; message: string }>
-  ): Promise<Response> =>
-    buildError({
-      operation,
-      status,
-      code,
-      message,
-      errors,
-      mode,
-      ctx,
-      rng: createRng(`${key}|error|${status}`),
-      generateOptions: {
-        maxDepth: options.maxDepth,
-        preferExamples: options.preferExamples,
-        resolvers,
-        schemaNames: api.schemaNames
-      },
-      debugHeaders: options.debugHeaders
-    })
+  /**
+   * The error builder, bound to one operation and one request key. Binding here
+   * rather than passing five arguments at each call site is what lets each stage
+   * live in its own module. The rng seed string is unchanged from plan 4, so
+   * generated error bodies stay byte-identical.
+   */
+  const failWith = (operation: Operation | undefined, key: string): Fail =>
+    (status, code, message, ctx, errors) =>
+      buildError({
+        operation,
+        status,
+        code,
+        message,
+        errors,
+        mode,
+        ctx,
+        rng: createRng(`${key}|error|${status}`),
+        generateOptions: {
+          maxDepth: options.maxDepth,
+          preferExamples: options.preferExamples,
+          resolvers,
+          schemaNames: api.schemaNames
+        },
+        debugHeaders: options.debugHeaders
+      })
 
-  async function run(request: Request): Promise<Response> {
+  /**
+   * What the single exit needs to know about a request, filled in by `produce`
+   * as it learns it. A mutable record rather than a return value because the
+   * boundary catch has to observe a request that threw before producing
+   * anything — and that is precisely the request an operator most wants logged.
+   */
+  interface Trace {
+    operation?: Operation
+    params: Record<string, string>
+    requestKey: string
+    bytesIn: number
+    ctx?: Ctx
+    error?: unknown
+  }
+
+  async function produce(request: Request, trace: Trace): Promise<Response> {
     // Stage 1 — route match.
     const url = new URL(request.url)
     const matched = router.match(request.method, url.pathname)
 
     if (!matched) {
+      // The body is never read on this path, so `content-length` is the only
+      // honest byte count available.
+      trace.bytesIn = Number(request.headers.get('content-length') ?? 0) || 0
+      const fail = failWith(undefined, seed)
       const allowed = router.allowedMethods(url.pathname)
       if (allowed.length > 0) {
         const response = await fail(
-          undefined,
           405,
           'MOCK_METHOD_NOT_ALLOWED',
-          `Allowed methods: ${allowed.join(', ')}`,
-          seed
+          `Allowed methods: ${allowed.join(', ')}`
         )
         response.headers.set('allow', allowed.join(', '))
         return response
       }
-      return await fail(undefined, 404, 'MOCK_NOT_FOUND', `No operation for ${url.pathname}`, seed)
+      return await fail(404, 'MOCK_NOT_FOUND', `No operation for ${url.pathname}`)
     }
 
     const { operation, params } = matched
     const config = resolveConfigs(operation, compiled)
+    // Computed once — it was built twice per request before this refactor.
+    const key = requestKey(operation, params, seed)
+    const fail = failWith(operation, key)
+
+    trace.operation = operation
+    trace.params = params
+    trace.requestKey = key
 
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
-      return await fail(operation, parsed.status, parsed.code, parsed.message, requestKey(operation, params, seed))
+      return await fail(parsed.status, parsed.code, parsed.message)
     }
+    trace.bytesIn = parsed.body.raw.length
 
-    // Stages 3, 4, and 6 (auth, validation, failure) are built below, once ctx
-    // exists. Stage 5 (idempotency) arrives with a later plan.
-
-    const key = requestKey(operation, params, seed)
     const exampleName = preferred(request, 'example')
 
     const responders = createResponders({
@@ -174,54 +194,29 @@ export function createHandler(
       generate: responders.generate,
       example: responders.example
     })
+    trace.ctx = ctx
 
-    // Stages 3, 4, and 6. Auth runs before validation so an unauthenticated
-    // caller cannot learn whether their body was well-formed; idempotency
-    // (stage 5) arrives with a later plan. Each stage may return a Response to
-    // short-circuit the rest.
-    const stages: Stage[] = []
-
-    // Stage 3 — auth.
-    stages.push(async (current) => {
-      const outcome = await checkAuth({
+    // Stages 3 through 6, in the master spec's order. Auth runs before
+    // validation so an unauthenticated caller cannot learn whether their body
+    // was well-formed. Stage 5 (idempotency) arrives in Task 6.
+    const stages: Stage[] = [
+      createAuthStage({
         security: operation.security,
         schemes: api.securitySchemes,
         config: options.auth ?? {},
-        ctx: current
+        fail
       })
-      if (outcome.ok) {
-        current.auth = outcome.principal
-        return undefined
-      }
-      if (outcome.response) return outcome.response
-      return await fail(
-        operation, outcome.status, outcome.code, outcome.message, key, current
-      )
-    })
+    ]
 
-    // Stage 4 — request validation.
     if (options.validateRequests !== false) {
-      stages.push(async (current) => {
-        const result = validateRequest(current, operation)
-        if (result.ok) return undefined
-        return await fail(
-          operation,
-          400,
-          'MOCK_REQUEST_INVALID',
-          'Request does not match the declared schema',
-          key,
-          current,
-          result.errors
-        )
-      })
+      stages.push(createValidationStage({ operation, fail }))
     }
 
-    // Stage 6 — failure simulation. Pushed after validation so a malformed
-    // request is still rejected on its merits rather than by chaos.
-    stages.push(async (current) => {
-      const outcome = await checkFailure({
+    // Pushed after validation so a malformed request is still rejected on its
+    // merits rather than by chaos.
+    stages.push(
+      createFailureStage({
         operation,
-        ctx: current,
         policies,
         decide: options.decide,
         store,
@@ -232,11 +227,10 @@ export function createHandler(
           chaosCounts.set(key, next)
           return next
         },
-        sleep
+        sleep,
+        fail
       })
-      if (outcome.ok) return undefined
-      return await fail(operation, outcome.status, outcome.code, outcome.message, key, current)
-    })
+    )
 
     for (const stage of stages) {
       const short = await stage(ctx)
@@ -246,9 +240,7 @@ export function createHandler(
     // Stage 10 — the full response callback replaces stages 7 through 10,
     // status selection included, so it runs BEFORE the selection check: an
     // operation declaring no responses has nothing to select, yet the callback
-    // must still answer. It runs after ctx exists so the callback can reach
-    // ctx.generate and ctx.example, which trigger selection on demand — and
-    // that laziness is what lets selection stay behind the callback.
+    // must still answer.
     if (config.respond) {
       try {
         return await config.respond(ctx)
@@ -258,16 +250,13 @@ export function createHandler(
     }
 
     // Stage 7 — status selection, now that every short-circuiting stage has run
-    // and no callback has taken over. 501 therefore only fires for a request
-    // that genuinely falls through to rendering.
+    // and no callback has taken over.
     const selected = responders.selection()
     if (!selected) {
       return await fail(
-        operation,
         501,
         'MOCK_NO_RESPONSE',
         `Operation ${operation.method} ${operation.path} declares no responses`,
-        key,
         ctx
       )
     }
@@ -296,26 +285,43 @@ export function createHandler(
   }
 
   /**
-   * The single failure boundary. Every user callback — resolvers, override
-   * functions, header overrides, response callbacks — runs somewhere inside
-   * `run`, and invariant 4 says the mock keeps serving whatever they do. One
-   * catch here rather than one per leaf: a per-leaf catch would let a
-   * half-built body reach the client as if it were real.
+   * The boundary 500. Every user callback — resolvers, override functions,
+   * header overrides, response callbacks — runs somewhere inside `produce`, and
+   * invariant 4 says the mock keeps serving whatever they do. One catch rather
+   * than one per leaf: a per-leaf catch would let a half-built body reach the
+   * client as if it were real.
+   */
+  function internalError(error: unknown): Response {
+    const message = error instanceof Error ? error.message : String(error)
+    const headers = new Headers()
+    if (options.debugHeaders) {
+      // Header values cannot carry line breaks, and a thrown message might.
+      headers.set('x-mock-error', message.replace(/[\r\n]+/g, ' '))
+    }
+    const code = isCallbackError(error) ? 'MOCK_CALLBACK_FAILED' : 'MOCK_INTERNAL'
+    return Response.json(envelope(code, message), { status: 500, headers })
+  }
+
+  /**
+   * THE SINGLE EXIT. Every response leaves through here — a 404 built before any
+   * operation was known, a body-parse 400, a stage short-circuit, a rendered
+   * body, and the boundary 500 alike. Stage 11 (idempotency capture, then the
+   * log record) hangs off this one point; that is the whole reason `produce` was
+   * split out. See the phases 7-9 design §1.
    */
   async function handle(request: Request): Promise<Response> {
+    const trace: Trace = { params: {}, requestKey: seed, bytesIn: 0 }
+
+    let response: Response
     try {
-      return await run(request)
+      response = await produce(request, trace)
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error)
-      const headers = new Headers()
-      if (options.debugHeaders) {
-        // Header values cannot carry line breaks, and a thrown message might.
-        headers.set('x-mock-error', message.replace(/[\r\n]+/g, ' '))
-      }
-      const code = isCallbackError(error) ? 'MOCK_CALLBACK_FAILED' : 'MOCK_INTERNAL'
-      return Response.json(envelope(code, message), { status: 500, headers })
+      trace.error = error
+      response = internalError(error)
     }
+
+    // Stage 11 lands here in Tasks 7 and 8.
+    return response
   }
 
   return {

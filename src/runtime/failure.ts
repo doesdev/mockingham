@@ -2,7 +2,7 @@ import type { Operation } from '../spec/types.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
 import { compileTarget } from '../resolve/target.ts'
 import { markCallback } from './errors.ts'
-import type { Ctx } from './types.ts'
+import type { Ctx, Fail, Stage } from './types.ts'
 import type { Store } from './store.ts'
 
 export interface CircuitPolicy {
@@ -180,4 +180,35 @@ export function compilePolicies(
     }
     return { matches: matcher.matches, policy }
   })
+}
+
+export interface FailureStageInput {
+  operation: Operation
+  policies: Array<{ matches(operation: Operation): boolean; policy: FailurePolicy }>
+  decide?: (ctx: Ctx) => Directive | undefined
+  store: Store
+  chaosSeed: string
+  requestKey: string
+  counter: () => number
+  sleep: (ms: number) => Promise<void>
+  fail: Fail
+}
+
+/** Pipeline stage 6. */
+export function createFailureStage(input: FailureStageInput): Stage {
+  return async function failureStage(ctx) {
+    const outcome = await checkFailure({
+      operation: input.operation,
+      ctx,
+      policies: input.policies,
+      decide: input.decide,
+      store: input.store,
+      chaosSeed: input.chaosSeed,
+      requestKey: input.requestKey,
+      counter: input.counter,
+      sleep: input.sleep
+    })
+    if (outcome.ok) return undefined
+    return await input.fail(outcome.status, outcome.code, outcome.message, ctx)
+  }
 }
