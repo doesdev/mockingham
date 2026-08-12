@@ -144,13 +144,13 @@ export async function checkFailure(input: FailureInput): Promise<FailureOutcome>
 
   for (const entry of matching) {
     const policy = entry.policy
-    // Keyed by policy id alone, not id + operation. entry.id already carries
-    // the policy's target string, which for the common case (an operationId or
-    // a single method+path target) picks out exactly one operation. This keeps
-    // the promise of item 5 (two policies matching the same operation get
-    // independent circuits) without a redundant operation-key suffix.
-    const openKey = `circuit-open|${entry.id}`
-    const countKey = `circuit-count|${entry.id}`
+    // Keyed by policy id AND the matched operation. The id alone would let one
+    // wildcard-target policy share a single circuit across every operation it
+    // matches; the operation key alone is the original bug (item 5, two
+    // policies on one operation sharing a circuit). Both together give
+    // per-policy, per-operation isolation.
+    const openKey = `circuit-open|${entry.id}|${key}`
+    const countKey = `circuit-count|${entry.id}|${key}`
 
     // 4. Circuit state, before rolling — an open circuit answers immediately.
     if (policy.circuit) {
@@ -211,9 +211,11 @@ export function compilePolicies(
       )
     }
     // Policies are anonymous literals with no natural identity. The compiled
-    // index is stable for a handler's lifetime, and pairing it with the target
-    // keeps a store key readable when you are staring at one in Redis.
-    return { id: `${index}|${policy.match}`, matches: matcher.matches, policy }
+    // index is stable for a handler's lifetime and is combined with the
+    // matched operation's target key below, so two policies sharing an
+    // operation get separate circuits AND one policy matching several
+    // operations (a wildcard target) still gets one circuit per operation.
+    return { id: String(index), matches: matcher.matches, policy }
   })
 }
 

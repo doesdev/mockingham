@@ -18,7 +18,7 @@ const operation: Operation = {
  */
 function compile(policies: FailurePolicy[]) {
   return policies.map((policy, index) => ({
-    id: `${index}|${policy.match}`,
+    id: String(index),
     matches: compileTarget(policy.match).matches,
     policy
   }))
@@ -241,7 +241,30 @@ test('two policies matching one operation keep separate circuits', async () => {
   // per operation is the bug: the second policy's failures would land on the
   // first policy's counter and open a circuit neither policy asked for.
   assert.equal(await store.get('circuit-count|0|x'), 1)
-  assert.equal(await store.get('circuit-count|1|* /x'), undefined)
+  assert.equal(await store.get('circuit-count|1|x'), undefined)
+})
+
+test('one wildcard policy keeps separate circuits per operation', async () => {
+  const store = createMemoryStore()
+  const opA: Operation = {
+    method: 'get', path: '/a', operationId: 'a', parameters: [], responses: []
+  }
+  const opB: Operation = {
+    method: 'get', path: '/b', operationId: 'b', parameters: [], responses: []
+  }
+  const policies: FailurePolicy[] = [
+    { match: '* /**', rate: 1, circuit: { after: 5, openFor: 1_000, then: 503 } }
+  ]
+
+  await checkFailure(input({ policies, store, operation: opA, counter: () => 1 }).args)
+  await checkFailure(input({ policies, store, operation: opB, counter: () => 2 }).args)
+
+  // A single wildcard-target policy matches both operations, but each keeps its
+  // OWN counter — not one counter incremented twice. Sharing one counter per
+  // policy (ignoring the operation) is the regression this test guards: it
+  // would make ten unrelated endpoints trip one shared circuit together.
+  assert.equal(await store.get('circuit-count|0|a'), 1)
+  assert.equal(await store.get('circuit-count|0|b'), 1)
 })
 
 test('a bare star target matches nothing, so the fixture above is honest', () => {
