@@ -17,6 +17,10 @@ import { validateRequest } from '../runtime/validate.ts'
 import { checkAuth } from '../runtime/auth.ts'
 import type { AuthConfig } from '../runtime/auth.ts'
 import { createResponders } from '../runtime/pipeline.ts'
+import { checkFailure, compilePolicies } from '../runtime/failure.ts'
+import type { Directive, FailurePolicy } from '../runtime/failure.ts'
+import { createMemoryStore } from '../runtime/store.ts'
+import type { Store } from '../runtime/store.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -31,6 +35,11 @@ export interface HandlerOptions {
   errorBody?: ErrorBodyMode
   validateRequests?: boolean
   auth?: AuthConfig
+  failure?: FailurePolicy[]
+  decide?: (ctx: Ctx) => Directive | undefined
+  chaosSeed?: string
+  store?: Store
+  sleep?: (ms: number) => Promise<void>
 }
 
 function requestKey(
@@ -56,6 +65,12 @@ export function createHandler(
   const compiled = compileConfigs(options.operations, api.operations)
 
   const counters: Counters = createCounters()
+
+  const store = options.store ?? createMemoryStore()
+  const policies = compilePolicies(options.failure, api.operations)
+  const chaosSeed = options.chaosSeed ?? seed
+  const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
+  const chaosCounts = new Map<string, number>()
 
   const mode: ErrorBodyMode = options.errorBody ?? 'contract'
 
@@ -116,8 +131,8 @@ export function createHandler(
       return await fail(operation, parsed.status, parsed.code, parsed.message, requestKey(operation, params, seed))
     }
 
-    // Stages 3 and 4 (auth, validation) are built below, once ctx exists.
-    // Stages 5 and 6 (idempotency, failure) arrive with plan 4.
+    // Stages 3, 4, and 6 (auth, validation, failure) are built below, once ctx
+    // exists. Stage 5 (idempotency) arrives with a later plan.
 
     const key = requestKey(operation, params, seed)
     const exampleName = preferred(request, 'example')
@@ -153,9 +168,9 @@ export function createHandler(
       example: responders.example
     })
 
-    // Stages 3 through 6. Auth runs before validation so an unauthenticated
-    // caller cannot learn whether their body was well-formed; idempotency and
-    // failure policy arrive in plan 4. Each stage may return a Response to
+    // Stages 3, 4, and 6. Auth runs before validation so an unauthenticated
+    // caller cannot learn whether their body was well-formed; idempotency
+    // (stage 5) arrives with a later plan. Each stage may return a Response to
     // short-circuit the rest.
     const stages: Stage[] = []
 
@@ -193,6 +208,28 @@ export function createHandler(
         )
       })
     }
+
+    // Stage 6 — failure simulation. Pushed after validation so a malformed
+    // request is still rejected on its merits rather than by chaos.
+    stages.push(async (current) => {
+      const outcome = await checkFailure({
+        operation,
+        ctx: current,
+        policies,
+        decide: options.decide,
+        store,
+        chaosSeed,
+        requestKey: key,
+        counter: () => {
+          const next = (chaosCounts.get(key) ?? 0) + 1
+          chaosCounts.set(key, next)
+          return next
+        },
+        sleep
+      })
+      if (outcome.ok) return undefined
+      return await fail(operation, outcome.status, outcome.code, outcome.message, key, current)
+    })
 
     for (const stage of stages) {
       const short = await stage(ctx)
