@@ -667,6 +667,36 @@ export function pickMedia(
 keep its existing null handling, or add a thin wrapper — either is fine as long as
 there is one implementation.
 
+> **CORRECTION FOUND DURING IMPLEMENTATION.** The gap is in NEGOTIATION, not
+> validation, and `pickMedia` alone does not close it. `parseBody` gates on
+> `declared.includes(mediaType)` with exact-string matching and returns 415
+> BEFORE validation runs, so a `application/vnd.api+json` request against a
+> document declaring `application/json` never reaches `validateRequest` at all —
+> it is rejected, not parsed-then-unvalidated. `pickMedia`'s fallback would be
+> dead code without this. Change the gate too:
+>
+> ```ts
+>   if (
+>     declared.length > 0 &&
+>     mediaType !== undefined &&
+>     pickMedia(operation.requestBody ?? {}, mediaType) === undefined
+>   ) {
+>     return { ok: false, status: 415, ... }   // message unchanged
+>   }
+> ```
+>
+> This only widens what is accepted — an unrelated type such as `text/plain`
+> against a JSON-only operation is still a 415. It resolves an inconsistency the
+> module already had: `body.ts` parses any `+json` suffix as JSON, so rejecting
+> those at negotiation contradicted its own parsing decision.
+>
+> Add an end-to-end test through the handler, not just a `pickMedia` unit test —
+> the unit tests pass either way, which is exactly why this survived. Assert both
+> that a well-formed `+json` body returns 200 AND that a schema-invalid one
+> returns 400 with the right error path; the second is what proves validation
+> actually runs rather than the body being waved through. Both produce 415 before
+> the fix.
+
 - [ ] **Step 4: Compile `additionalProperties` and `oneOf` correctly**
 
 In `src/schema/compile.ts`'s `object` case, replace the strict/loose choice with:
