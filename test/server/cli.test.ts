@@ -3,7 +3,11 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { parseArgs, startCli, USAGE } from '../../src/server/cli.ts'
+
+const cliPath = fileURLToPath(new URL('../../src/server/cli.ts', import.meta.url))
 
 const doc = (title: string) => JSON.stringify({
   openapi: '3.1.0',
@@ -61,6 +65,40 @@ test('startCli refuses a YAML document with a useful message', async () => {
 
 test('startCli refuses a missing document argument', async () => {
   await assert.rejects(startCli([], { log: () => {} }), /document/)
+})
+
+test('startCli still treats --help as nothing to serve', async () => {
+  // Unchanged: startCli's contract is "serve a document or throw". The exit-0
+  // behavior for a real `mockingham --help` invocation lives in the
+  // `import.meta.main` block, which checks the flag before ever calling this
+  // — see the next test, which drives the actual entry point.
+  await assert.rejects(
+    startCli(['--help'], { log: () => {} }),
+    /nothing to serve/
+  )
+})
+
+test('mockingham --help exits 0', async () => {
+  // The real regression: `--help` used to reach startCli's throw, which made
+  // the process exit 1 — wrong for a help flag, and enough to break a CI
+  // smoke check that just runs `--help` and expects success.
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath, '--help'], { stdio: 'ignore' })
+    child.once('error', reject)
+    child.once('exit', (code) => resolve(code))
+  })
+
+  assert.equal(exitCode, 0)
+})
+
+test('mockingham with a missing document argument still exits non-zero', async () => {
+  const exitCode = await new Promise<number | null>((resolve, reject) => {
+    const child = spawn(process.execPath, [cliPath], { stdio: 'ignore' })
+    child.once('error', reject)
+    child.once('exit', (code) => resolve(code))
+  })
+
+  assert.equal(exitCode, 1)
 })
 
 test('startCli serves the document over a real port', async () => {

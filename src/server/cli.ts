@@ -92,6 +92,14 @@ export interface CliHandle {
   close(): Promise<void>
 }
 
+/**
+ * `startCli` is for actually serving a document, so it still treats `--help`
+ * as a request it cannot fulfill — there is no `CliHandle` to hand back, and
+ * changing this to a union return type would force every caller (including
+ * every existing test) to narrow it. The real entry point, `import.meta.main`
+ * below, checks `--help` itself before ever calling this, so the process exits
+ * 0 for help without `startCli`'s contract changing. See that block's comment.
+ */
 export async function startCli(
   argv: string[],
   deps: Partial<CliDeps> = {}
@@ -163,10 +171,18 @@ export async function startCli(
 }
 
 if (import.meta.main) {
-  try {
-    await startCli(process.argv.slice(2))
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error))
-    process.exitCode = 1
+  // `--help` is not misuse — `mockingham --help` must exit 0, and this is the
+  // one call site that can act on that without changing `startCli`'s
+  // contract. A genuinely missing document argument still reaches `startCli`
+  // below and throws, which IS misuse and should exit non-zero.
+  if (parseArgs(process.argv.slice(2)).help) {
+    console.log(USAGE)
+  } else {
+    try {
+      await startCli(process.argv.slice(2))
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error))
+      process.exitCode = 1
+    }
   }
 }

@@ -157,6 +157,30 @@ test('authStage records success', async () => {
   assert.equal(ctx.decisions.auth, 'ok')
 })
 
+test('a presence-only check with a valid credential records anonymous, not ok', async () => {
+  // 'anonymous' has two producing cases: an operation declaring no security at
+  // all, and — this one — a scheme satisfied by presence alone, with no
+  // verify() to mint a principal. Only the first case was asserted at the
+  // decisions level before; this misconception has already caused two
+  // defects in this plan's own briefs.
+  const { fail } = recordingFail()
+  const stage = createAuthStage({
+    security: operation.security,
+    schemes: api.securitySchemes,
+    config: {},
+    fail
+  })
+  const ctx = buildCtx({
+    request: new Request('http://mock/pets/1', { headers: { authorization: 'Bearer t' } }),
+    operation,
+    params: { id: '1' }
+  })
+
+  await stage(ctx)
+
+  assert.equal(ctx.decisions.auth, 'anonymous')
+})
+
 test('validationStage records a pass, not only a failure', async () => {
   // The reason decisions live on ctx rather than being derived from the
   // response: a stage that did not short-circuit still made a decision.
