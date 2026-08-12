@@ -1,6 +1,6 @@
 # mockingham Phases 7 and 9 Design
 
-**Status:** draft, awaiting approval.
+**Status:** approved; implemented by plan 5 (2026-08-12-mockingham-idempotency-logging.md).
 **Covers:** §18 phases 7 (Idempotency) and 9 (Logging and CLI) of
 `2026-08-11-mockingham-design.md`, which remains the master contract.
 
@@ -110,6 +110,43 @@ Stages currently return `Response | undefined` with no way to annotate anything.
 and keeps a stage's decision recorded even when it does not short-circuit — a
 validation that *passed* is as loggable as one that failed.
 
+### 2.6 A 5xx is never stored as an idempotency record
+
+§11 does not say whether a failed response becomes the record. Storing a
+chaos-injected 503 would make every retry replay that 503 until the TTL expired,
+which defeats the retry the idempotency key exists to make safe.
+
+**Stage 11 stores a response only when `status < 500`.** On a 5xx — or on a throw
+— it deletes the in-flight marker instead, so the retry re-runs the operation. A
+4xx IS stored: a client error is a real answer to the key, and the caller
+resending the same key deserves the same answer.
+
+### 2.7 `bodyHash` is compared, not keyed
+
+§11 gives `scope: ['key', 'route', 'bodyHash']` as the default **and** specifies a
+409 for "same key, different body fingerprint". Both cannot hold: with the
+fingerprint in the storage key, a different body computes a different key, the
+lookup misses, the request is treated as a first request, and
+`MOCK_IDEMPOTENCY_MISMATCH` is unreachable under its own default.
+
+**The storage key is composed from `key` and `route` only. `bodyHash` in the
+scope means the stored fingerprint is compared on lookup**, and a difference is
+the 409. Dropping `bodyHash` from the scope then means "replay regardless of
+body", which is a coherent thing for a caller to ask for. All of §11 is live at
+once under this reading.
+
+`resolveIdempotency` throws when the scope contains neither `key` nor `route`,
+since every request in the document would otherwise share one record.
+
+### 2.8 The single exit is `handle()`, not a single `return`
+
+Deferred item 1 asked for one exit point. What phase 9 needs is one *observation*
+point — somewhere every response passes, including the ones built before `ctx`
+exists. `produce()` keeps its branches; `handle()` is the sole exit, and a mutable
+`Trace` carries what the early paths know down to it. Collapsing `produce` into a
+single `return` through nested conditionals would buy nothing and cost
+readability.
+
 ---
 
 ## 3. Phase 7 — Idempotency
@@ -179,6 +216,11 @@ Per §17, plus:
    §1's refactor task settles that before records start living there.
 2. `bytesOut` counts the serialized body only, not headers.
 3. The CLI does not parse YAML.
+4. `circuit.within` defaults to `openFor`, so a policy that wants a long open
+   period but a short accumulation window must say both.
+5. `requestId` is available as `ctx.requestId` and in the log record, but is not
+   echoed on a response header. Nothing in §12 asks for it, and adding a header
+   by default would change every existing response.
 
 ## 7. What plan 6 picks up
 

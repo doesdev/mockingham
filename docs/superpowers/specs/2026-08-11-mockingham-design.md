@@ -117,7 +117,7 @@ interface Mock {
   failNext(target: string, opts: FailNextOptions): void
   outage(target: string, opts: OutageOptions): void
   setSeed(seed: string): void
-  reset(): void            // chaos state, idempotency keys, counters,
+  reset(): Promise<void>   // chaos state, idempotency keys, counters,
                            // runtime overrides, pending emits, deliveries
 
   emit(webhook: string, opts?: EmitOptions): Promise<Delivery>
