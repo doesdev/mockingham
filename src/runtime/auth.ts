@@ -181,8 +181,12 @@ export function createAuthStage(input: AuthStageInput): Stage {
     })
     if (outcome.ok) {
       ctx.auth = outcome.principal
+      // 'anonymous' is a real outcome, not a missing one: the operation declared
+      // no security, or declared it optional and the caller sent nothing.
+      ctx.decisions.auth = outcome.principal ? 'ok' : 'anonymous'
       return undefined
     }
+    ctx.decisions.auth = 'denied'
     // A scheme may hand back a fully formed response (a WWW-Authenticate
     // challenge, say); that wins over the generic on-contract error.
     if (outcome.response) return outcome.response

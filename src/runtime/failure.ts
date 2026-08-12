@@ -208,7 +208,11 @@ export function createFailureStage(input: FailureStageInput): Stage {
       counter: input.counter,
       sleep: input.sleep
     })
-    if (outcome.ok) return undefined
+    if (outcome.ok) {
+      ctx.decisions.failure = 'ok'
+      return undefined
+    }
+    ctx.decisions.failure = 'injected'
     return await input.fail(outcome.status, outcome.code, outcome.message, ctx)
   }
 }

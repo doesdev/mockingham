@@ -66,6 +66,7 @@ export function createContext(input: ContextInput): Ctx {
     requestKey: input.requestKey,
     requestId: input.requestId,
     log: {},
+    decisions: {},
     seq: (name) => input.counters.next(name),
     generate: (status) => input.generate(status),
     example: (status, name) => input.example(status, name),

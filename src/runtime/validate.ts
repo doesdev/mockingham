@@ -122,7 +122,11 @@ export interface ValidationStageInput {
 export function createValidationStage(input: ValidationStageInput): Stage {
   return async function validationStage(ctx) {
     const result = validateRequest(ctx, input.operation)
-    if (result.ok) return undefined
+    if (result.ok) {
+      ctx.decisions.validation = 'ok'
+      return undefined
+    }
+    ctx.decisions.validation = 'failed'
     return await input.fail(
       400,
       'MOCK_REQUEST_INVALID',

@@ -120,3 +120,82 @@ test('failureStage answers when decide() returns a directive', async () => {
   assert.equal(response?.status, 502)
   assert.deepEqual(calls, [{ status: 502, code: 'MOCK_DOWN' }])
 })
+
+test('authStage records a denial even though it short-circuits', async () => {
+  const { fail } = recordingFail()
+  const stage = createAuthStage({
+    security: operation.security, schemes: api.securitySchemes, config: {}, fail
+  })
+  const ctx = buildCtx({ request: new Request('http://mock/pets/1'), operation, params: { id: '1' } })
+
+  await stage(ctx)
+
+  assert.equal(ctx.decisions.auth, 'denied')
+})
+
+test('authStage records success', async () => {
+  // A presence-only check (config: {}, as used above for the 'denied' test)
+  // yields outcome.principal: undefined even when satisfied — see checkAuth in
+  // src/runtime/auth.ts and the note on the earlier 'sets ctx.auth' test above.
+  // That reads as 'anonymous', not 'ok'. A verify() is supplied here so this
+  // test actually exercises the 'ok' outcome its name promises.
+  const { fail } = recordingFail()
+  const stage = createAuthStage({
+    security: operation.security,
+    schemes: api.securitySchemes,
+    config: { bearer: { verify: () => ({ sub: 'u1' }) } },
+    fail
+  })
+  const ctx = buildCtx({
+    request: new Request('http://mock/pets/1', { headers: { authorization: 'Bearer t' } }),
+    operation,
+    params: { id: '1' }
+  })
+
+  await stage(ctx)
+
+  assert.equal(ctx.decisions.auth, 'ok')
+})
+
+test('validationStage records a pass, not only a failure', async () => {
+  // The reason decisions live on ctx rather than being derived from the
+  // response: a stage that did not short-circuit still made a decision.
+  const { fail } = recordingFail()
+  const stage = createValidationStage({ operation, fail })
+  const ctx = buildCtx({ request: new Request('http://mock/pets/1'), operation, params: { id: '1' } })
+
+  await stage(ctx)
+
+  assert.equal(ctx.decisions.validation, 'ok')
+})
+
+test('validationStage records a failure', async () => {
+  const { fail } = recordingFail()
+  const stage = createValidationStage({ operation, fail })
+  const ctx = buildCtx({ request: new Request('http://mock/pets/abc'), operation, params: { id: 'abc' } })
+
+  await stage(ctx)
+
+  assert.equal(ctx.decisions.validation, 'failed')
+})
+
+test('failureStage records both outcomes', async () => {
+  const { fail } = recordingFail()
+  const base = {
+    operation,
+    policies: compilePolicies([], api.operations),
+    store: createMemoryStore(),
+    chaosSeed: 's',
+    requestKey: 'k',
+    counter: () => 1,
+    sleep: async () => {},
+    fail
+  }
+  const clean = buildCtx({ request: new Request('http://mock/pets/1'), operation, params: { id: '1' } })
+  await createFailureStage(base)(clean)
+  assert.equal(clean.decisions.failure, 'ok')
+
+  const injected = buildCtx({ request: new Request('http://mock/pets/1'), operation, params: { id: '1' } })
+  await createFailureStage({ ...base, decide: () => ({ status: 503 }) })(injected)
+  assert.equal(injected.decisions.failure, 'injected')
+})

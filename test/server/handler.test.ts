@@ -158,3 +158,16 @@ test('the injected clock drives the default store', async () => {
   value += 6_000
   assert.equal((await handler.fetch(new Request('http://x/pets/42'))).status, 200)
 })
+
+test('decisions are populated by the time a response callback runs', async () => {
+  const handle = createHandler(api, {
+    seed: 'decisions',
+    operations: { showPetById: { respond: (ctx: Ctx) => ctx.respond(200, ctx.decisions) } }
+  }).fetch
+
+  const body = await (await handle(new Request('http://x/pets/42'))).json()
+
+  // petstore declares no security, so auth is 'anonymous' rather than 'ok' —
+  // a real outcome, not a missing one.
+  assert.deepEqual(body, { auth: 'anonymous', validation: 'ok', failure: 'ok' })
+})

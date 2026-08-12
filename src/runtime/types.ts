@@ -28,6 +28,7 @@ export interface Ctx {
    */
   requestId: string
   log: Record<string, unknown>
+  decisions: Decisions
   seq(name: string): number
   generate(status?: number): unknown
   example(status?: number, name?: string): unknown
@@ -40,6 +41,28 @@ export interface Ctx {
   ): Promise<Response>
   auth?: Principal
   deny(status: number, code?: string): Response
+}
+
+/**
+ * What each stage decided, for the log record's `decisions` field (master spec
+ * §12). Short lowercase strings rather than booleans or objects, because §12
+ * separates low-cardinality fields precisely so they can be used as metric tags
+ * — `auth: "denied"` tags cleanly, a nested object does not.
+ *
+ * A stage writes here whether or not it short-circuits: a validation that passed
+ * is as loggable as one that failed.
+ */
+export interface Decisions {
+  /** 'ok' | 'anonymous' | 'denied' */
+  auth?: string
+  /** 'ok' | 'failed' — absent when validateRequests is false */
+  validation?: string
+  /** 'ok' | 'injected' */
+  failure?: string
+  /** 'first' | 'replayed' | 'mismatch' | 'in-flight' — absent when not idempotent */
+  idempotency?: string
+  /** Reserved for phase 11's fixture path. */
+  fixture?: string
 }
 
 /** A resolver or override leaf. May return a value or a promise of one. */
