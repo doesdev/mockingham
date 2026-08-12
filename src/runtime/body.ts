@@ -1,4 +1,4 @@
-import type { Operation } from '../spec/types.ts'
+import type { MediaType, Operation } from '../spec/types.ts'
 
 export interface ParsedBody {
   value: unknown
@@ -10,10 +10,32 @@ export type BodyResult =
   | { ok: true; body: ParsedBody }
   | { ok: false; status: number; code: string; message: string }
 
-function baseMediaType(header: string | null): string | undefined {
+export function baseMediaType(header: string | null): string | undefined {
   if (header === null) return undefined
   const base = header.split(';')[0]
   return base === undefined ? undefined : base.trim().toLowerCase()
+}
+
+/**
+ * Finds the media entry a request's content type should be validated against.
+ *
+ * `body.ts` parses any `+json` suffix type as JSON, so validation has to match
+ * the same way — otherwise a parsed `application/vnd.api+json` body is silently
+ * never validated. An exact match always wins; a `+json` type falls back to the
+ * plain JSON entry.
+ */
+export function pickMedia(
+  content: Record<string, MediaType>,
+  mediaType?: string
+): MediaType | undefined {
+  const base = mediaType === undefined ? undefined : baseMediaType(mediaType)
+  if (base !== undefined) {
+    const exact = content[base]
+    if (exact) return exact
+    if (base.endsWith('+json')) return content['application/json']
+    return undefined
+  }
+  return content['application/json']
 }
 
 export async function parseBody(
@@ -33,7 +55,7 @@ export async function parseBody(
   if (
     declared.length > 0 &&
     mediaType !== undefined &&
-    !declared.includes(mediaType)
+    pickMedia(operation.requestBody ?? {}, mediaType) === undefined
   ) {
     return {
       ok: false,

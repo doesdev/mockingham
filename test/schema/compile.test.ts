@@ -142,7 +142,12 @@ test('a discriminated union with a variant missing the key falls back instead of
   const schema: Schema = {
     oneOf: [
       { type: 'object', required: ['kind'], properties: { kind: { const: 'a' }, a: { type: 'string' } } },
-      { type: 'object', properties: { b: { type: 'integer' } } }
+      // `required: ['b']` is what keeps this variant mutually exclusive with
+      // the first under the exactly-one check below — without it, this is a
+      // loose object that matches everything, and the two assertions after
+      // doesNotThrow would fail for the same reason oneOf now rejects an
+      // ambiguous payload. Do not simplify this away.
+      { type: 'object', required: ['b'], properties: { b: { type: 'integer' } } }
     ],
     discriminator: { propertyName: 'kind' }
   }
@@ -150,6 +155,20 @@ test('a discriminated union with a variant missing the key falls back instead of
   assert.doesNotThrow(() => compiled.safeParse({ kind: 'a', a: 'x' }))
   assert.equal(compiled.safeParse({ kind: 'a', a: 'x' }).success, true)
   assert.equal(compiled.safeParse({ b: 1 }).success, true)
+})
+
+test('oneOf rejects a value matching more than one variant', () => {
+  // Two loose object variants overlap: a value satisfying both is ambiguous, and
+  // oneOf means EXACTLY one. This is stricter than the old union compilation and
+  // is the behavior classify's `mode` field exists to express.
+  const schema: Schema = {
+    oneOf: [
+      { type: 'object', properties: { a: { type: 'string' } } },
+      { type: 'object', properties: { b: { type: 'integer' } } }
+    ]
+  }
+  assert.equal(parse(schema, { a: 'x', b: 1 }).success, false)
+  assert.equal(parse(schema, { a: 'x' }).success, false)
 })
 
 test('honors the 3.0 boolean spelling of exclusive bounds', () => {
@@ -180,4 +199,43 @@ test('an uncompilable pattern is skipped rather than throwing', () => {
 test('honors a numeric constraint declared inside allOf', () => {
   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 7).success, false)
   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 42).success, true)
+})
+
+test('additionalProperties as a schema constrains unknown keys', () => {
+  const schema: Schema = {
+    type: 'object',
+    properties: { a: { type: 'string' } },
+    additionalProperties: { type: 'integer' }
+  }
+  assert.equal(parse(schema, { a: 'x', extra: 1 }).success, true)
+  assert.equal(parse(schema, { a: 'x', extra: 'no' }).success, false)
+})
+
+test('oneOf requires exactly one variant to match', () => {
+  // classify carries `mode` precisely so a validator can tell oneOf from anyOf.
+  const schema: Schema = {
+    oneOf: [
+      { type: 'object', properties: { a: { type: 'string' } } },
+      { type: 'object', properties: { b: { type: 'string' } } }
+    ]
+  }
+  // Both variants are loose objects, so this matches BOTH — oneOf must reject it.
+  assert.equal(parse(schema, { a: 'x', b: 'y' }).success, false)
+})
+
+test('anyOf accepts a value matching several variants', () => {
+  const schema: Schema = {
+    anyOf: [
+      { type: 'object', properties: { a: { type: 'string' } } },
+      { type: 'object', properties: { b: { type: 'string' } } }
+    ]
+  }
+  assert.equal(parse(schema, { a: 'x', b: 'y' }).success, true)
+})
+
+test('oneOf still accepts a value matching exactly one variant', () => {
+  const schema: Schema = { oneOf: [{ type: 'string' }, { type: 'integer' }] }
+  assert.equal(parse(schema, 'x').success, true)
+  assert.equal(parse(schema, 1).success, true)
+  assert.equal(parse(schema, true).success, false)
 })

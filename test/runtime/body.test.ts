@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseBody } from '../../src/runtime/body.ts'
+import { parseBody, pickMedia } from '../../src/runtime/body.ts'
 import type { Operation } from '../../src/spec/types.ts'
 
 function op(overrides: Partial<Operation> = {}): Operation {
@@ -101,4 +101,36 @@ test('an empty body with a JSON content type is not a parse error', async () => 
   const result = await parseBody(request, op())
   assert.equal(result.ok, true)
   if (result.ok) assert.equal(result.body.value, undefined)
+})
+
+test('pickMedia matches an exact media type', () => {
+  const content = { 'application/json': { schema: { type: 'string' } } }
+  assert.ok(pickMedia(content, 'application/json'))
+})
+
+test('pickMedia matches a +json suffix against a JSON entry', () => {
+  // body.ts already PARSES application/vnd.api+json as JSON, so validation must
+  // match it too, or a parsed body is silently never validated.
+  const content = { 'application/json': { schema: { type: 'string' } } }
+  assert.ok(pickMedia(content, 'application/vnd.api+json'))
+})
+
+test('pickMedia matches a declared suffix type exactly', () => {
+  const content = { 'application/vnd.api+json': { schema: { type: 'string' } } }
+  assert.ok(pickMedia(content, 'application/vnd.api+json'))
+})
+
+test('pickMedia ignores parameters on the media type', () => {
+  const content = { 'application/json': { schema: { type: 'string' } } }
+  assert.ok(pickMedia(content, 'application/json; charset=utf-8'))
+})
+
+test('pickMedia returns undefined for an unrelated type', () => {
+  const content = { 'application/json': { schema: { type: 'string' } } }
+  assert.equal(pickMedia(content, 'text/plain'), undefined)
+})
+
+test('pickMedia falls back to the JSON entry when no type is given', () => {
+  const content = { 'application/json': { schema: { type: 'string' } } }
+  assert.ok(pickMedia(content, undefined))
 })

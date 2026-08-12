@@ -62,7 +62,7 @@ function badType(path: string): Request {
 }
 
 test('a declared error status is emitted in the operation shape', async () => {
-  const handle = createHandler(api, { seed: 'contract' })
+  const handle = createHandler(api, { seed: 'contract' }).fetch
   const response = await handle(badType('/on-contract'))
   assert.equal(response.status, 415)
   const body = (await response.json()) as any
@@ -73,7 +73,7 @@ test('a declared error status is emitted in the operation shape', async () => {
 })
 
 test('an undeclared error status falls back to the envelope', async () => {
-  const handle = createHandler(api, { seed: 'contract' })
+  const handle = createHandler(api, { seed: 'contract' }).fetch
   const response = await handle(badType('/off-contract'))
   assert.equal(response.status, 415)
   assert.equal(
@@ -83,14 +83,14 @@ test('an undeclared error status falls back to the envelope', async () => {
 })
 
 test('a 404 always uses the envelope, having no operation to be on contract with', async () => {
-  const handle = createHandler(api, { seed: 'contract' })
+  const handle = createHandler(api, { seed: 'contract' }).fetch
   const response = await handle(new Request('http://mock/nope'))
   assert.equal(response.status, 404)
   assert.equal(((await response.json()) as any).error.code, 'MOCK_NOT_FOUND')
 })
 
 test('diagnostic mode always uses the envelope', async () => {
-  const handle = createHandler(api, { seed: 'contract', errorBody: 'diagnostic' })
+  const handle = createHandler(api, { seed: 'contract', errorBody: 'diagnostic' }).fetch
   const response = await handle(badType('/on-contract'))
   assert.equal(
     ((await response.json()) as any).error.code,
@@ -99,7 +99,7 @@ test('diagnostic mode always uses the envelope', async () => {
 })
 
 test('contract mode still exposes the diagnostic on a debug header', async () => {
-  const handle = createHandler(api, { seed: 'contract', debugHeaders: true })
+  const handle = createHandler(api, { seed: 'contract', debugHeaders: true }).fetch
   const response = await handle(badType('/on-contract'))
   assert.match(
     response.headers.get('x-mock-error') ?? '',
@@ -111,7 +111,7 @@ test('a custom errorBody function wins over both modes', async () => {
   const handle = createHandler(api, {
     seed: 'contract',
     errorBody: (_ctx, err) => ({ custom: err.code })
-  })
+  }).fetch
   const response = await handle(badType('/on-contract'))
   assert.deepEqual(await response.json(), { custom: 'MOCK_UNSUPPORTED_MEDIA_TYPE' })
 })

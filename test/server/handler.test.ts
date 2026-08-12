@@ -5,7 +5,7 @@ import { createHandler } from '../../src/server/handler.ts'
 import { petstore } from '../fixtures/petstore.ts'
 
 const api = loadApi(petstore)
-const handler = createHandler(api, { seed: 'test' })
+const handler = createHandler(api, { seed: 'test' }).fetch
 
 test('serves a generated object for a matched route', async () => {
   const res = await handler(new Request('http://x/pets/42'))
@@ -50,6 +50,16 @@ test('returns 405 with an Allow header for a known path', async () => {
   assert.equal(res.headers.get('allow'), 'GET')
 })
 
+test('a 405 carries both the Allow header and an error body', async () => {
+  const handle = createHandler(loadApi(petstore), { seed: '405' }).fetch
+  const response = await handle(
+    new Request('http://mock/pets/7', { method: 'DELETE' })
+  )
+  assert.equal(response.status, 405)
+  assert.equal(response.headers.get('allow'), 'GET')
+  assert.equal(((await response.json()) as any).error.code, 'MOCK_METHOD_NOT_ALLOWED')
+})
+
 test('selects the lowest declared 2xx', async () => {
   const res = await handler(new Request('http://x/pets', { method: 'POST' }))
   assert.equal(res.status, 201)
@@ -68,7 +78,7 @@ test('generates spec-declared response headers', async () => {
 })
 
 test('emits debug headers when enabled', async () => {
-  const debug = createHandler(api, { seed: 'test', debugHeaders: true })
+  const debug = createHandler(api, { seed: 'test', debugHeaders: true }).fetch
   const res = await debug(new Request('http://x/pets/42'))
   assert.equal(res.headers.get('x-mock-operation'), 'showPetById')
   assert.ok(res.headers.get('x-mock-seed'))

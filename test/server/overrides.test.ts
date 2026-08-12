@@ -7,7 +7,7 @@ import { petstore } from '../fixtures/petstore.ts'
 const api = loadApi(petstore)
 
 function handler(options = {}) {
-  return createHandler(api, { seed: 'overrides', ...options })
+  return createHandler(api, { seed: 'overrides', ...options }).fetch
 }
 
 async function get(options: object, path = '/pets/7') {
@@ -59,6 +59,15 @@ test('an operation override beats a resolver', async () => {
     operations: { 'GET /pets/{petId}': { 200: { body: { name: 'from-operation' } } } }
   })
   assert.equal(body['name'], 'from-operation')
+})
+
+test('a resolver receives the live ctx during body generation', async () => {
+  // The design's own byName example reads ctx. If ctx is not threaded through,
+  // the resolver gets undefined and this 500s instead of returning the value.
+  const { body } = await get({
+    resolvers: { byName: [['name', (ctx: any) => `pet-${ctx.params.petId}`]] }
+  })
+  assert.equal(body['name'], 'pet-7')
 })
 
 test('a wildcard target matches several operations', async () => {

@@ -78,8 +78,16 @@ actual serialized body, and `Response` computes it correctly on its own.
 status in the operation's declared `responses`. A 404 from route matching has no
 matched operation, so there is no contract to be on.
 
-**404 always uses the built-in envelope.** Every other self-emitted status
-(400, 401, 403, 405, 415, 429, 503) goes through the on-contract path.
+**404 and 405 always use the built-in envelope.** Every other self-emitted status
+(400, 401, 403, 415, 429, 503) goes through the on-contract path.
+
+**Amended 2026-08-12, during phase 6.** This clause originally listed 405 among
+the on-contract statuses. That was wrong for the same reason 404 is exempt: a 405
+means the path matched but the METHOD did not, so no operation was selected and
+there is no operation whose error schema could apply. The operations that do exist
+at that path are different operations, and generating a 405 body from one of their
+schemas would attribute a contract to a request that never matched it. A 405 still
+carries its `Allow` header and an error body; the body is simply the envelope.
 
 ### 1.6 Chaos rolls are seeded per invocation
 

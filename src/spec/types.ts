@@ -79,6 +79,7 @@ export interface Operation {
   description?: string
   parameters: Parameter[]
   requestBody?: Record<string, MediaType>
+  requestBodyRequired?: boolean
   responses: ResponseSpec[]
   defaultResponse?: ResponseSpec
   security?: SecurityRequirement[]

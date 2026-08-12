@@ -1,9 +1,6 @@
 import { createRouter } from '../spec/routes.ts'
 import type { Api, Operation } from '../spec/types.ts'
-import { generateValue } from '../generate/generate.ts'
-import type { GenerateOptions } from '../generate/generate.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
-import type { Rng } from '../generate/rng.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
 import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
@@ -13,14 +10,26 @@ import type { Ctx, OverrideNode, Resolvers } from '../runtime/types.ts'
 import type { Stage } from '../runtime/types.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
-import { preferred, selectResponse } from '../runtime/select.ts'
+import { preferred } from '../runtime/select.ts'
 import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
 import type { ErrorBodyMode } from '../runtime/errors.ts'
 import { validateRequest } from '../runtime/validate.ts'
 import { checkAuth } from '../runtime/auth.ts'
 import type { AuthConfig } from '../runtime/auth.ts'
+import { createResponders } from '../runtime/pipeline.ts'
+import { checkFailure, compilePolicies } from '../runtime/failure.ts'
+import type { Directive, FailurePolicy } from '../runtime/failure.ts'
+import { createMemoryStore } from '../runtime/store.ts'
+import type { Store } from '../runtime/store.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+
+export interface Handler {
+  fetch(request: Request): Promise<Response>
+  store: Store
+  setSeed(next: string): void
+  reset(): void
+}
 
 export interface HandlerOptions {
   seed?: string
@@ -33,9 +42,12 @@ export interface HandlerOptions {
   errorBody?: ErrorBodyMode
   validateRequests?: boolean
   auth?: AuthConfig
+  failure?: FailurePolicy[]
+  decide?: (ctx: Ctx) => Directive | undefined
+  chaosSeed?: string
+  store?: Store
+  sleep?: (ms: number) => Promise<void>
 }
-
-const JSON_TYPE = 'application/json'
 
 function requestKey(
   operation: Operation,
@@ -52,14 +64,20 @@ function requestKey(
 export function createHandler(
   api: Api,
   options: HandlerOptions = {}
-): (request: Request) => Promise<Response> {
+): Handler {
   const router = createRouter(api.operations)
-  const seed = options.seed ?? 'mockingham'
+  let seed = options.seed ?? 'mockingham'
   const resolvers = compileResolvers(options.resolvers)
 
   const compiled = compileConfigs(options.operations, api.operations)
 
   const counters: Counters = createCounters()
+
+  const store = options.store ?? createMemoryStore()
+  const policies = compilePolicies(options.failure, api.operations)
+  const chaosSeed = options.chaosSeed ?? seed
+  const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
+  const chaosCounts = new Map<string, number>()
 
   const mode: ErrorBodyMode = options.errorBody ?? 'contract'
 
@@ -98,10 +116,15 @@ export function createHandler(
     if (!matched) {
       const allowed = router.allowedMethods(url.pathname)
       if (allowed.length > 0) {
-        return new Response(null, {
-          status: 405,
-          headers: { allow: allowed.join(', ') }
-        })
+        const response = await fail(
+          undefined,
+          405,
+          'MOCK_METHOD_NOT_ALLOWED',
+          `Allowed methods: ${allowed.join(', ')}`,
+          seed
+        )
+        response.headers.set('allow', allowed.join(', '))
+        return response
       }
       return await fail(undefined, 404, 'MOCK_NOT_FOUND', `No operation for ${url.pathname}`, seed)
     }
@@ -115,52 +138,28 @@ export function createHandler(
       return await fail(operation, parsed.status, parsed.code, parsed.message, requestKey(operation, params, seed))
     }
 
-    // Stages 3 and 4 (auth, validation) are built below, once ctx exists.
-    // Stages 5 and 6 (idempotency, failure) arrive with plan 4.
+    // Stages 3, 4, and 6 (auth, validation, failure) are built below, once ctx
+    // exists. Stage 5 (idempotency) arrives with a later plan.
 
-    // Stage 7 — status selection. The selection itself has to happen here
-    // because the ctx helpers below close over it, but its 501 is DEFERRED
-    // until after the stages: reporting "declares no responses" above stage 3
-    // would tell an unauthenticated caller which operations exist and what
-    // they look like. Until then `selected` is allowed to stay undefined and
-    // the generate/example helpers simply have nothing to offer.
     const key = requestKey(operation, params, seed)
     const exampleName = preferred(request, 'example')
-    const selected = selectResponse(operation, request, config.status)
 
-    const chosen = selected?.spec
-    const source = selected?.source ?? 'default'
-    const generateOptions: GenerateOptions = {
-      maxDepth: options.maxDepth,
-      preferExamples: options.preferExamples,
-      resolvers,
-      schemaNames: api.schemaNames
-    }
-
-    const rngFor = (label: string): Rng => createRng(`${key}|${label}`)
-
-    const mediaFor = (status: number) =>
-      operation.responses.find((r) => r.status === status)?.content[JSON_TYPE]
-
-    const generateFor = (status?: number): unknown => {
-      const target = status === undefined ? chosen?.status : status
-      if (target === undefined) return undefined
-      const media = mediaFor(target)
-      if (!media) return undefined
-      return generateValue(media.schema, rngFor(String(target)), {
-        ...generateOptions,
-        ctx
-      })
-    }
-
-    const exampleFor = (status?: number, name?: string): unknown => {
-      const target = status === undefined ? chosen?.status : status
-      if (target === undefined) return undefined
-      const media = mediaFor(target)
-      if (!media) return undefined
-      if (name === undefined) return media.example
-      return media.examples?.[name]?.value
-    }
+    const responders = createResponders({
+      operation,
+      request,
+      staticStatus: config.status,
+      key,
+      generateOptions: {
+        maxDepth: options.maxDepth,
+        preferExamples: options.preferExamples,
+        resolvers,
+        schemaNames: api.schemaNames
+      },
+      // ctx is declared just below; this getter is only invoked later (inside
+      // generateValue, at generation time), by which point the assignment has
+      // already run — the same deferral the old inline closure relied on.
+      ctx: () => ctx
+    })
 
     const ctx: Ctx = createContext({
       request,
@@ -168,16 +167,17 @@ export function createHandler(
       operation,
       params,
       body: parsed.body.value,
-      rng: rngFor('ctx'),
+      mediaType: parsed.body.mediaType,
+      rng: responders.rngFor('ctx'),
       requestKey: key,
       counters,
-      generate: generateFor,
-      example: exampleFor
+      generate: responders.generate,
+      example: responders.example
     })
 
-    // Stages 3 through 6. Auth runs before validation so an unauthenticated
-    // caller cannot learn whether their body was well-formed; idempotency and
-    // failure policy arrive in plan 4. Each stage may return a Response to
+    // Stages 3, 4, and 6. Auth runs before validation so an unauthenticated
+    // caller cannot learn whether their body was well-formed; idempotency
+    // (stage 5) arrives with a later plan. Each stage may return a Response to
     // short-circuit the rest.
     const stages: Stage[] = []
 
@@ -216,14 +216,52 @@ export function createHandler(
       })
     }
 
+    // Stage 6 — failure simulation. Pushed after validation so a malformed
+    // request is still rejected on its merits rather than by chaos.
+    stages.push(async (current) => {
+      const outcome = await checkFailure({
+        operation,
+        ctx: current,
+        policies,
+        decide: options.decide,
+        store,
+        chaosSeed,
+        requestKey: key,
+        counter: () => {
+          const next = (chaosCounts.get(key) ?? 0) + 1
+          chaosCounts.set(key, next)
+          return next
+        },
+        sleep
+      })
+      if (outcome.ok) return undefined
+      return await fail(operation, outcome.status, outcome.code, outcome.message, key, current)
+    })
+
     for (const stage of stages) {
       const short = await stage(ctx)
       if (short) return short
     }
 
-    // The deferred stage-7 failure, now that auth and validation have had their
-    // say. An unauthenticated caller never reaches this line.
-    if (!chosen) {
+    // Stage 10 — the full response callback replaces stages 7 through 10,
+    // status selection included, so it runs BEFORE the selection check: an
+    // operation declaring no responses has nothing to select, yet the callback
+    // must still answer. It runs after ctx exists so the callback can reach
+    // ctx.generate and ctx.example, which trigger selection on demand — and
+    // that laziness is what lets selection stay behind the callback.
+    if (config.respond) {
+      try {
+        return await config.respond(ctx)
+      } catch (error) {
+        throw markCallback(error)
+      }
+    }
+
+    // Stage 7 — status selection, now that every short-circuiting stage has run
+    // and no callback has taken over. 501 therefore only fires for a request
+    // that genuinely falls through to rendering.
+    const selected = responders.selection()
+    if (!selected) {
       return await fail(
         operation,
         501,
@@ -233,17 +271,7 @@ export function createHandler(
         ctx
       )
     }
-
-    // Stage 10 — the full response callback replaces stages 7 through 10.
-    // It runs after ctx exists so the callback can reach ctx.generate and
-    // ctx.example, both of which are bound to the selected response.
-    if (config.respond) {
-      try {
-        return await config.respond(ctx)
-      } catch (error) {
-        throw markCallback(error)
-      }
-    }
+    const chosen = selected.spec
 
     return await renderResponse({
       ctx,
@@ -252,15 +280,15 @@ export function createHandler(
       headerOverrides: config.headers(chosen.status),
       globals: options.headers,
       resolvers,
-      rngFor,
-      generateOptions,
+      rngFor: responders.rngFor,
+      generateOptions: responders.generateOptions,
       exampleName,
-      generate: generateFor,
-      example: exampleFor,
+      generate: responders.generate,
+      example: responders.example,
       debug: options.debugHeaders
         ? {
             seed: String(fnv1a(key)),
-            source,
+            source: selected.source,
             operationId: operation.operationId
           }
         : undefined
@@ -274,7 +302,7 @@ export function createHandler(
    * catch here rather than one per leaf: a per-leaf catch would let a
    * half-built body reach the client as if it were real.
    */
-  return async function handle(request: Request): Promise<Response> {
+  async function handle(request: Request): Promise<Response> {
     try {
       return await run(request)
     } catch (error) {
@@ -287,6 +315,19 @@ export function createHandler(
       }
       const code = isCallbackError(error) ? 'MOCK_CALLBACK_FAILED' : 'MOCK_INTERNAL'
       return Response.json(envelope(code, message), { status: 500, headers })
+    }
+  }
+
+  return {
+    fetch: handle,
+    store,
+    setSeed(next) {
+      seed = next
+    },
+    reset() {
+      seed = options.seed ?? 'mockingham'
+      counters.reset()
+      chaosCounts.clear()
     }
   }
 }

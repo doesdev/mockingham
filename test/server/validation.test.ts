@@ -4,10 +4,51 @@ import { createHandler } from '../../src/server/handler.ts'
 import { loadApi } from '../../src/spec/load.ts'
 import { petstore } from '../fixtures/petstore.ts'
 
+test('a +json body is negotiated, parsed, and validated end to end', async () => {
+  const api = loadApi({
+    openapi: '3.1.0',
+    paths: {
+      '/things': {
+        post: {
+          operationId: 'createThing',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['age'],
+                  properties: { age: { type: 'integer' } }
+                }
+              }
+            }
+          },
+          responses: { '200': { description: 'ok' } }
+        }
+      }
+    }
+  })
+  const handle = createHandler(api, { seed: 'suffix' }).fetch
+
+  const send = (body: string) =>
+    handle(new Request('http://mock/things', {
+      method: 'POST',
+      body,
+      headers: { 'content-type': 'application/vnd.api+json' }
+    }))
+
+  // Negotiated and parsed rather than 415'd...
+  assert.equal((await send('{"age":7}')).status, 200)
+  // ...and actually validated, not merely waved through.
+  const bad = await send('{"age":"old"}')
+  assert.equal(bad.status, 400)
+  assert.equal(((await bad.json()) as any).error.errors[0].path, 'body.age')
+})
+
 const api = loadApi(petstore)
 
 test('a bad path param is a 400 with a flattened error list', async () => {
-  const handle = createHandler(api, { seed: 'validate' })
+  const handle = createHandler(api, { seed: 'validate' }).fetch
   const response = await handle(new Request('http://mock/pets/abc'))
   assert.equal(response.status, 400)
   const body = (await response.json()) as any
@@ -16,12 +57,12 @@ test('a bad path param is a 400 with a flattened error list', async () => {
 })
 
 test('a valid request is unaffected', async () => {
-  const handle = createHandler(api, { seed: 'validate' })
+  const handle = createHandler(api, { seed: 'validate' }).fetch
   assert.equal((await handle(new Request('http://mock/pets/7'))).status, 200)
 })
 
 test('validation can be turned off', async () => {
-  const handle = createHandler(api, { seed: 'validate', validateRequests: false })
+  const handle = createHandler(api, { seed: 'validate', validateRequests: false }).fetch
   assert.equal((await handle(new Request('http://mock/pets/abc'))).status, 200)
 })
 
@@ -57,7 +98,7 @@ const withErrorSchema = loadApi({
 test('a contract-shaped 400 keeps its diagnostic on the debug header', async () => {
   // The validation list cannot go in the body without violating the schema the
   // client was told to expect, so it goes here instead.
-  const handle = createHandler(withErrorSchema, { seed: 'v', debugHeaders: true })
+  const handle = createHandler(withErrorSchema, { seed: 'v', debugHeaders: true }).fetch
   const response = await handle(new Request('http://mock/strict/abc'))
   assert.equal(response.status, 400)
   const body = (await response.json()) as any
@@ -69,7 +110,7 @@ test('a contract-shaped 400 keeps its diagnostic on the debug header', async () 
 })
 
 test('the envelope form still carries the flattened list in the body', async () => {
-  const handle = createHandler(withErrorSchema, { seed: 'v', errorBody: 'diagnostic' })
+  const handle = createHandler(withErrorSchema, { seed: 'v', errorBody: 'diagnostic' }).fetch
   const response = await handle(new Request('http://mock/strict/abc'))
   const body = (await response.json()) as any
   assert.equal(body.error.code, 'MOCK_REQUEST_INVALID')

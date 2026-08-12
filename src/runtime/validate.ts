@@ -2,9 +2,8 @@ import type { Operation, Schema } from '../spec/types.ts'
 import { compileSchema } from '../schema/compile.ts'
 import { classify } from '../schema/walk.ts'
 import { cookieValue } from './auth.ts'
+import { pickMedia } from './body.ts'
 import type { Ctx } from './types.ts'
-
-const JSON_TYPE = 'application/json'
 
 export interface ValidationFailure {
   path: string
@@ -99,8 +98,15 @@ export function validateRequest(
   // Raw bytes mean the media type was not one we parse. Validating them would
   // be guessing, so they are skipped, per the master spec's body-parsing rules.
   const body = ctx.body
-  const declared = operation.requestBody?.[JSON_TYPE]
-  if (declared && body !== undefined && !(body instanceof Uint8Array)) {
+  const declared = operation.requestBody
+    ? pickMedia(operation.requestBody, ctx.mediaType)
+    : undefined
+
+  if (body === undefined) {
+    if (operation.requestBodyRequired === true) {
+      errors.push({ path: 'body', message: 'Required' })
+    }
+  } else if (declared && !(body instanceof Uint8Array)) {
     check(declared.schema, body, 'body', errors)
   }
 
