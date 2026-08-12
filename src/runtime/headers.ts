@@ -5,6 +5,7 @@ import { generateValue } from '../generate/generate.ts'
 import type { ResolverLookup } from '../resolve/resolvers.ts'
 import { applyOverrides } from '../resolve/layer.ts'
 import type { OverrideNode } from './types.ts'
+import { markCallback } from './errors.ts'
 
 export interface HeaderInput {
   spec: ResponseSpec
@@ -17,9 +18,12 @@ export interface HeaderInput {
 }
 
 function evaluate(node: OverrideNode, ctx: unknown): unknown {
-  return typeof node === 'function'
-    ? (node as (context: unknown) => unknown)(ctx)
-    : node
+  if (typeof node !== 'function') return node
+  try {
+    return (node as (context: unknown) => unknown)(ctx)
+  } catch (error) {
+    throw markCallback(error)
+  }
 }
 
 /**

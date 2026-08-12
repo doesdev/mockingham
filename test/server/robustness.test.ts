@@ -106,3 +106,19 @@ test('a star override function receives each existing value', async () => {
     id: 'string', name: 'string', email: 'string', tag: 'string'
   })
 })
+
+test('an internal failure is not reported as a callback failure', async () => {
+  // A generate hook that throws is mockingham's own code path, not a user
+  // callback, so it must not be labeled MOCK_CALLBACK_FAILED.
+  const broken = loadApi(petstore)
+  const target = broken.operations.find((o) => o.operationId === 'showPetById')
+  // A schema whose `properties` is a primitive makes classify/generate throw.
+  ;(target as any).responses[0].content['application/json'].schema = {
+    get type(): string { throw new Error('internal boom') }
+  }
+  const handle = createHandler(broken, { seed: 'internal' })
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  const body = (await response.json()) as any
+  assert.equal(body.error.code, 'MOCK_INTERNAL')
+})

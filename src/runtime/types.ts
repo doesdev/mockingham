@@ -47,3 +47,9 @@ export interface Resolvers {
  * existing index of an array or key of an object.
  */
 export type OverrideNode = unknown
+
+/**
+ * One pipeline stage. Returning a `Response` short-circuits the pipeline;
+ * returning `undefined` continues to the next stage.
+ */
+export type Stage = (ctx: Ctx) => Promise<Response | undefined>

@@ -10,9 +10,11 @@ import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, OverrideNode, Resolvers } from '../runtime/types.ts'
+import type { Stage } from '../runtime/types.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred, selectResponse } from '../runtime/select.ts'
+import { envelope, isCallbackError, markCallback } from '../runtime/errors.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -66,12 +68,7 @@ export function createHandler(
         })
       }
       return Response.json(
-        {
-          error: {
-            code: 'MOCK_NOT_FOUND',
-            message: `No operation for ${url.pathname}`
-          }
-        },
+        envelope('MOCK_NOT_FOUND', `No operation for ${url.pathname}`),
         { status: 404 }
       )
     }
@@ -82,10 +79,9 @@ export function createHandler(
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
-      return Response.json(
-        { error: { code: parsed.code, message: parsed.message } },
-        { status: parsed.status }
-      )
+      return Response.json(envelope(parsed.code, parsed.message), {
+        status: parsed.status
+      })
     }
 
     // Stages 3, 4, 5, and 6 (auth, validation, idempotency, failure) arrive
@@ -98,12 +94,10 @@ export function createHandler(
 
     if (!selected) {
       return Response.json(
-        {
-          error: {
-            code: 'MOCK_NO_RESPONSE',
-            message: `Operation ${operation.method} ${operation.path} declares no responses`
-          }
-        },
+        envelope(
+          'MOCK_NO_RESPONSE',
+          `Operation ${operation.method} ${operation.path} declares no responses`
+        ),
         { status: 501 }
       )
     }
@@ -152,11 +146,24 @@ export function createHandler(
       example: exampleFor
     })
 
+    // Stages 3 through 6. Auth and validation arrive in this plan; idempotency
+    // and failure policy in plan 4. Each returns a Response to short-circuit.
+    const stages: Stage[] = []
+
+    for (const stage of stages) {
+      const short = await stage(ctx)
+      if (short) return short
+    }
+
     // Stage 10 — the full response callback replaces stages 7 through 10.
     // It runs after ctx exists so the callback can reach ctx.generate and
     // ctx.example, both of which are bound to the selected response.
     if (config.respond) {
-      return await config.respond(ctx)
+      try {
+        return await config.respond(ctx)
+      } catch (error) {
+        throw markCallback(error)
+      }
     }
 
     return await renderResponse({
@@ -199,10 +206,8 @@ export function createHandler(
         // Header values cannot carry line breaks, and a thrown message might.
         headers.set('x-mock-error', message.replace(/[\r\n]+/g, ' '))
       }
-      return Response.json(
-        { error: { code: 'MOCK_CALLBACK_FAILED', message } },
-        { status: 500, headers }
-      )
+      const code = isCallbackError(error) ? 'MOCK_CALLBACK_FAILED' : 'MOCK_INTERNAL'
+      return Response.json(envelope(code, message), { status: 500, headers })
     }
   }
 }
