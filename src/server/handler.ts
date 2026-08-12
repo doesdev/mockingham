@@ -21,7 +21,8 @@ import { createFailureStage, compilePolicies } from '../runtime/failure.ts'
 import type { Directive, FailurePolicy } from '../runtime/failure.ts'
 import { createMemoryStore } from '../runtime/store.ts'
 import type { Store } from '../runtime/store.ts'
-import { requestIdFor } from '../runtime/logging.ts'
+import { requestIdFor, emitLog, reportError } from '../runtime/logging.ts'
+import type { LogSink, ErrorSink } from '../runtime/logging.ts'
 import { createIdempotencyStage, resolveIdempotency } from '../runtime/idempotency.ts'
 import type { IdempotencyConfig } from '../runtime/idempotency.ts'
 
@@ -66,6 +67,8 @@ export interface HandlerOptions {
    * else.
    */
   now?: () => number
+  onLog?: LogSink
+  onError?: ErrorSink
 }
 
 function requestKey(
@@ -379,6 +382,7 @@ export function createHandler(
    * split out. See the phases 7-9 design §1.
    */
   async function handle(request: Request): Promise<Response> {
+    const startedAt = now()
     const trace: Trace = { params: {}, requestKey: seed, bytesIn: 0 }
 
     let response: Response
@@ -386,11 +390,17 @@ export function createHandler(
       response = await produce(request, trace)
     } catch (error) {
       trace.error = error
+      reportError(options.onError, error, trace.ctx)
       response = internalError(error)
     }
 
     // ── Stage 11 ──
+    // The body is read at most once, from a clone, and only when something needs
+    // it: an idempotency record to store, or a `bytesOut` to report.
     const claimed = trace.claimed
+    const needsBody = claimed !== undefined || options.onLog !== undefined
+    const captured = needsBody ? await captureBody(response) : null
+
     if (claimed !== undefined) {
       // A 5xx is never stored. Storing a chaos-injected 503 would make every
       // retry replay that 503 until the TTL expired, defeating the retry the
@@ -407,11 +417,44 @@ export function createHandler(
             fingerprint: claimed.fingerprint,
             status: response.status,
             headers: headersOf(response),
-            body: await captureBody(response)
+            body: captured
           },
           idempotency.ttlMs
         )
       }
+    }
+
+    if (options.onLog !== undefined) {
+      const url = new URL(request.url)
+      emitLog(
+        options.onLog,
+        {
+          ts: startedAt,
+          durationMs: now() - startedAt,
+          requestId: trace.ctx?.requestId ?? requestIdFor(trace.requestKey, 0),
+          method: request.method,
+          // A bounded value rather than the raw path: an unmatched path is
+          // unbounded, and this field is meant to be safe as a metric tag.
+          route: trace.operation?.path ?? '<unmatched>',
+          path: url.pathname,
+          status: response.status,
+          bytesIn: trace.bytesIn,
+          bytesOut: captured === null ? 0 : new TextEncoder().encode(captured).length,
+          params: trace.params,
+          query: trace.ctx?.query ?? {},
+          seed,
+          operationId: trace.operation?.operationId,
+          decisions: trace.ctx?.decisions ?? {},
+          error:
+            trace.error === undefined
+              ? undefined
+              : trace.error instanceof Error
+                ? trace.error.message
+                : String(trace.error),
+          custom: trace.ctx?.log ?? {}
+        },
+        options.onError
+      )
     }
 
     return response
