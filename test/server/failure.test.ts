@@ -45,6 +45,17 @@ test('latency is applied through the injected sleep', async () => {
   assert.deepEqual(slept, [300])
 })
 
+test('a throwing decide is a callback failure, not an internal error', async () => {
+  const handle = createHandler(api, {
+    seed: 'decide-throw',
+    decide: () => { throw new Error('decide boom') },
+    sleep: async () => {}
+  }).fetch
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  assert.equal(((await response.json()) as any).error.code, 'MOCK_CALLBACK_FAILED')
+})
+
 test('a target matching no operation throws at construction', () => {
   assert.throws(
     () => createHandler(api, { failure: [{ match: 'GET /nope', rate: 1 }] }),

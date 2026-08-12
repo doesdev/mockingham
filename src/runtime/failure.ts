@@ -1,6 +1,7 @@
 import type { Operation } from '../spec/types.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
 import { compileTarget } from '../resolve/target.ts'
+import { markCallback } from './errors.ts'
 import type { Ctx } from './types.ts'
 import type { Store } from './store.ts'
 
@@ -41,13 +42,32 @@ export interface FailureInput {
 }
 
 const DEFAULT_STATUS = 503
+const DEFAULT_CODE = 'MOCK_FAILURE_INJECTED'
 
-function targetKey(operation: Operation): string {
+/**
+ * The store-key convention, exported because the control plane in `index.ts`
+ * WRITES the keys this module READS. Two independent spellings of the same
+ * convention would drift silently — the control plane arming keys nothing reads,
+ * with both test suites still green in isolation.
+ */
+export function targetKey(operation: Operation): string {
   return operation.operationId ?? `${operation.method} ${operation.path}`
 }
 
-function failure(status: number, message: string): FailureOutcome {
-  return { ok: false, status, code: 'MOCK_FAILURE_INJECTED', message }
+export function failNextKey(key: string): string {
+  return `failnext|${key}`
+}
+
+export function outageKey(key: string): string {
+  return `outage|${key}`
+}
+
+function failure(
+  status: number,
+  message: string,
+  code: string = DEFAULT_CODE
+): FailureOutcome {
+  return { ok: false, status, code, message }
 }
 
 /**
@@ -71,25 +91,30 @@ export async function checkFailure(input: FailureInput): Promise<FailureOutcome>
 
   // 1. decide() overrides everything.
   if (input.decide) {
-    const directive = input.decide(input.ctx)
+    let directive: Directive | undefined
+    try {
+      directive = input.decide(input.ctx)
+    } catch (error) {
+      throw markCallback(error)
+    }
     if (directive) {
-      return failure(directive.status, 'Failure injected by decide()')
+      return failure(directive.status, 'Failure injected by decide()', directive.code)
     }
   }
 
   // 2. One-shot failNext.
-  const pending = (await input.store.get(`failnext|${key}`)) as
+  const pending = (await input.store.get(failNextKey(key))) as
     | { times: number; status?: number }
     | undefined
   if (pending && pending.times > 0) {
     const left = pending.times - 1
-    if (left > 0) await input.store.set(`failnext|${key}`, { ...pending, times: left })
-    else await input.store.delete(`failnext|${key}`)
+    if (left > 0) await input.store.set(failNextKey(key), { ...pending, times: left })
+    else await input.store.delete(failNextKey(key))
     return failure(pending.status ?? DEFAULT_STATUS, 'Failure injected by failNext()')
   }
 
   // 3. Outage. Its TTL is the deadline, so an expired key simply reads as absent.
-  const outage = (await input.store.get(`outage|${key}`)) as
+  const outage = (await input.store.get(outageKey(key))) as
     | { status?: number }
     | undefined
   if (outage) {
@@ -124,8 +149,16 @@ export async function checkFailure(input: FailureInput): Promise<FailureOutcome>
   // 6. Latency, applied even on success.
   for (const policy of matching) {
     if (policy.latency === undefined) continue
-    const ms =
-      typeof policy.latency === 'function' ? policy.latency(input.ctx) : policy.latency
+    let ms: number
+    if (typeof policy.latency === 'function') {
+      try {
+        ms = policy.latency(input.ctx)
+      } catch (error) {
+        throw markCallback(error)
+      }
+    } else {
+      ms = policy.latency
+    }
     if (ms > 0) await input.sleep(ms)
   }
 

@@ -92,6 +92,22 @@ test('a callback returning a plain Response is used as-is', async () => {
   assert.equal(await response.text(), 'raw')
 })
 
+test('respond replaces status selection entirely', async () => {
+  // An operation declaring no responses has nothing to select, but respond
+  // replaces stages 7 through 10, so the callback must still answer.
+  const api = loadApi({
+    openapi: '3.1.0',
+    paths: { '/ping': { get: { operationId: 'ping', responses: {} } } }
+  })
+  const handle = createHandler(api, {
+    seed: 'respond-501',
+    operations: { ping: { respond: (ctx) => ctx.respond(200, { ok: true }) } }
+  }).fetch
+  const response = await handle(new Request('http://mock/ping'))
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+})
+
 test('an operation without respond is unaffected', async () => {
   const handle = handler({
     operations: { 'GET /pets/{petId}': { respond: (ctx: any) => ctx.respond(202) } }

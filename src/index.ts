@@ -3,10 +3,9 @@ import type { Api } from './spec/types.ts'
 import { createHandler } from './server/handler.ts'
 import type { HandlerOptions } from './server/handler.ts'
 import { createNodeServer } from './server/node.ts'
-import { createMemoryStore } from './runtime/store.ts'
 import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
-import type { Operation } from './spec/types.ts'
+import { targetKey, failNextKey, outageKey } from './runtime/failure.ts'
 
 export type MockOptions = HandlerOptions
 
@@ -42,11 +41,10 @@ export function createMock(
 
   // Resolves a control-plane target to EVERY key the failure stage reads, so a
   // typo throws instead of silently arming nothing and a wildcard target arms
-  // every operation it matches rather than only the first.
+  // every operation it matches rather than only the first. The key convention
+  // itself comes from the failure module, which is the side that reads them.
   const keysFor = (target: string): string[] =>
-    resolveTarget(target, api.operations).map(
-      (operation) => operation.operationId ?? `${operation.method} ${operation.path}`
-    )
+    resolveTarget(target, api.operations).map(targetKey)
 
   return {
     fetch: handler.fetch,
@@ -55,7 +53,7 @@ export function createMock(
 
     async failNext(target, opts = {}) {
       for (const key of keysFor(target)) {
-        await handler.store.set(`failnext|${key}`, {
+        await handler.store.set(failNextKey(key), {
           times: opts.times ?? 1,
           status: opts.status ?? 503
         })
@@ -65,7 +63,7 @@ export function createMock(
     async outage(target, opts = {}) {
       for (const key of keysFor(target)) {
         await handler.store.set(
-          `outage|${key}`,
+          outageKey(key),
           { status: opts.status ?? 503 },
           opts.forMs
         )

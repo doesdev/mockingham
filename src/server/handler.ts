@@ -243,7 +243,23 @@ export function createHandler(
       if (short) return short
     }
 
-    // Stage 7 — status selection, now that every short-circuiting stage has run.
+    // Stage 10 — the full response callback replaces stages 7 through 10,
+    // status selection included, so it runs BEFORE the selection check: an
+    // operation declaring no responses has nothing to select, yet the callback
+    // must still answer. It runs after ctx exists so the callback can reach
+    // ctx.generate and ctx.example, which trigger selection on demand — and
+    // that laziness is what lets selection stay behind the callback.
+    if (config.respond) {
+      try {
+        return await config.respond(ctx)
+      } catch (error) {
+        throw markCallback(error)
+      }
+    }
+
+    // Stage 7 — status selection, now that every short-circuiting stage has run
+    // and no callback has taken over. 501 therefore only fires for a request
+    // that genuinely falls through to rendering.
     const selected = responders.selection()
     if (!selected) {
       return await fail(
@@ -256,17 +272,6 @@ export function createHandler(
       )
     }
     const chosen = selected.spec
-
-    // Stage 10 — the full response callback replaces stages 7 through 10.
-    // It runs after ctx exists so the callback can reach ctx.generate and
-    // ctx.example, which trigger selection on demand.
-    if (config.respond) {
-      try {
-        return await config.respond(ctx)
-      } catch (error) {
-        throw markCallback(error)
-      }
-    }
 
     return await renderResponse({
       ctx,

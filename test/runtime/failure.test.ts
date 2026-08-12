@@ -76,6 +76,23 @@ test('decide wins over every policy', async () => {
   if (!outcome.ok) assert.equal(outcome.status, 500)
 })
 
+test('a decide directive can set its own error code', async () => {
+  const { args } = input({ decide: () => ({ status: 429, code: 'MY_CODE' }) })
+  const outcome = await checkFailure(args)
+  assert.equal(outcome.ok, false)
+  if (!outcome.ok) {
+    assert.equal(outcome.status, 429)
+    assert.equal(outcome.code, 'MY_CODE')
+  }
+})
+
+test('a decide directive without a code uses the default', async () => {
+  const { args } = input({ decide: () => ({ status: 500 }) })
+  const outcome = await checkFailure(args)
+  assert.equal(outcome.ok, false)
+  if (!outcome.ok) assert.equal(outcome.code, 'MOCK_FAILURE_INJECTED')
+})
+
 test('decide returning undefined falls through', async () => {
   const { args } = input({ policies: [], decide: () => undefined })
   assert.deepEqual(await checkFailure(args), { ok: true })
