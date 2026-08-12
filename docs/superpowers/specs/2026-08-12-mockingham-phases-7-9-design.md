@@ -110,16 +110,25 @@ Stages currently return `Response | undefined` with no way to annotate anything.
 and keeps a stage's decision recorded even when it does not short-circuit — a
 validation that *passed* is as loggable as one that failed.
 
-### 2.6 A 5xx is never stored as an idempotency record
+### 2.6 An injected failure is never stored as an idempotency record
 
 §11 does not say whether a failed response becomes the record. Storing a
 chaos-injected 503 would make every retry replay that 503 until the TTL expired,
-which defeats the retry the idempotency key exists to make safe.
+which defeats the retry the idempotency key exists to make safe. The same is
+true of an injected 429 — the master spec's own canonical circuit example is
+`circuit: { after: 3, openFor: 10_000, then: 429 }`, and 429 is under 500.
 
-**Stage 11 stores a response only when `status < 500`.** On a 5xx — or on a throw
-— it deletes the in-flight marker instead, so the retry re-runs the operation. A
-4xx IS stored: a client error is a real answer to the key, and the caller
-resending the same key deserves the same answer.
+**The line is "did the mock invent this failure," not a status threshold.**
+Stage 11 checks `trace.ctx?.decisions.failure === 'injected'` — set by the
+failure stage on both the pass and the fail path (§2.5) — alongside `status >=
+500`. Either one deletes the in-flight marker instead of storing, so the retry
+re-runs the operation. A genuine 4xx that the operation itself answered with
+(not one the mock injected) IS stored: a client error is a real answer to the
+key, and the caller resending the same key deserves the same answer. A first
+pass at this rule used `status >= 500` alone, which correctly excludes a
+chaos-injected 503 but not a chaos-injected 429 — the whole-branch review
+caught that an injected sub-500 status was still being stored and replayed for
+the full TTL, exactly what this section exists to prevent.
 
 ### 2.7 `bodyHash` is compared, not keyed
 
@@ -221,6 +230,19 @@ Per §17, plus:
 5. `requestId` is available as `ctx.requestId` and in the log record, but is not
    echoed on a response header. Nothing in §12 asks for it, and adding a header
    by default would change every existing response.
+6. **The idempotency lookup-then-claim is not atomic.** `createIdempotencyStage`
+   does `store.get(key)` and then `store.set(key, {state: 'in-flight'}, ...)`
+   with no compare-and-set across the await. Two concurrent identical requests
+   can both read `undefined`, both claim, and both execute — the
+   `MOCK_IDEMPOTENCY_IN_FLIGHT` 409 is only reachable for a *wedged prior*
+   request (one whose process died, or whose handler threw before the boundary
+   catch cleared the marker), never for two requests racing each other in the
+   same process. A `Store` with no compare-and-set primitive cannot fix this
+   properly; the eventual fix is a `Store.setIfAbsent` primitive, which is
+   plan 6 scope. See also deferred item 15 and master spec §11.
+7. **`captureBody` awaits the full response body** before it can be stored or
+   measured, so a streaming `Response` returned from a `respond` callback is
+   buffered rather than streamed through to the caller.
 
 ## 7. What plan 6 picks up
 

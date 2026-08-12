@@ -2,6 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHandler } from '../../src/server/handler.ts'
 import { loadApi } from '../../src/spec/load.ts'
+import { createMemoryStore } from '../../src/runtime/store.ts'
+import type { Store } from '../../src/runtime/store.ts'
 import type { Ctx } from '../../src/runtime/types.ts'
 
 const api = loadApi({
@@ -57,8 +59,16 @@ test('an operation with no key parameter is untouched', async () => {
   const request = () =>
     new Request('http://mock/plain', { method: 'POST', headers: { 'idempotency-key': 'k' } })
 
-  assert.equal((await handle(request())).status, 200)
-  assert.equal((await handle(request())).status, 200)
+  const first = await handle(request())
+  const second = await handle(request())
+
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  // `/plain` declares a bodyless 200, so a spurious replay is ALSO a 200 —
+  // asserting only the status cannot tell "idempotency correctly stayed out
+  // of the way" from "idempotency engaged and replayed". The replay header is
+  // the one signal that distinguishes them.
+  assert.equal(second.headers.get('idempotent-replay'), null)
 })
 
 /**
@@ -195,4 +205,91 @@ test('a stored record expires', async () => {
   await handle(order('k6'))
 
   assert.equal(runs, 2)
+})
+
+test('an injected 429 is not stored, so a retry re-runs', async () => {
+  // I2: §2.6 exists to stop a chaos-injected failure from pinning a key for
+  // the TTL. The original condition only excluded `status >= 500`, but the
+  // master spec's own canonical circuit example injects 429
+  // (`circuit: { after: 3, openFor: 10_000, then: 429 }`) — reachable through
+  // `decide()` too, as here. Mirrors the '5xx is not stored' test above.
+  let attempts = 0
+  const handle = createHandler(api, {
+    seed: 'idem',
+    decide: () => (attempts === 0 ? { status: 429 } : undefined),
+    operations: {
+      createOrder: {
+        respond: (ctx) => {
+          attempts += 1
+          return ctx.respond(201, { ok: true })
+        }
+      }
+    }
+  }).fetch
+
+  assert.equal((await handle(order('k7'))).status, 429)
+  const second = await handle(order('k7'))
+  assert.equal(second.status, 429)
+  // A stored 429 would replay with this header set; its absence is what
+  // distinguishes "the mock injected 429 again" from "a stored 429 replayed"
+  // — exactly the outcome §2.6 exists to prevent.
+  assert.equal(second.headers.get('idempotent-replay'), null)
+})
+
+test('a store whose set() rejects still returns the real response, not a rejection', async () => {
+  // C1: stage 11's store write used to run bare, outside any catch. A Store
+  // is caller-supplied code (invariant 4), and before this fix a failure here
+  // rejected fetch() entirely, destroying an already-correct 201.
+  const base = createMemoryStore()
+  let calls = 0
+  const store: Store = {
+    ...base,
+    async set(key, value, ttlMs) {
+      calls += 1
+      // The first set() is stage 5's in-flight claim — it must succeed so the
+      // key is genuinely claimed. The second is stage 11's final write, the
+      // one under test.
+      if (calls > 1) throw new Error('store set boom')
+      return base.set(key, value, ttlMs)
+    }
+  }
+  const errors: unknown[] = []
+  const handle = createHandler(api, {
+    seed: 'idem',
+    store,
+    onError: (error) => errors.push(error)
+  }).fetch
+
+  const response = await handle(order('k8'))
+
+  assert.equal(response.status, 201)
+  assert.equal(calls, 2)
+  assert.equal((errors[0] as Error).message, 'store set boom')
+})
+
+test('a respond callback returning an already-read Response still returns it', async () => {
+  // The same C1 root cause, reached a different way: a proxy-through callback
+  // naturally returns a Response it already consumed, which makes
+  // `response.clone()` throw inside body capture. That only happens when
+  // `onLog` is set or a key was claimed — this exercises both at once.
+  const errors: unknown[] = []
+  const handle = createHandler(api, {
+    seed: 'idem',
+    onLog: () => {},
+    onError: (error) => errors.push(error),
+    operations: {
+      createOrder: {
+        respond: async (ctx) => {
+          const response = await ctx.respond(201, { ok: true })
+          await response.text()
+          return response
+        }
+      }
+    }
+  }).fetch
+
+  const response = await handle(order('k9'))
+
+  assert.equal(response.status, 201)
+  assert.ok(errors.length > 0)
 })

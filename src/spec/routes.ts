@@ -8,6 +8,13 @@ export interface RouteMatch {
 export interface Router {
   match(method: string, path: string): RouteMatch | undefined
   allowedMethods(path: string): string[]
+  /**
+   * The templated path for a resolved path, matched by segments alone
+   * (method ignored). Used for a 405's log record: the method is wrong but the
+   * path is known, and every method sharing an OpenAPI path key shares the same
+   * template string, so which matching route answers is immaterial.
+   */
+  templateFor(path: string): string | undefined
 }
 
 interface Segment {
@@ -101,6 +108,14 @@ export function createRouter(operations: Operation[]): Router {
         if (!found.includes(method)) found.push(method)
       }
       return found
+    },
+
+    templateFor(path) {
+      const parts = split(path)
+      for (const route of routes) {
+        if (matchSegments(route, parts) !== undefined) return route.operation.path
+      }
+      return undefined
     }
   }
 }

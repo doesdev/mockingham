@@ -8,7 +8,7 @@ export interface ParsedBody {
 
 export type BodyResult =
   | { ok: true; body: ParsedBody }
-  | { ok: false; status: number; code: string; message: string }
+  | { ok: false; status: number; code: string; message: string; raw: Uint8Array }
 
 export function baseMediaType(header: string | null): string | undefined {
   if (header === null) return undefined
@@ -63,7 +63,8 @@ export async function parseBody(
       code: 'MOCK_UNSUPPORTED_MEDIA_TYPE',
       message:
         `Operation ${operation.method.toUpperCase()} ${operation.path} does not ` +
-        `declare "${mediaType}". Declared: ${declared.join(', ')}.`
+        `declare "${mediaType}". Declared: ${declared.join(', ')}.`,
+      raw
     }
   }
 
@@ -77,7 +78,8 @@ export async function parseBody(
         ok: false,
         status: 400,
         code: 'MOCK_BODY_MALFORMED',
-        message: 'Request body is not valid JSON.'
+        message: 'Request body is not valid JSON.',
+        raw
       }
     }
   }

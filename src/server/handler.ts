@@ -6,8 +6,7 @@ import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
-import type { Ctx, Fail, OverrideNode, Resolvers } from '../runtime/types.ts'
-import type { Stage } from '../runtime/types.ts'
+import type { Ctx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
@@ -70,6 +69,11 @@ export interface HandlerOptions {
   onLog?: LogSink
   onError?: ErrorSink
 }
+
+// Module scope: a per-request TextEncoder would be one more allocation on
+// every logged request for no behavioral difference — the encoder itself is
+// stateless.
+const encoder = new TextEncoder()
 
 function requestKey(
   operation: Operation,
@@ -150,6 +154,18 @@ export function createHandler(
     error?: unknown
     /** Set by stage 5 when this request claimed a key; read by the single exit. */
     claimed?: { key: string; fingerprint: string }
+    /**
+     * Set on the paths that never build a `Ctx` — an unmatched route and a
+     * body-parse failure — so the log's `requestId` fallback does not collapse
+     * every such request in the process onto the same id. `ctx.requestId` wins
+     * when a `Ctx` exists; this is the equivalent for when it does not.
+     */
+    requestId?: string
+    /**
+     * The templated path for a 405, known from the router even though no
+     * `Operation` was matched (the path matched, the method did not).
+     */
+    route?: string
   }
 
   async function produce(request: Request, trace: Trace): Promise<Response> {
@@ -161,9 +177,27 @@ export function createHandler(
       // The body is never read on this path, so `content-length` is the only
       // honest byte count available.
       trace.bytesIn = Number(request.headers.get('content-length') ?? 0) || 0
+
+      // A pure function of the request — never the matched path's `key` below,
+      // which feeds the seeded PRNG. This one only ever reaches the log, so
+      // giving it its own ordinal (rather than a fixed 0) is what makes
+      // repeated identical unmatched requests get distinct ids too.
+      const unmatchedKey =
+        `${seed}|unmatched|${request.method.toUpperCase()}|${url.pathname}`
+      trace.requestKey = unmatchedKey
+      const unmatchedOrdinal = (requestOrdinals.get(unmatchedKey) ?? 0) + 1
+      requestOrdinals.set(unmatchedKey, unmatchedOrdinal)
+      const unmatchedInbound = request.headers.get('x-request-id')
+      trace.requestId = unmatchedInbound ?? requestIdFor(unmatchedKey, unmatchedOrdinal)
+
       const fail = failWith(undefined, seed)
       const allowed = router.allowedMethods(url.pathname)
       if (allowed.length > 0) {
+        // The router matched the path on segments alone — the method is what's
+        // wrong, not the route. That template is knowable even though no
+        // `Operation` was matched; `operationId` is not, since it differs by
+        // method and no single one answered this request.
+        trace.route = router.templateFor(url.pathname)
         const response = await fail(
           405,
           'MOCK_METHOD_NOT_ALLOWED',
@@ -188,6 +222,15 @@ export function createHandler(
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
+      // The bytes were fully read to even discover the parse failure — a 415
+      // storm should not log as zero traffic.
+      trace.bytesIn = parsed.raw.length
+      // No `Ctx` exists yet on this path, so the log's fallback would otherwise
+      // reuse ordinal 0 for every failed parse under this same request identity.
+      const parseOrdinal = (requestOrdinals.get(key) ?? 0) + 1
+      requestOrdinals.set(key, parseOrdinal)
+      const parseInbound = request.headers.get('x-request-id')
+      trace.requestId = parseInbound ?? requestIdFor(key, parseOrdinal)
       return await fail(parsed.status, parsed.code, parsed.message)
     }
     trace.bytesIn = parsed.body.raw.length
@@ -395,66 +438,97 @@ export function createHandler(
     }
 
     // ── Stage 11 ──
-    // The body is read at most once, from a clone, and only when something needs
-    // it: an idempotency record to store, or a `bytesOut` to report.
+    // From here on, `response` is what the caller gets back, no matter what.
+    // Each concern below — body capture, idempotency storage, log emission —
+    // is wrapped in its own try/catch and routed to `onError` rather than
+    // allowed to reject `handle()`. A caller-supplied `Store` and `onLog` are
+    // user code, and invariant 4 says the mock keeps serving whatever they do;
+    // before this fix, a throw anywhere past `produce()` destroyed an
+    // already-correct response instead of merely failing to log or store it.
     const claimed = trace.claimed
     const needsBody = claimed !== undefined || options.onLog !== undefined
-    const captured = needsBody ? await captureBody(response) : null
+    // The body is read at most once, from a clone, and only when something
+    // needs it: an idempotency record to store, or a `bytesOut` to report.
+    let captured: string | null = null
+    if (needsBody) {
+      try {
+        captured = await captureBody(response)
+      } catch (error) {
+        reportError(options.onError, error, trace.ctx)
+      }
+    }
 
     if (claimed !== undefined) {
-      // A 5xx is never stored. Storing a chaos-injected 503 would make every
-      // retry replay that 503 until the TTL expired, defeating the retry the
-      // idempotency key exists to make safe. Releasing the key on a throw is the
-      // other half of the wedge fix from the phases 7-9 design §2.4 — the TTL
-      // covers a process that dies, this covers a callback that threw.
-      if (trace.error !== undefined || response.status >= 500) {
-        await store.delete(claimed.key)
-      } else {
-        await store.set(
-          claimed.key,
-          {
-            state: 'done',
-            fingerprint: claimed.fingerprint,
-            status: response.status,
-            headers: headersOf(response),
-            body: captured
-          },
-          idempotency.ttlMs
-        )
+      try {
+        // A 5xx is never stored, and neither is a status the mock itself
+        // injected rather than the operation genuinely answering with — an
+        // open circuit's `then: 429` is exactly that. Storing either would
+        // make every retry replay the injected failure until the TTL expired,
+        // defeating the retry the idempotency key exists to make safe. §2.6
+        // draws the line at "did the mock invent this," not at a status
+        // threshold. Releasing the key on a throw is the other half of the
+        // wedge fix from the phases 7-9 design §2.4 — the TTL covers a
+        // process that dies, this covers a callback that threw.
+        if (
+          trace.error !== undefined ||
+          response.status >= 500 ||
+          trace.ctx?.decisions.failure === 'injected'
+        ) {
+          await store.delete(claimed.key)
+        } else {
+          await store.set(
+            claimed.key,
+            {
+              state: 'done',
+              fingerprint: claimed.fingerprint,
+              status: response.status,
+              headers: headersOf(response),
+              body: captured
+            },
+            idempotency.ttlMs
+          )
+        }
+      } catch (error) {
+        reportError(options.onError, error, trace.ctx)
       }
     }
 
     if (options.onLog !== undefined) {
-      const url = new URL(request.url)
-      emitLog(
-        options.onLog,
-        {
-          ts: startedAt,
-          durationMs: now() - startedAt,
-          requestId: trace.ctx?.requestId ?? requestIdFor(trace.requestKey, 0),
-          method: request.method,
-          // A bounded value rather than the raw path: an unmatched path is
-          // unbounded, and this field is meant to be safe as a metric tag.
-          route: trace.operation?.path ?? '<unmatched>',
-          path: url.pathname,
-          status: response.status,
-          bytesIn: trace.bytesIn,
-          bytesOut: captured === null ? 0 : new TextEncoder().encode(captured).length,
-          params: trace.params,
-          query: trace.ctx?.query ?? {},
-          seed,
-          operationId: trace.operation?.operationId,
-          decisions: trace.ctx?.decisions ?? {},
-          error:
-            trace.error === undefined
-              ? undefined
-              : trace.error instanceof Error
-                ? trace.error.message
-                : String(trace.error),
-          custom: trace.ctx?.log ?? {}
-        },
-        options.onError
-      )
+      try {
+        const url = new URL(request.url)
+        emitLog(
+          options.onLog,
+          {
+            ts: startedAt,
+            durationMs: now() - startedAt,
+            requestId:
+              trace.ctx?.requestId ?? trace.requestId ?? requestIdFor(trace.requestKey, 0),
+            method: request.method,
+            // A bounded value rather than the raw path: an unmatched path is
+            // unbounded, and this field is meant to be safe as a metric tag.
+            route: trace.operation?.path ?? trace.route ?? '<unmatched>',
+            path: url.pathname,
+            status: response.status,
+            bytesIn: trace.bytesIn,
+            bytesOut: captured === null ? 0 : encoder.encode(captured).length,
+            params: trace.params,
+            query: trace.ctx?.query ?? {},
+            seed,
+            operationId: trace.operation?.operationId,
+            decisions: trace.ctx?.decisions ?? {},
+            error:
+              trace.error === undefined
+                ? undefined
+                : trace.error instanceof Error
+                  ? trace.error.message
+                  : String(trace.error),
+            custom: trace.ctx?.log ?? {}
+          },
+          options.onError
+        )
+      } catch (error) {
+        reportError(options.onError, error, trace.ctx)
+      }
     }
 
     return response
