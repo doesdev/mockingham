@@ -66,7 +66,14 @@ export async function buildError(input: ErrorInput): Promise<Response> {
   }
 
   if (typeof input.mode === 'function') {
-    const body = input.mode(input.ctx, detail)
+    // The function form of `errorBody` is user code like any other callback, so
+    // a throw is tagged rather than surfacing as a mockingham defect.
+    let body: unknown
+    try {
+      body = input.mode(input.ctx, detail)
+    } catch (error) {
+      throw markCallback(error)
+    }
     headers.set('content-type', JSON_TYPE)
     return new Response(JSON.stringify(body), { status: input.status, headers })
   }

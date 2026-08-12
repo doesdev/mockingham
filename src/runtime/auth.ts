@@ -1,4 +1,5 @@
 import type { SecurityRequirement, SecurityScheme } from '../spec/types.ts'
+import { markCallback } from './errors.ts'
 import type { Ctx } from './types.ts'
 
 export type Principal = { sub?: string; scopes?: string[] } & Record<string, unknown>
@@ -23,7 +24,15 @@ export interface AuthInput {
   ctx: Ctx
 }
 
-function cookie(header: string | undefined, name: string): string | undefined {
+/**
+ * Reads one cookie out of a `Cookie` header. Exported because request
+ * validation needs exactly the same reading for `in: cookie` parameters —
+ * two parsers disagreeing about a cookie would be its own defect class.
+ */
+export function cookieValue(
+  header: string | undefined,
+  name: string
+): string | undefined {
   if (header === undefined) return undefined
   for (const part of header.split(';')) {
     const [key, ...rest] = part.trim().split('=')
@@ -43,7 +52,7 @@ export function credentialFor(
       const found = ctx.query[name]
       return Array.isArray(found) ? found[0] : found
     }
-    if (scheme.location === 'cookie') return cookie(ctx.headers['cookie'], name)
+    if (scheme.location === 'cookie') return cookieValue(ctx.headers['cookie'], name)
     return ctx.headers[name.toLowerCase()]
   }
 
@@ -106,7 +115,14 @@ export async function checkAuth(input: AuthInput): Promise<AuthOutcome> {
       const verify = entry !== undefined && entry !== true ? entry.verify : undefined
       if (!verify) continue
 
-      const verified = await verify(credential, input.ctx)
+      // `verify` is user code, so a throw or rejection is tagged: without this
+      // the boundary reports someone else's bug as MOCK_INTERNAL.
+      let verified: Principal | Response
+      try {
+        verified = await verify(credential, input.ctx)
+      } catch (error) {
+        throw markCallback(error)
+      }
       if (verified instanceof Response) {
         satisfied = false
         failure = {

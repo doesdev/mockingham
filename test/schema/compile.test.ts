@@ -166,6 +166,17 @@ test('honors a constraint declared inside allOf', () => {
   assert.equal(parse({ allOf: [{ type: 'string', minLength: 5 }] }, 'abcdef').success, true)
 })
 
+test('an uncompilable pattern is skipped rather than throwing', () => {
+  // Generation serves a document with a broken `pattern` happily, so validation
+  // must not be the stricter of the two and turn every request into a 500.
+  const schema: Schema = { type: 'string', pattern: '([bad', minLength: 3 }
+  const compiled = createCompiler()
+  assert.doesNotThrow(() => compiled.compile(schema))
+  // The rest of the constraints still apply.
+  assert.equal(compiled.compile(schema).safeParse('ab').success, false)
+  assert.equal(compiled.compile(schema).safeParse('abcd').success, true)
+})
+
 test('honors a numeric constraint declared inside allOf', () => {
   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 7).success, false)
   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 42).success, true)

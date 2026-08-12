@@ -12,11 +12,29 @@ export interface Compiler {
   compile(schema: Schema): ZodType
 }
 
+/**
+ * A `pattern` ECMAScript cannot compile (a POSIX class, a .NET construct, a
+ * plain typo) must not take the whole operation down. Generation serves such a
+ * document fine, and validation being the stricter of the two would turn every
+ * request into a 500 over a constraint we simply cannot enforce. So the pattern
+ * is dropped and the remaining constraints still apply.
+ */
+function patternOf(pattern: string): RegExp | undefined {
+  try {
+    return new RegExp(pattern)
+  } catch {
+    return undefined
+  }
+}
+
 function withStringRules(schema: Schema): ZodType {
   let out = z.string()
   if (schema.minLength !== undefined) out = out.min(schema.minLength)
   if (schema.maxLength !== undefined) out = out.max(schema.maxLength)
-  if (schema.pattern !== undefined) out = out.regex(new RegExp(schema.pattern))
+  if (schema.pattern !== undefined) {
+    const expression = patternOf(schema.pattern)
+    if (expression) out = out.regex(expression)
+  }
   return out
 }
 

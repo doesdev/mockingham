@@ -1,6 +1,7 @@
 import type { Operation, Schema } from '../spec/types.ts'
 import { compileSchema } from '../schema/compile.ts'
 import { classify } from '../schema/walk.ts'
+import { cookieValue } from './auth.ts'
 import type { Ctx } from './types.ts'
 
 const JSON_TYPE = 'application/json'
@@ -63,7 +64,9 @@ export function validateRequest(
           ? ctx.query[parameter.name]
           : parameter.location === 'header'
             ? ctx.headers[parameter.name.toLowerCase()]
-            : undefined
+            : parameter.location === 'cookie'
+              ? cookieValue(ctx.headers['cookie'], parameter.name)
+              : undefined
 
     if (source === undefined) {
       if (parameter.required) {
@@ -75,9 +78,20 @@ export function validateRequest(
       continue
     }
 
-    const value = Array.isArray(source)
-      ? source.map((entry) => coerce(entry, parameter.schema))
-      : coerce(source, parameter.schema)
+    // An array parameter needs two things the scalar path cannot give it: each
+    // entry coerced against the ITEM schema rather than the array schema, and a
+    // lone occurrence (`?tags=a`, the ordinary form/explode case) widened to a
+    // one-element array. The item schema comes from `classify` so validation
+    // reads `items` exactly the way generation does.
+    const kind = classify(parameter.schema)
+    const value =
+      kind.kind === 'array'
+        ? (Array.isArray(source) ? source : [source]).map((entry) =>
+            coerce(entry, kind.items)
+          )
+        : Array.isArray(source)
+          ? source.map((entry) => coerce(entry, parameter.schema))
+          : coerce(source, parameter.schema)
 
     check(parameter.schema, value, `${parameter.location}.${parameter.name}`, errors)
   }

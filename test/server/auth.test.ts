@@ -71,6 +71,19 @@ test('the principal from verify reaches ctx.auth', async () => {
   assert.deepEqual(seen[0], { sub: 'u_9', scopes: ['pets:read'] })
 })
 
+test('an unauthenticated request to a response-less operation is 401, not 501', async () => {
+  const doc = {
+    openapi: '3.1.0',
+    paths: { '/secret': { get: { operationId: 'secret', security: [{ b: [] }], responses: {} } } },
+    components: { securitySchemes: { b: { type: 'http', scheme: 'bearer' } } }
+  }
+  const handle = createHandler(loadApi(doc), { seed: 'order' })
+  const response = await handle(new Request('http://mock/secret'))
+  assert.equal(response.status, 401)
+  // The 501 message names the operation; it must not leak pre-auth.
+  assert.doesNotMatch(JSON.stringify(await response.json()), /declares no responses/)
+})
+
 test('unmet scopes are a 403', async () => {
   const handle = createHandler(api, {
     seed: 'auth',

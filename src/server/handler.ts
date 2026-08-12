@@ -118,23 +118,18 @@ export function createHandler(
     // Stages 3 and 4 (auth, validation) are built below, once ctx exists.
     // Stages 5 and 6 (idempotency, failure) arrive with plan 4.
 
-    // Stage 7 — status selection.
+    // Stage 7 — status selection. The selection itself has to happen here
+    // because the ctx helpers below close over it, but its 501 is DEFERRED
+    // until after the stages: reporting "declares no responses" above stage 3
+    // would tell an unauthenticated caller which operations exist and what
+    // they look like. Until then `selected` is allowed to stay undefined and
+    // the generate/example helpers simply have nothing to offer.
     const key = requestKey(operation, params, seed)
     const exampleName = preferred(request, 'example')
     const selected = selectResponse(operation, request, config.status)
 
-    if (!selected) {
-      return await fail(
-        operation,
-        501,
-        'MOCK_NO_RESPONSE',
-        `Operation ${operation.method} ${operation.path} declares no responses`,
-        key
-      )
-    }
-
-    const chosen = selected.spec
-    const source = selected.source
+    const chosen = selected?.spec
+    const source = selected?.source ?? 'default'
     const generateOptions: GenerateOptions = {
       maxDepth: options.maxDepth,
       preferExamples: options.preferExamples,
@@ -148,7 +143,8 @@ export function createHandler(
       operation.responses.find((r) => r.status === status)?.content[JSON_TYPE]
 
     const generateFor = (status?: number): unknown => {
-      const target = status === undefined ? chosen.status : status
+      const target = status === undefined ? chosen?.status : status
+      if (target === undefined) return undefined
       const media = mediaFor(target)
       if (!media) return undefined
       return generateValue(media.schema, rngFor(String(target)), {
@@ -158,7 +154,9 @@ export function createHandler(
     }
 
     const exampleFor = (status?: number, name?: string): unknown => {
-      const media = mediaFor(status === undefined ? chosen.status : status)
+      const target = status === undefined ? chosen?.status : status
+      if (target === undefined) return undefined
+      const media = mediaFor(target)
       if (!media) return undefined
       if (name === undefined) return media.example
       return media.examples?.[name]?.value
@@ -221,6 +219,19 @@ export function createHandler(
     for (const stage of stages) {
       const short = await stage(ctx)
       if (short) return short
+    }
+
+    // The deferred stage-7 failure, now that auth and validation have had their
+    // say. An unauthenticated caller never reaches this line.
+    if (!chosen) {
+      return await fail(
+        operation,
+        501,
+        'MOCK_NO_RESPONSE',
+        `Operation ${operation.method} ${operation.path} declares no responses`,
+        key,
+        ctx
+      )
     }
 
     // Stage 10 — the full response callback replaces stages 7 through 10.

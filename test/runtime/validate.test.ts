@@ -115,3 +115,54 @@ test('raw bytes are skipped rather than guessed at', () => {
 test('an operation declaring no request body accepts any body', () => {
   assert.deepEqual(validateRequest(ctx({ body: { any: true } }), op([])), { ok: true })
 })
+
+test('coerces each entry of an array parameter against its item schema', () => {
+  const operation = op([
+    { name: 'ids', location: 'query', required: true, schema: { type: 'array', items: { type: 'integer' } } }
+  ])
+  assert.deepEqual(validateRequest(ctx({ query: { ids: ['1', '2'] } }), operation), { ok: true })
+})
+
+test('a single occurrence of an array parameter is accepted', () => {
+  const operation = op([
+    { name: 'tags', location: 'query', required: true, schema: { type: 'array', items: { type: 'string' } } }
+  ])
+  assert.deepEqual(validateRequest(ctx({ query: { tags: 'a' } }), operation), { ok: true })
+})
+
+test('an array parameter entry of the wrong type is still reported', () => {
+  const operation = op([
+    { name: 'ids', location: 'query', required: true, schema: { type: 'array', items: { type: 'integer' } } }
+  ])
+  const result = validateRequest(ctx({ query: { ids: ['1', 'abc'] } }), operation)
+  assert.equal(result.ok, false)
+})
+
+test('a required cookie parameter present in the cookie header validates', () => {
+  const operation = op([
+    { name: 'session', location: 'cookie', required: true, schema: { type: 'string' } }
+  ])
+  assert.deepEqual(
+    validateRequest(ctx({ headers: { cookie: 'other=1; session=abc123' } }), operation),
+    { ok: true }
+  )
+})
+
+test('a missing required cookie parameter is still reported', () => {
+  const operation = op([
+    { name: 'session', location: 'cookie', required: true, schema: { type: 'string' } }
+  ])
+  const result = validateRequest(ctx({ headers: { cookie: 'other=1' } }), operation)
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.equal(result.errors[0]?.path, 'cookie.session')
+})
+
+test('a cookie parameter is coerced like any other wire value', () => {
+  const operation = op([
+    { name: 'count', location: 'cookie', required: true, schema: { type: 'integer' } }
+  ])
+  assert.deepEqual(
+    validateRequest(ctx({ headers: { cookie: 'count=7' } }), operation),
+    { ok: true }
+  )
+})
