@@ -5,9 +5,8 @@ import type { GenerateOptions } from '../generate/generate.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
 import type { Rng } from '../generate/rng.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
-import { applyOverrides } from '../resolve/layer.ts'
 import { parseBody } from '../runtime/body.ts'
-import { buildHeaders } from '../runtime/headers.ts'
+import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, OverrideNode, Resolvers } from '../runtime/types.ts'
@@ -160,56 +159,26 @@ export function createHandler(
       return await config.respond(ctx)
     }
 
-    // Stage 8 — generate the body.
-    const bodyOverrides = config.bodies(chosen.status)
-    const headerOverrides = config.headers(chosen.status)
-
-    const headers = await buildHeaders({
-      spec: chosen,
+    return await renderResponse({
+      ctx,
+      chosen,
+      bodyOverrides: config.bodies(chosen.status),
+      headerOverrides: config.headers(chosen.status),
       globals: options.headers,
       resolvers,
-      overrides: headerOverrides,
-      ctx,
-      rngFor: (name) => rngFor(`header|${name}`),
-      generateOptions: { ...generateOptions, ctx }
+      rngFor,
+      generateOptions,
+      exampleName,
+      generate: generateFor,
+      example: exampleFor,
+      debug: options.debugHeaders
+        ? {
+            seed: String(fnv1a(key)),
+            source,
+            operationId: operation.operationId
+          }
+        : undefined
     })
-
-    if (options.debugHeaders) {
-      headers.set('x-mock-seed', String(fnv1a(key)))
-      headers.set('x-mock-status-source', source)
-      if (operation.operationId) {
-        headers.set('x-mock-operation', operation.operationId)
-      }
-    }
-
-    let body: unknown
-    if (exampleName !== undefined) {
-      body = exampleFor(chosen.status, exampleName)
-    }
-    // Deliberately the same call ctx.generate(status) makes, rather than a
-    // second copy of it — a response callback and the pipeline must never
-    // produce different bodies for the same status.
-    if (body === undefined) body = generateFor(chosen.status)
-
-    // Stage 9 — apply the override layers, broad targets first so specific ones
-    // refine their result rather than replacing it.
-    if (bodyOverrides.length === 0) {
-      // Still worth one pass: resolvers may have left promises in the tree.
-      if (body !== undefined) body = await applyOverrides(body, undefined, ctx)
-    } else {
-      for (const override of bodyOverrides) {
-        body = await applyOverrides(body, override, ctx)
-      }
-    }
-
-    if (body === undefined) {
-      return new Response(null, { status: chosen.status, headers })
-    }
-
-    // Layer 5 — transport headers, applied last so nothing can override them.
-    // Content-Length is left to Response, per design amendment 1.4.
-    headers.set('content-type', JSON_TYPE)
-    return new Response(JSON.stringify(body), { status: chosen.status, headers })
   }
 
   /**
