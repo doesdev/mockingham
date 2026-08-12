@@ -1,27 +1,26 @@
 import { createRouter } from '../spec/routes.ts'
-import type { Api, Operation, ResponseSpec } from '../spec/types.ts'
+import type { Api, Operation } from '../spec/types.ts'
 import { generateValue } from '../generate/generate.ts'
 import type { GenerateOptions } from '../generate/generate.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
 import type { Rng } from '../generate/rng.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
-import { compileTarget, resolveTarget } from '../resolve/target.ts'
-import { applyOverrides } from '../resolve/layer.ts'
 import { parseBody } from '../runtime/body.ts'
-import { buildHeaders } from '../runtime/headers.ts'
+import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, OverrideNode, Resolvers } from '../runtime/types.ts'
+import type { Stage } from '../runtime/types.ts'
+import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
+import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+import { preferred, selectResponse } from '../runtime/select.ts'
+import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
+import type { ErrorBodyMode } from '../runtime/errors.ts'
+import { validateRequest } from '../runtime/validate.ts'
+import { checkAuth } from '../runtime/auth.ts'
+import type { AuthConfig } from '../runtime/auth.ts'
 
-export interface StatusConfig {
-  body?: OverrideNode
-  headers?: Record<string, OverrideNode>
-}
-
-export type OperationConfig = {
-  status?: number
-  respond?: (ctx: Ctx) => Response | Promise<Response>
-} & { [status: number]: StatusConfig }
+export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
 export interface HandlerOptions {
   seed?: string
@@ -31,6 +30,9 @@ export interface HandlerOptions {
   resolvers?: Resolvers
   headers?: Record<string, OverrideNode>
   operations?: Record<string, OperationConfig>
+  errorBody?: ErrorBodyMode
+  validateRequests?: boolean
+  auth?: AuthConfig
 }
 
 const JSON_TYPE = 'application/json'
@@ -47,30 +49,6 @@ function requestKey(
   return `${seed}|${operation.method}|${operation.path}|${ordered}`
 }
 
-function preferred(request: Request, key: string): string | undefined {
-  const header = request.headers.get('prefer')
-  if (header === null) return undefined
-  const matched = new RegExp(`${key}=([^;,\\s]+)`).exec(header)
-  return matched?.[1]
-}
-
-/**
- * Every configured target that matches, in declaration order.
- *
- * These are deliberately not merged into one config object. A broad target and
- * a specific one both setting `200.body` must layer — the specific one refining
- * the broad one's result — and merging with Object.assign would drop the broad
- * body entirely. Body overrides are instead applied in sequence below.
- */
-function matchingConfigs(
-  operation: Operation,
-  compiled: Array<{ matches(op: Operation): boolean; config: OperationConfig }>
-): OperationConfig[] {
-  return compiled
-    .filter((entry) => entry.matches(operation))
-    .map((entry) => entry.config)
-}
-
 export function createHandler(
   api: Api,
   options: HandlerOptions = {}
@@ -79,16 +57,38 @@ export function createHandler(
   const seed = options.seed ?? 'mockingham'
   const resolvers = compileResolvers(options.resolvers)
 
-  // Targets are validated here so a typo fails at construction rather than
-  // silently never firing.
-  const compiled = Object.entries(options.operations ?? {}).map(
-    ([target, config]) => {
-      resolveTarget(target, api.operations)
-      return { matches: compileTarget(target).matches, config }
-    }
-  )
+  const compiled = compileConfigs(options.operations, api.operations)
 
   const counters: Counters = createCounters()
+
+  const mode: ErrorBodyMode = options.errorBody ?? 'contract'
+
+  const fail = (
+    operation: Operation | undefined,
+    status: number,
+    code: string,
+    message: string,
+    key: string,
+    ctx?: unknown,
+    errors?: Array<{ path: string; message: string }>
+  ): Promise<Response> =>
+    buildError({
+      operation,
+      status,
+      code,
+      message,
+      errors,
+      mode,
+      ctx,
+      rng: createRng(`${key}|error|${status}`),
+      generateOptions: {
+        maxDepth: options.maxDepth,
+        preferExamples: options.preferExamples,
+        resolvers,
+        schemaNames: api.schemaNames
+      },
+      debugHeaders: options.debugHeaders
+    })
 
   async function run(request: Request): Promise<Response> {
     // Stage 1 — route match.
@@ -103,74 +103,33 @@ export function createHandler(
           headers: { allow: allowed.join(', ') }
         })
       }
-      return Response.json(
-        {
-          error: {
-            code: 'MOCK_NOT_FOUND',
-            message: `No operation for ${url.pathname}`
-          }
-        },
-        { status: 404 }
-      )
+      return await fail(undefined, 404, 'MOCK_NOT_FOUND', `No operation for ${url.pathname}`, seed)
     }
 
     const { operation, params } = matched
-    const configs = matchingConfigs(operation, compiled)
-
-    // For the scalar settings, the last matching config that defines one wins.
-    let staticStatus: number | undefined
-    let respond: OperationConfig['respond']
-    for (const entry of configs) {
-      if (entry.status !== undefined) staticStatus = entry.status
-      if (entry.respond !== undefined) respond = entry.respond
-    }
+    const config = resolveConfigs(operation, compiled)
 
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
-      return Response.json(
-        { error: { code: parsed.code, message: parsed.message } },
-        { status: parsed.status }
-      )
+      return await fail(operation, parsed.status, parsed.code, parsed.message, requestKey(operation, params, seed))
     }
 
-    // Stages 3, 4, 5, and 6 (auth, validation, idempotency, failure) arrive
-    // with plans 3 and 4.
+    // Stages 3 and 4 (auth, validation) are built below, once ctx exists.
+    // Stages 5 and 6 (idempotency, failure) arrive with plan 4.
 
-    // Stage 7 — status selection.
+    // Stage 7 — status selection. The selection itself has to happen here
+    // because the ctx helpers below close over it, but its 501 is DEFERRED
+    // until after the stages: reporting "declares no responses" above stage 3
+    // would tell an unauthenticated caller which operations exist and what
+    // they look like. Until then `selected` is allowed to stay undefined and
+    // the generate/example helpers simply have nothing to offer.
     const key = requestKey(operation, params, seed)
-    const wanted = preferred(request, 'status')
     const exampleName = preferred(request, 'example')
+    const selected = selectResponse(operation, request, config.status)
 
-    let source = 'default'
-    let spec: ResponseSpec | undefined
-    if (wanted !== undefined) {
-      spec = operation.responses.find((r) => r.status === Number.parseInt(wanted, 10))
-      if (spec) source = 'prefer'
-    }
-    if (!spec && staticStatus !== undefined) {
-      spec = operation.responses.find((r) => r.status === staticStatus)
-      if (spec) source = 'config'
-    }
-    if (!spec) {
-      spec =
-        operation.responses.find((r) => r.status >= 200 && r.status < 300) ??
-        operation.responses[0]
-    }
-
-    if (!spec) {
-      return Response.json(
-        {
-          error: {
-            code: 'MOCK_NO_RESPONSE',
-            message: `Operation ${operation.method} ${operation.path} declares no responses`
-          }
-        },
-        { status: 501 }
-      )
-    }
-
-    const chosen = spec
+    const chosen = selected?.spec
+    const source = selected?.source ?? 'default'
     const generateOptions: GenerateOptions = {
       maxDepth: options.maxDepth,
       preferExamples: options.preferExamples,
@@ -184,7 +143,8 @@ export function createHandler(
       operation.responses.find((r) => r.status === status)?.content[JSON_TYPE]
 
     const generateFor = (status?: number): unknown => {
-      const target = status === undefined ? chosen.status : status
+      const target = status === undefined ? chosen?.status : status
+      if (target === undefined) return undefined
       const media = mediaFor(target)
       if (!media) return undefined
       return generateValue(media.schema, rngFor(String(target)), {
@@ -194,7 +154,9 @@ export function createHandler(
     }
 
     const exampleFor = (status?: number, name?: string): unknown => {
-      const media = mediaFor(status === undefined ? chosen.status : status)
+      const target = status === undefined ? chosen?.status : status
+      if (target === undefined) return undefined
+      const media = mediaFor(target)
       if (!media) return undefined
       if (name === undefined) return media.example
       return media.examples?.[name]?.value
@@ -213,74 +175,96 @@ export function createHandler(
       example: exampleFor
     })
 
+    // Stages 3 through 6. Auth runs before validation so an unauthenticated
+    // caller cannot learn whether their body was well-formed; idempotency and
+    // failure policy arrive in plan 4. Each stage may return a Response to
+    // short-circuit the rest.
+    const stages: Stage[] = []
+
+    // Stage 3 — auth.
+    stages.push(async (current) => {
+      const outcome = await checkAuth({
+        security: operation.security,
+        schemes: api.securitySchemes,
+        config: options.auth ?? {},
+        ctx: current
+      })
+      if (outcome.ok) {
+        current.auth = outcome.principal
+        return undefined
+      }
+      if (outcome.response) return outcome.response
+      return await fail(
+        operation, outcome.status, outcome.code, outcome.message, key, current
+      )
+    })
+
+    // Stage 4 — request validation.
+    if (options.validateRequests !== false) {
+      stages.push(async (current) => {
+        const result = validateRequest(current, operation)
+        if (result.ok) return undefined
+        return await fail(
+          operation,
+          400,
+          'MOCK_REQUEST_INVALID',
+          'Request does not match the declared schema',
+          key,
+          current,
+          result.errors
+        )
+      })
+    }
+
+    for (const stage of stages) {
+      const short = await stage(ctx)
+      if (short) return short
+    }
+
+    // The deferred stage-7 failure, now that auth and validation have had their
+    // say. An unauthenticated caller never reaches this line.
+    if (!chosen) {
+      return await fail(
+        operation,
+        501,
+        'MOCK_NO_RESPONSE',
+        `Operation ${operation.method} ${operation.path} declares no responses`,
+        key,
+        ctx
+      )
+    }
+
     // Stage 10 — the full response callback replaces stages 7 through 10.
     // It runs after ctx exists so the callback can reach ctx.generate and
     // ctx.example, both of which are bound to the selected response.
-    if (respond) {
-      return await respond(ctx)
-    }
-
-    // Stage 8 — generate the body.
-    // Collect this status's overrides across every matching config. Bodies stay
-    // a list so they layer; headers are flat, so a shallow merge in declaration
-    // order is already the right precedence.
-    const bodyOverrides: OverrideNode[] = []
-    let headerOverrides: Record<string, OverrideNode> = {}
-    for (const entry of configs) {
-      const forStatus = entry[chosen.status]
-      if (forStatus === undefined) continue
-      if (forStatus.body !== undefined) bodyOverrides.push(forStatus.body)
-      if (forStatus.headers) {
-        headerOverrides = { ...headerOverrides, ...forStatus.headers }
+    if (config.respond) {
+      try {
+        return await config.respond(ctx)
+      } catch (error) {
+        throw markCallback(error)
       }
     }
 
-    const headers = await buildHeaders({
-      spec: chosen,
+    return await renderResponse({
+      ctx,
+      chosen,
+      bodyOverrides: config.bodies(chosen.status),
+      headerOverrides: config.headers(chosen.status),
       globals: options.headers,
       resolvers,
-      overrides: headerOverrides,
-      ctx,
-      rngFor: (name) => rngFor(`header|${name}`),
-      generateOptions: { ...generateOptions, ctx }
+      rngFor,
+      generateOptions,
+      exampleName,
+      generate: generateFor,
+      example: exampleFor,
+      debug: options.debugHeaders
+        ? {
+            seed: String(fnv1a(key)),
+            source,
+            operationId: operation.operationId
+          }
+        : undefined
     })
-
-    if (options.debugHeaders) {
-      headers.set('x-mock-seed', String(fnv1a(key)))
-      headers.set('x-mock-status-source', source)
-      if (operation.operationId) {
-        headers.set('x-mock-operation', operation.operationId)
-      }
-    }
-
-    let body: unknown
-    if (exampleName !== undefined) {
-      body = exampleFor(chosen.status, exampleName)
-    }
-    // Deliberately the same call ctx.generate(status) makes, rather than a
-    // second copy of it — a response callback and the pipeline must never
-    // produce different bodies for the same status.
-    if (body === undefined) body = generateFor(chosen.status)
-
-    // Stage 9 — apply the override layers, broad targets first so specific ones
-    // refine their result rather than replacing it.
-    if (bodyOverrides.length === 0) {
-      // Still worth one pass: resolvers may have left promises in the tree.
-      if (body !== undefined) body = await applyOverrides(body, undefined, ctx)
-    } else {
-      for (const override of bodyOverrides) {
-        body = await applyOverrides(body, override, ctx)
-      }
-    }
-
-    if (body === undefined) {
-      return new Response(null, { status: chosen.status, headers })
-    }
-
-    // Layer 5 — transport headers, applied last so nothing can override them.
-    // Content-Length is left to Response, per design amendment 1.4.
-    headers.set('content-type', JSON_TYPE)
-    return new Response(JSON.stringify(body), { status: chosen.status, headers })
   }
 
   /**
@@ -301,10 +285,8 @@ export function createHandler(
         // Header values cannot carry line breaks, and a thrown message might.
         headers.set('x-mock-error', message.replace(/[\r\n]+/g, ' '))
       }
-      return Response.json(
-        { error: { code: 'MOCK_CALLBACK_FAILED', message } },
-        { status: 500, headers }
-      )
+      const code = isCallbackError(error) ? 'MOCK_CALLBACK_FAILED' : 'MOCK_INTERNAL'
+      return Response.json(envelope(code, message), { status: 500, headers })
     }
   }
 }

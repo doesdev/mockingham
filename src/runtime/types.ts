@@ -1,13 +1,15 @@
 import type { Operation } from '../spec/types.ts'
 import type { Rng } from '../generate/rng.ts'
+import type { Principal } from './auth.ts'
 
 /**
  * The value handed to every user callback: resolvers, override functions, and
  * full response callbacks.
  *
- * `auth`, `store`, `schema.*`, and `deny()` are specified in the master spec §4
- * and arrive with plans 3 and 4. `seq` is synchronous by design decision 1.2 —
- * it is per-instance identity, not shared state.
+ * `auth` and `deny()` are specified in the master spec §4 and are set by the
+ * auth pipeline stage. `store` and `schema.*` are also specified there and
+ * still arrive with plan 4. `seq` is synchronous by design decision 1.2 — it
+ * is per-instance identity, not shared state.
  */
 export interface Ctx {
   req: Request
@@ -29,6 +31,8 @@ export interface Ctx {
   respond(
     status: number, body?: unknown, headers?: Record<string, string>
   ): Promise<Response>
+  auth?: Principal
+  deny(status: number, code?: string): Response
 }
 
 /** A resolver or override leaf. May return a value or a promise of one. */
@@ -47,3 +51,9 @@ export interface Resolvers {
  * existing index of an array or key of an object.
  */
 export type OverrideNode = unknown
+
+/**
+ * One pipeline stage. Returning a `Response` short-circuits the pipeline;
+ * returning `undefined` continues to the next stage.
+ */
+export type Stage = (ctx: Ctx) => Promise<Response | undefined>

@@ -3,7 +3,9 @@ import type { Rng } from '../generate/rng.ts'
 import type { GenerateOptions } from '../generate/generate.ts'
 import { generateValue } from '../generate/generate.ts'
 import type { ResolverLookup } from '../resolve/resolvers.ts'
+import { applyOverrides } from '../resolve/layer.ts'
 import type { OverrideNode } from './types.ts'
+import { markCallback } from './errors.ts'
 
 export interface HeaderInput {
   spec: ResponseSpec
@@ -16,9 +18,12 @@ export interface HeaderInput {
 }
 
 function evaluate(node: OverrideNode, ctx: unknown): unknown {
-  return typeof node === 'function'
-    ? (node as (context: unknown) => unknown)(ctx)
-    : node
+  if (typeof node !== 'function') return node
+  try {
+    return (node as (context: unknown) => unknown)(ctx)
+  } catch (error) {
+    throw markCallback(error)
+  }
 }
 
 /**
@@ -60,13 +65,17 @@ export async function buildHeaders(input: HeaderInput): Promise<Headers> {
     values[name.toLowerCase()] = evaluate(node, input.ctx)
   }
 
-  const names = Object.keys(values)
-  const settled = await Promise.all(names.map((name) => values[name]))
+  // Settled through the same pass bodies use, so a header override returning a
+  // promise-of-a-promise behaves identically to a body override that does.
+  const settled = (await applyOverrides(values, undefined, input.ctx)) as Record<
+    string,
+    unknown
+  >
 
   const headers = new Headers()
-  names.forEach((name, index) => {
-    const value = settled[index]
+  for (const name of Object.keys(settled)) {
+    const value = settled[name]
     if (value !== null && value !== undefined) headers.set(name, String(value))
-  })
+  }
   return headers
 }

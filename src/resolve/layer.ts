@@ -1,4 +1,5 @@
 import type { OverrideNode } from '../runtime/types.ts'
+import { markCallback } from '../runtime/errors.ts'
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -14,7 +15,12 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function overlay(base: unknown, node: OverrideNode, ctx: unknown): unknown {
   if (node === undefined) return base
   if (typeof node === 'function') {
-    return (node as (context: unknown) => unknown)(ctx)
+    try {
+      return (node as (context: unknown) => unknown)(ctx)
+    } catch (error) {
+      // Tagged so the boundary catch can tell a user's throw from our own bug.
+      throw markCallback(error)
+    }
   }
 
   if (isPlainObject(node)) {
@@ -113,7 +119,12 @@ async function settle(root: unknown): Promise<unknown> {
     })
 
     if (slots.length === 0) return result
-    const settled = await Promise.all(slots.map((slot) => slot.promise))
+    let settled: unknown[]
+    try {
+      settled = await Promise.all(slots.map((slot) => slot.promise))
+    } catch (error) {
+      throw markCallback(error)
+    }
     slots.forEach((slot, index) => slot.assign(settled[index]))
   }
 }

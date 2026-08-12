@@ -664,11 +664,14 @@ test('a promise left in the generated tree is settled', async () => {
 Append to `test/runtime/headers.test.ts`:
 
 ```ts
-test('a header override resolving to a further promise is settled', async () => {
-  // headers.ts settles through resolve/layer.ts, so nested pending values
-  // behave the same in headers as in bodies.
-  const headers = await build({ 'x-nested': async () => Promise.resolve('deep') })
-  assert.equal(headers.get('x-nested'), 'deep')
+test('a pending value inside a header array is settled', async () => {
+  // The distinguishing case for settling through resolve/layer.ts: a one-level
+  // Promise.all leaves the inner promise untouched inside the array, which
+  // stringifies to 'a,[object Promise]'. Do NOT weaken this to
+  // `async () => Promise.resolve(x)` — JS auto-flattens that, and the test then
+  // passes against the very implementation it exists to rule out.
+  const headers = await build({ 'x-list': ['a', Promise.resolve('b')] })
+  assert.equal(headers.get('x-list'), 'a,b')
 })
 ```
 
@@ -799,14 +802,17 @@ keeps the single-batch property the previous code had.
 
 - [ ] **Step 5: Rewire `src/server/handler.ts`**
 
-Delete from `handler.ts`: the `JSON_TYPE` constant, the `buildHeaders` and
-`applyOverrides` imports, the header-building block, the debug-header block, the
+Delete from `handler.ts`: the `buildHeaders` and `applyOverrides` imports, the header-building block, the debug-header block, the
 body-generation block, the override-application block, and both `Response`
 returns at the end of `run`. Add:
 
 ```ts
 import { renderResponse } from '../runtime/render.ts'
 ```
+
+**Keep the `JSON_TYPE` constant.** The `mediaFor` helper still reads
+`.content[JSON_TYPE]` and is not part of the moved rendering, so removing the
+constant would not compile.
 
 Replace all of it with:
 
@@ -1026,6 +1032,31 @@ function evaluate(node: OverrideNode, ctx: unknown): unknown {
   }
 }
 ```
+
+**Resolvers are user callbacks too**, and this is the site most easily missed.
+In `src/resolve/resolvers.ts`, import `markCallback` from `../runtime/errors.ts`
+and route all FOUR user-function invocations through one helper — the `bySchema`,
+`byName`, and `byFormat` branches of `resolve()`, plus the one in
+`resolveHeader()`:
+
+```ts
+function callResolver(fn: Resolver, request: Ctx): unknown {
+  try {
+    return fn(request)
+  } catch (error) {
+    // A resolver is a user callback like any override, so the boundary must be
+    // able to tell its failure from a defect in mockingham's own code.
+    throw markCallback(error)
+  }
+}
+```
+
+Note the asymmetry that hides this: an ASYNC resolver that rejects is already
+covered, because its promise lands in the generated tree and is settled by
+`settle`'s tagged `Promise.all`. Only the synchronous throw is mislabeled.
+
+The import chain `resolvers.ts` → `errors.ts` does not cycle: `generate.ts`
+imports `ResolverLookup` from `resolvers.ts` type-only, which is erased.
 
 - [ ] **Step 5: Add the `Stage` type**
 
@@ -1628,10 +1659,106 @@ export function compileSchema(schema: Schema): ZodType {
 }
 ```
 
+> **CORRECTIONS FOUND DURING IMPLEMENTATION.** The Step 3 code above is wrong in
+> three places, each confirmed empirically against the installed zod 4.4.3. Apply
+> these; do not implement Step 3 as written.
+>
+> **1. The `z.discriminatedUnion` try/catch is dead code.** zod 4 does not throw
+> at construction for malformed variants — it defers validation to first parse,
+> so the throw lands outside the `try` and crashes at request time. Replace the
+> try/catch with a construction-time pre-check, and add the helper:
+>
+> ```ts
+> function usable(variant: Schema, key: string): boolean {
+>   const kind = classify(variant)
+>   if (kind.kind !== 'object') return false
+>   const property = kind.properties[key]
+>   if (property === undefined) return false
+>   const discriminator = classify(property)
+>   // zod 4 requires a discriminator whose compiled schema exposes literal
+>   // values; `const` and `enum` are exactly the two that do.
+>   return discriminator.kind === 'const' || discriminator.kind === 'enum'
+> }
+> ```
+>
+> ```ts
+>       case 'union': {
+>         const variants = kind.variants.map((variant) => compile(variant))
+>         const key = kind.discriminator
+>         if (key !== undefined && kind.variants.every((v) => usable(v, key))) {
+>           return z.discriminatedUnion(key, variants as never) as ZodType
+>         }
+>         return z.union(variants as never) as ZodType
+>       }
+> ```
+>
+> **2. `allOf`-nested constraints are dropped — in TWO files.** `build` passes the
+> un-merged `schema` to the constraint helpers, so `{ allOf: [{ type: 'string',
+> minLength: 5 }] }` accepts `'ab'`. Import `mergeAllOf` from `./walk.ts`, compute
+> `const merged = mergeAllOf(schema)` once at the top of `build`, and pass
+> `merged` to every constraint read.
+>
+> `src/generate/generate.ts` has the identical blind spot and MUST be fixed in the
+> same task: compute the merged schema in `walk` and pass it to `generateString`,
+> `generateInteger`, `generateNumber`, and `arrayLength`, leaving the
+> `example`/`default` reads on the original node. Fixing only the compiler would
+> make validation stricter than generation, so mockingham could generate a value
+> its own validator rejects — the exact drift invariant 1 exists to prevent.
+>
+> **3. `build()` needs a `try/finally`.** If it throws (an invalid `pattern`
+> reaching `new RegExp` is the realistic case), `active.delete(schema)` never
+> runs and that schema is stuck active forever, so later references resolve to
+> `z.lazy(() => cache.get(schema) ?? z.unknown())` with a cache entry that can
+> never be set — silently accepting anything:
+>
+> ```ts
+>     active.add(schema)
+>     let built: ZodType
+>     try {
+>       built = build(schema)
+>     } finally {
+>       active.delete(schema)
+>     }
+> ```
+>
+> **4. Add these tests.** The `allOf` ones must wrap a PRIMITIVE — object-level
+> `allOf` is flattened by `classify()` and does NOT reproduce the bug, so a test
+> using it passes against the broken implementation:
+>
+> ```ts
+> test('honors a constraint declared inside allOf', () => {
+>   assert.equal(parse({ allOf: [{ type: 'string', minLength: 5 }] }, 'ab').success, false)
+>   assert.equal(parse({ allOf: [{ type: 'string', minLength: 5 }] }, 'abcdef').success, true)
+> })
+>
+> test('honors a numeric constraint declared inside allOf', () => {
+>   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 7).success, false)
+>   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 42).success, true)
+> })
+>
+> test('honors the 3.0 boolean spelling of exclusive bounds', () => {
+>   assert.equal(parse({ type: 'integer', minimum: 5, exclusiveMinimum: true }, 5).success, false)
+>   assert.equal(parse({ type: 'integer', minimum: 5, exclusiveMinimum: true }, 6).success, true)
+>   assert.equal(parse({ type: 'integer', maximum: 5, exclusiveMaximum: true }, 5).success, false)
+> })
+> ```
+>
+> and in `test/generate/generate.test.ts`, guarding the generation half — the
+> bound is far outside the default 5-to-12 range so it cannot pass by luck:
+>
+> ```ts
+> test('honors a length constraint declared inside allOf', () => {
+>   const value = generateValue(
+>     { allOf: [{ type: 'string', minLength: 40 }] }, createRng('allof'), {}
+>   ) as string
+>   assert.ok(value.length >= 40, `expected at least 40 characters, got ${value.length}`)
+> })
+> ```
+
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `node --test test/schema/compile.test.ts`
-Expected: PASS, 15 tests.
+Run: `node --test test/schema/compile.test.ts test/generate/generate.test.ts`
+Expected: PASS, 19 compile tests and the generate suite plus its new one.
 
 - [ ] **Step 5: Run the whole suite, typecheck, commit**
 
@@ -1883,10 +2010,16 @@ export async function buildError(input: ErrorInput): Promise<Response> {
 
   const headers = new Headers()
   if (input.debugHeaders) {
-    headers.set(
-      'x-mock-error',
-      `${input.code}: ${input.message}`.replace(/[\r\n]+/g, ' ')
-    )
+    // The flattened failure list goes HERE, not into the body. In contract mode
+    // the body comes from the document's own error schema, and adding an
+    // `errors` key to it would violate the very schema the client was told to
+    // expect — which is what contract mode exists to preserve. One line, because
+    // header values cannot carry line breaks.
+    const detail = input.errors?.length
+      ? `${input.code}: ${input.message}; ` +
+        input.errors.map((entry) => `${entry.path}: ${entry.message}`).join('; ')
+      : `${input.code}: ${input.message}`
+    headers.set('x-mock-error', detail.replace(/[\r\n]+/g, ' '))
   }
 
   if (typeof input.mode === 'function') {

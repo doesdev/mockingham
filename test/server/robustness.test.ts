@@ -106,3 +106,69 @@ test('a star override function receives each existing value', async () => {
     id: 'string', name: 'string', email: 'string', tag: 'string'
   })
 })
+
+test('an internal failure is not reported as a callback failure', async () => {
+  // A generate hook that throws is mockingham's own code path, not a user
+  // callback, so it must not be labeled MOCK_CALLBACK_FAILED.
+  const broken = loadApi(petstore)
+  const target = broken.operations.find((o) => o.operationId === 'showPetById')
+  // A schema whose `properties` is a primitive makes classify/generate throw.
+  ;(target as any).responses[0].content['application/json'].schema = {
+    get type(): string { throw new Error('internal boom') }
+  }
+  const handle = createHandler(broken, { seed: 'internal' })
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  const body = (await response.json()) as any
+  assert.equal(body.error.code, 'MOCK_INTERNAL')
+})
+
+test('a synchronously throwing resolver is a callback failure', async () => {
+  const handle = createHandler(loadApi(petstore), {
+    seed: 'resolver-throw',
+    resolvers: { byName: [['name', () => { throw new Error('resolver boom') }]] }
+  })
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  const body = (await response.json()) as any
+  assert.equal(body.error.code, 'MOCK_CALLBACK_FAILED')
+  assert.match(body.error.message, /resolver boom/)
+})
+
+test('a throwing auth verify is a callback failure', async () => {
+  const doc = {
+    openapi: '3.1.0',
+    paths: { '/g': { get: { operationId: 'g', security: [{ b: [] }], responses: { '200': { description: 'ok' } } } } },
+    components: { securitySchemes: { b: { type: 'http', scheme: 'bearer' } } }
+  }
+  const handle = createHandler(loadApi(doc), {
+    seed: 'verify-throw',
+    auth: { b: { verify: () => { throw new Error('verify boom') } } }
+  })
+  const response = await handle(
+    new Request('http://mock/g', { headers: { authorization: 'Bearer x' } })
+  )
+  assert.equal(response.status, 500)
+  assert.equal(((await response.json()) as any).error.code, 'MOCK_CALLBACK_FAILED')
+})
+
+test('a throwing errorBody function is a callback failure', async () => {
+  const handle = createHandler(loadApi(petstore), {
+    seed: 'errorbody-throw',
+    errorBody: () => { throw new Error('errorBody boom') }
+  })
+  // /pets/abc fails validation, which routes through the error builder.
+  const response = await handle(new Request('http://mock/pets/abc'))
+  assert.equal(response.status, 500)
+  assert.equal(((await response.json()) as any).error.code, 'MOCK_CALLBACK_FAILED')
+})
+
+test('an async resolver that rejects is also a callback failure', async () => {
+  const handle = createHandler(loadApi(petstore), {
+    seed: 'resolver-reject',
+    resolvers: { byName: [['name', async () => { throw new Error('async boom') }]] }
+  })
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  assert.equal(((await response.json()) as any).error.code, 'MOCK_CALLBACK_FAILED')
+})
