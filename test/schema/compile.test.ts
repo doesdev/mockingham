@@ -142,7 +142,12 @@ test('a discriminated union with a variant missing the key falls back instead of
   const schema: Schema = {
     oneOf: [
       { type: 'object', required: ['kind'], properties: { kind: { const: 'a' }, a: { type: 'string' } } },
-      { type: 'object', properties: { b: { type: 'integer' } } }
+      // `required: ['b']` is what keeps this variant mutually exclusive with
+      // the first under the exactly-one check below — without it, this is a
+      // loose object that matches everything, and the two assertions after
+      // doesNotThrow would fail for the same reason oneOf now rejects an
+      // ambiguous payload. Do not simplify this away.
+      { type: 'object', required: ['b'], properties: { b: { type: 'integer' } } }
     ],
     discriminator: { propertyName: 'kind' }
   }
@@ -150,6 +155,20 @@ test('a discriminated union with a variant missing the key falls back instead of
   assert.doesNotThrow(() => compiled.safeParse({ kind: 'a', a: 'x' }))
   assert.equal(compiled.safeParse({ kind: 'a', a: 'x' }).success, true)
   assert.equal(compiled.safeParse({ b: 1 }).success, true)
+})
+
+test('oneOf rejects a value matching more than one variant', () => {
+  // Two loose object variants overlap: a value satisfying both is ambiguous, and
+  // oneOf means EXACTLY one. This is stricter than the old union compilation and
+  // is the behavior classify's `mode` field exists to express.
+  const schema: Schema = {
+    oneOf: [
+      { type: 'object', properties: { a: { type: 'string' } } },
+      { type: 'object', properties: { b: { type: 'integer' } } }
+    ]
+  }
+  assert.equal(parse(schema, { a: 'x', b: 1 }).success, false)
+  assert.equal(parse(schema, { a: 'x' }).success, false)
 })
 
 test('honors the 3.0 boolean spelling of exclusive bounds', () => {
