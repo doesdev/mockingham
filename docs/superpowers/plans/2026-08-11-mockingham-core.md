@@ -889,6 +889,20 @@ function compareScore(a: Route, b: Route): number {
   return 0
 }
 
+/**
+ * `decodeURIComponent` throws a `URIError` on a malformed escape such as `%`
+ * or `%zz`. Path segments come straight off the wire, so a client could
+ * otherwise crash route matching with `GET /pets/%`. An undecodable segment is
+ * treated as a non-match, which surfaces as a 404 rather than an exception.
+ */
+function decodeSegment(part: string): string | undefined {
+  try {
+    return decodeURIComponent(part)
+  } catch {
+    return undefined
+  }
+}
+
 function matchSegments(
   route: Route,
   parts: string[]
@@ -898,8 +912,11 @@ function matchSegments(
   for (let i = 0; i < route.segments.length; i++) {
     const segment = route.segments[i] as Segment
     const part = parts[i] as string
-    if (segment.dynamic) params[segment.value] = decodeURIComponent(part)
-    else if (segment.value !== part) return undefined
+    if (segment.dynamic) {
+      const decoded = decodeSegment(part)
+      if (decoded === undefined) return undefined
+      params[segment.value] = decoded
+    } else if (segment.value !== part) return undefined
   }
   return params
 }
@@ -1063,8 +1080,15 @@ export function createRng(seed: number | string): Rng {
   return {
     next,
     int: (min, max) => min + Math.floor(next() * (max - min + 1)),
-    pick: <T,>(items: readonly T[]): T =>
-      items[Math.floor(next() * items.length)] as T,
+    pick: <T,>(items: readonly T[]): T => {
+      // The signature promises a T. Returning `items[0]` of an empty array
+      // would hand back `undefined` wearing a T's type, which surfaces far
+      // from the cause. Fail loudly at the call site instead.
+      if (items.length === 0) {
+        throw new Error('mockingham: cannot pick from an empty array')
+      }
+      return items[Math.floor(next() * items.length)] as T
+    },
     bool: () => next() < 0.5
   }
 }
@@ -1228,7 +1252,12 @@ export type SchemaKind =
   | { kind: 'null' }
   | { kind: 'enum'; values: unknown[] }
   | { kind: 'const'; value: unknown }
-  | { kind: 'union'; variants: Schema[]; discriminator?: string }
+  | {
+      kind: 'union'
+      variants: Schema[]
+      mode: 'one' | 'any'
+      discriminator?: string
+    }
   | { kind: 'unknown' }
 
 function typeNames(schema: Schema): string[] {
@@ -1241,33 +1270,59 @@ export function isNullable(schema: Schema): boolean {
   return schema.nullable === true || typeNames(schema).includes('null')
 }
 
+/**
+ * Flattens `allOf` composition into a single schema.
+ *
+ * One precedence rule, applied to every keyword alike: `allOf` members are
+ * merged in declaration order so a later member overrides an earlier one, and
+ * the outer schema's own keywords then override all members. `properties` and
+ * `required` accumulate instead of replacing — properties union with the outer
+ * schema winning a key collision, required is a plain union.
+ *
+ * Every keyword is carried through, not just the structural ones. A constraint
+ * that lives only on an `allOf` member (`minLength`, `pattern`, `format`,
+ * `multipleOf`, …) must survive, or generation and validation would both
+ * silently ignore it.
+ */
 export function mergeAllOf(schema: Schema): Schema {
   if (!schema.allOf || schema.allOf.length === 0) return schema
 
-  const merged: Schema = { ...schema }
-  delete merged.allOf
+  const own: Record<string, unknown> = { ...schema }
+  delete own['allOf']
 
-  const properties: Record<string, Schema> = { ...(schema.properties ?? {}) }
-  const required = new Set<string>(schema.required ?? [])
+  const merged: Record<string, unknown> = {}
+  const properties: Record<string, Schema> = {}
+  const required = new Set<string>()
+
+  const absorb = (source: Record<string, unknown>): void => {
+    for (const [key, value] of Object.entries(source)) {
+      if (key === 'properties' || key === 'required') continue
+      merged[key] = value
+    }
+    const sourceProps = source['properties'] as
+      | Record<string, Schema>
+      | undefined
+    for (const [name, prop] of Object.entries(sourceProps ?? {})) {
+      properties[name] = prop
+    }
+    for (const name of (source['required'] as string[] | undefined) ?? []) {
+      required.add(name)
+    }
+  }
 
   for (const part of schema.allOf) {
-    const resolved = mergeAllOf(part)
-    if (resolved.type !== undefined && merged.type === undefined) {
-      merged.type = resolved.type
-    }
-    for (const [key, value] of Object.entries(resolved.properties ?? {})) {
-      properties[key] = value
-    }
-    for (const name of resolved.required ?? []) required.add(name)
+    absorb(mergeAllOf(part) as unknown as Record<string, unknown>)
   }
+  absorb(own)
 
+  const result = merged as Schema
   if (Object.keys(properties).length > 0) {
-    merged.properties = properties
-    if (merged.type === undefined) merged.type = 'object'
+    result.properties = properties
+    if (result.type === undefined) result.type = 'object'
   }
-  if (required.size > 0) merged.required = [...required]
+  if (required.size > 0) result.required = [...required]
 
-  return merged
+  return result
 }
 
 export function classify(input: Schema): SchemaKind {
@@ -1278,11 +1333,15 @@ export function classify(input: Schema): SchemaKind {
     return { kind: 'enum', values: schema.enum }
   }
 
+  // oneOf and anyOf differ: oneOf must match exactly one variant, anyOf at
+  // least one. Only this module can preserve the distinction, so `mode` carries
+  // it — a validator built on `classify` cannot recover it any other way.
   const variants = schema.oneOf ?? schema.anyOf
   if (Array.isArray(variants) && variants.length > 0) {
     return {
       kind: 'union',
       variants,
+      mode: schema.oneOf ? 'one' : 'any',
       discriminator: schema.discriminator?.propertyName
     }
   }
@@ -1427,13 +1486,18 @@ export function numberBounds(schema: Schema): { min: number; max: number } {
   let min = schema.minimum ?? DEFAULT_NUMBER_MIN
   let max = schema.maximum ?? DEFAULT_NUMBER_MAX
 
-  if (typeof schema.exclusiveMinimum === 'number') min = schema.exclusiveMinimum + 1
-  else if (schema.exclusiveMinimum === true && schema.minimum !== undefined) {
+  // A numeric exclusive bound (3.1) and a plain bound may both be present, and
+  // both must hold — so take whichever is tighter rather than letting the last
+  // branch win. The boolean form (3.0) only modifies its own plain bound.
+  if (typeof schema.exclusiveMinimum === 'number') {
+    min = Math.max(min, schema.exclusiveMinimum + 1)
+  } else if (schema.exclusiveMinimum === true && schema.minimum !== undefined) {
     min = schema.minimum + 1
   }
 
-  if (typeof schema.exclusiveMaximum === 'number') max = schema.exclusiveMaximum - 1
-  else if (schema.exclusiveMaximum === true && schema.maximum !== undefined) {
+  if (typeof schema.exclusiveMaximum === 'number') {
+    max = Math.min(max, schema.exclusiveMaximum - 1)
+  } else if (schema.exclusiveMaximum === true && schema.maximum !== undefined) {
     max = schema.maximum - 1
   }
 
@@ -1446,20 +1510,34 @@ export function applyMultipleOf(value: number, schema: Schema): number {
   if (step === undefined || step <= 0) return value
   const { min, max } = numberBounds(schema)
   const snapped = Math.floor(value / step) * step
-  if (snapped >= min) return snapped
+  if (snapped >= min && snapped <= max) return snapped
   const raised = Math.ceil(min / step) * step
-  return raised <= max ? raised : snapped
+  if (raised <= max) return raised
+  // No multiple of `step` exists anywhere in [min, max]. Staying inside the
+  // declared range matters more than the multiple, so the bounds win.
+  return min
 }
 
+/**
+ * Resolves an optional min/max pair against defaults, guaranteeing `max >= min`.
+ *
+ * An explicitly declared bound is never violated. When only one is given, the
+ * default on the other side yields to it — including when a lone `max` sits
+ * below the default minimum, which is the case that silently corrupted output
+ * before: `maxLength: 2` must not resolve to a minimum of 5.
+ */
 function bounded(
   min: number | undefined,
   max: number | undefined,
   fallbackMin: number,
   fallbackMax: number
 ): { min: number; max: number } {
-  const low = min ?? fallbackMin
-  const high = max ?? Math.max(fallbackMax, low)
-  return { min: low, max: high < low ? low : high }
+  if (min !== undefined && max !== undefined) {
+    return { min, max: max < min ? min : max }
+  }
+  if (min !== undefined) return { min, max: Math.max(fallbackMax, min) }
+  if (max !== undefined) return { min: Math.min(fallbackMin, max), max }
+  return { min: fallbackMin, max: fallbackMax }
 }
 
 export function stringLength(schema: Schema): { min: number; max: number } {
