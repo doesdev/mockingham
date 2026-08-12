@@ -12,6 +12,7 @@ this file is only the operating manual.
 npm test                 # node --test — runs .ts tests directly, no build
 npx tsc --noEmit         # typecheck
 node --test test/spec/   # scope tests to one directory
+node src/server/cli.ts docs/example.json --port 4000   # run the mock from a document
 ```
 
 ## Non-negotiable invariants

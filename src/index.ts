@@ -75,8 +75,9 @@ export function createMock(
     },
 
     async reset() {
-      handler.reset()
-      await handler.store.clear()
+      // Delegates wholly: the handler owns the store's lifecycle, and two
+      // surfaces each deciding what reset means is what deferred item 3 was.
+      await handler.reset()
     },
 
     store: handler.store,

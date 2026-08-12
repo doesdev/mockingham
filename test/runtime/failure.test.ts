@@ -17,7 +17,8 @@ const operation: Operation = {
  * policy that deliberately matches nothing, and compilePolicies throws on those.
  */
 function compile(policies: FailurePolicy[]) {
-  return policies.map((policy) => ({
+  return policies.map((policy, index) => ({
+    id: String(index),
     matches: compileTarget(policy.match).matches,
     policy
   }))
@@ -174,4 +175,102 @@ test('repeated identical calls do not all share one outcome', async () => {
   // Seeding per invocation rather than per request identity is what makes a
   // rate behave like a rate instead of a permanent verdict.
   assert.ok(new Set(results).size > 1)
+})
+
+test('the circuit counter decays after its window', async () => {
+  let value = 0
+  const store = createMemoryStore(() => value)
+  const policies: FailurePolicy[] = [
+    { match: 'x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 503, within: 500 } }
+  ]
+
+  const { args } = input({ policies, store, counter: () => 1 })
+  await checkFailure(args)
+  value += 600
+  // The first failure aged out of the window, so this one starts a new count
+  // and the circuit does not open.
+  await checkFailure(input({ policies, store, counter: () => 2 }).args)
+
+  assert.equal(await store.get('circuit-open|0|x'), undefined)
+  assert.equal(await store.get('circuit-count|0|x'), 1)
+})
+
+test('the circuit opens inside its window', async () => {
+  let value = 0
+  const store = createMemoryStore(() => value)
+  const policies: FailurePolicy[] = [
+    { match: 'x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 503, within: 500 } }
+  ]
+
+  await checkFailure(input({ policies, store, counter: () => 1 }).args)
+  value += 100
+  await checkFailure(input({ policies, store, counter: () => 2 }).args)
+
+  assert.equal(await store.get('circuit-open|0|x'), true)
+})
+
+test('within defaults to openFor', async () => {
+  let value = 0
+  const store = createMemoryStore(() => value)
+  const policies: FailurePolicy[] = [
+    { match: 'x', rate: 1, circuit: { after: 2, openFor: 400, then: 503 } }
+  ]
+
+  await checkFailure(input({ policies, store, counter: () => 1 }).args)
+  value += 500
+  await checkFailure(input({ policies, store, counter: () => 2 }).args)
+
+  assert.equal(await store.get('circuit-open|0|x'), undefined)
+})
+
+test('two policies matching one operation keep separate circuits', async () => {
+  const store = createMemoryStore()
+  // NOTE the second target's spelling. A bare '*' has no space in it, so
+  // `compileTarget` reads it as an operationId and it matches NOTHING — which
+  // would make the second assertion below pass for entirely the wrong reason.
+  // '* /x' is the match-any-method form. See src/resolve/target.ts.
+  const policies: FailurePolicy[] = [
+    { match: 'x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 503 } },
+    { match: '* /x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 504 } }
+  ]
+
+  await checkFailure(input({ policies, store, counter: () => 1 }).args)
+
+  // Both policies match this operation, but the first one fired and returned,
+  // so only its counter moved — and it moved under its OWN key. Sharing one key
+  // per operation is the bug: the second policy's failures would land on the
+  // first policy's counter and open a circuit neither policy asked for.
+  assert.equal(await store.get('circuit-count|0|x'), 1)
+  assert.equal(await store.get('circuit-count|1|x'), undefined)
+})
+
+test('one wildcard policy keeps separate circuits per operation', async () => {
+  const store = createMemoryStore()
+  const opA: Operation = {
+    method: 'get', path: '/a', operationId: 'a', parameters: [], responses: []
+  }
+  const opB: Operation = {
+    method: 'get', path: '/b', operationId: 'b', parameters: [], responses: []
+  }
+  const policies: FailurePolicy[] = [
+    { match: '* /**', rate: 1, circuit: { after: 5, openFor: 1_000, then: 503 } }
+  ]
+
+  await checkFailure(input({ policies, store, operation: opA, counter: () => 1 }).args)
+  await checkFailure(input({ policies, store, operation: opB, counter: () => 2 }).args)
+
+  // A single wildcard-target policy matches both operations, but each keeps its
+  // OWN counter — not one counter incremented twice. Sharing one counter per
+  // policy (ignoring the operation) is the regression this test guards: it
+  // would make ten unrelated endpoints trip one shared circuit together.
+  assert.equal(await store.get('circuit-count|0|a'), 1)
+  assert.equal(await store.get('circuit-count|0|b'), 1)
+})
+
+test('a bare star target matches nothing, so the fixture above is honest', () => {
+  // Guards the note above: if compileTarget ever started treating a bare '*' as
+  // a wildcard, the previous test would still pass but would stop proving what
+  // it claims. This is the canary for that.
+  assert.equal(compileTarget('*').matches(operation), false)
+  assert.equal(compileTarget('* /x').matches(operation), true)
 })

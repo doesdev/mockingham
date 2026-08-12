@@ -18,6 +18,7 @@ function build(url: string, init?: RequestInit) {
     body: undefined,
     rng: createRng('ctx'),
     requestKey: 'key',
+    requestId: 'test-id',
     counters: createCounters(),
     generate: () => ({ generated: true }),
     example: () => ({ example: true })

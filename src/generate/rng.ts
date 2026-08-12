@@ -14,6 +14,23 @@ export function fnv1a(input: string): number {
   return hash >>> 0
 }
 
+/**
+ * fnv1a over raw bytes. The idempotency fingerprint hashes the request body as
+ * it arrived rather than a re-serialization of the parsed value: re-serializing
+ * depends on key insertion order, so `{"a":1,"b":2}` and `{"b":2,"a":1}` would
+ * differ anyway — but only by accident, and a future canonicalization would
+ * silently change which requests conflict. Hashing bytes makes the rule
+ * explicit: byte-identical bodies replay, anything else conflicts.
+ */
+export function fnv1aBytes(bytes: Uint8Array): number {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= bytes[i] as number
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return hash >>> 0
+}
+
 export function createRng(seed: number | string): Rng {
   let state = (typeof seed === 'string' ? fnv1a(seed) : seed) >>> 0
 

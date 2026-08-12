@@ -1,6 +1,6 @@
 # mockingham Phases 7 and 9 Design
 
-**Status:** draft, awaiting approval.
+**Status:** approved; implemented by plan 5 (2026-08-12-mockingham-idempotency-logging.md).
 **Covers:** §18 phases 7 (Idempotency) and 9 (Logging and CLI) of
 `2026-08-11-mockingham-design.md`, which remains the master contract.
 
@@ -110,6 +110,52 @@ Stages currently return `Response | undefined` with no way to annotate anything.
 and keeps a stage's decision recorded even when it does not short-circuit — a
 validation that *passed* is as loggable as one that failed.
 
+### 2.6 An injected failure is never stored as an idempotency record
+
+§11 does not say whether a failed response becomes the record. Storing a
+chaos-injected 503 would make every retry replay that 503 until the TTL expired,
+which defeats the retry the idempotency key exists to make safe. The same is
+true of an injected 429 — the master spec's own canonical circuit example is
+`circuit: { after: 3, openFor: 10_000, then: 429 }`, and 429 is under 500.
+
+**The line is "did the mock invent this failure," not a status threshold.**
+Stage 11 checks `trace.ctx?.decisions.failure === 'injected'` — set by the
+failure stage on both the pass and the fail path (§2.5) — alongside `status >=
+500`. Either one deletes the in-flight marker instead of storing, so the retry
+re-runs the operation. A genuine 4xx that the operation itself answered with
+(not one the mock injected) IS stored: a client error is a real answer to the
+key, and the caller resending the same key deserves the same answer. A first
+pass at this rule used `status >= 500` alone, which correctly excludes a
+chaos-injected 503 but not a chaos-injected 429 — the whole-branch review
+caught that an injected sub-500 status was still being stored and replayed for
+the full TTL, exactly what this section exists to prevent.
+
+### 2.7 `bodyHash` is compared, not keyed
+
+§11 gives `scope: ['key', 'route', 'bodyHash']` as the default **and** specifies a
+409 for "same key, different body fingerprint". Both cannot hold: with the
+fingerprint in the storage key, a different body computes a different key, the
+lookup misses, the request is treated as a first request, and
+`MOCK_IDEMPOTENCY_MISMATCH` is unreachable under its own default.
+
+**The storage key is composed from `key` and `route` only. `bodyHash` in the
+scope means the stored fingerprint is compared on lookup**, and a difference is
+the 409. Dropping `bodyHash` from the scope then means "replay regardless of
+body", which is a coherent thing for a caller to ask for. All of §11 is live at
+once under this reading.
+
+`resolveIdempotency` throws when the scope contains neither `key` nor `route`,
+since every request in the document would otherwise share one record.
+
+### 2.8 The single exit is `handle()`, not a single `return`
+
+Deferred item 1 asked for one exit point. What phase 9 needs is one *observation*
+point — somewhere every response passes, including the ones built before `ctx`
+exists. `produce()` keeps its branches; `handle()` is the sole exit, and a mutable
+`Trace` carries what the early paths know down to it. Collapsing `produce` into a
+single `return` through nested conditionals would buy nothing and cost
+readability.
+
 ---
 
 ## 3. Phase 7 — Idempotency
@@ -179,6 +225,24 @@ Per §17, plus:
    §1's refactor task settles that before records start living there.
 2. `bytesOut` counts the serialized body only, not headers.
 3. The CLI does not parse YAML.
+4. `circuit.within` defaults to `openFor`, so a policy that wants a long open
+   period but a short accumulation window must say both.
+5. `requestId` is available as `ctx.requestId` and in the log record, but is not
+   echoed on a response header. Nothing in §12 asks for it, and adding a header
+   by default would change every existing response.
+6. **The idempotency lookup-then-claim is not atomic.** `createIdempotencyStage`
+   does `store.get(key)` and then `store.set(key, {state: 'in-flight'}, ...)`
+   with no compare-and-set across the await. Two concurrent identical requests
+   can both read `undefined`, both claim, and both execute — the
+   `MOCK_IDEMPOTENCY_IN_FLIGHT` 409 is only reachable for a *wedged prior*
+   request (one whose process died, or whose handler threw before the boundary
+   catch cleared the marker), never for two requests racing each other in the
+   same process. A `Store` with no compare-and-set primitive cannot fix this
+   properly; the eventual fix is a `Store.setIfAbsent` primitive, which is
+   plan 6 scope. See also deferred item 15 and master spec §11.
+7. **`captureBody` awaits the full response body** before it can be stored or
+   measured, so a streaming `Response` returned from a `respond` callback is
+   buffered rather than streamed through to the caller.
 
 ## 7. What plan 6 picks up
 

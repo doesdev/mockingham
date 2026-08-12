@@ -2,7 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { loadApi } from '../../src/spec/load.ts'
 import { createHandler } from '../../src/server/handler.ts'
+import { createMemoryStore } from '../../src/runtime/store.ts'
 import { petstore } from '../fixtures/petstore.ts'
+import type { Ctx } from '../../src/runtime/types.ts'
 
 const api = loadApi(petstore)
 const handler = createHandler(api, { seed: 'test' }).fetch
@@ -88,4 +90,84 @@ test('a response with no content yields 204-style empty body', async () => {
   const res = await handler(new Request('http://x/pets', { method: 'POST' }))
   assert.equal(res.status, 201)
   assert.equal(await res.text(), '')
+})
+
+test('reset clears a caller-supplied store', async () => {
+  const store = createMemoryStore()
+  const handler = createHandler(api, { seed: 'reset', store })
+  await store.set('left-behind', 1)
+
+  await handler.reset()
+
+  assert.equal(await store.get('left-behind'), undefined)
+})
+
+test('reset is awaitable', async () => {
+  const handler = createHandler(api, { seed: 'reset' })
+  assert.ok(handler.reset() instanceof Promise)
+})
+
+test('requestId is deterministic across handlers and distinct across calls', async () => {
+  const echo = {
+    seed: 'ids',
+    operations: {
+      // Reading ctx.requestId through a response callback is the only way to
+      // observe it; nothing echoes it on a header by default.
+      showPetById: { respond: (ctx: Ctx) => ctx.respond(200, { id: ctx.requestId }) }
+    }
+  }
+  const idFrom = async (handle: (r: Request) => Promise<Response>) =>
+    ((await (await handle(new Request('http://x/pets/42'))).json()) as { id: string }).id
+
+  const first = createHandler(api, echo).fetch
+  const one = await idFrom(first)
+  const two = await idFrom(first)
+
+  // A fresh handler with the same seed replays the same sequence — that is what
+  // "stable across processes" means for a correlation id.
+  const replay = await idFrom(createHandler(api, echo).fetch)
+
+  assert.notEqual(one, two)
+  assert.equal(replay, one)
+})
+
+test('an inbound X-Request-Id wins', async () => {
+  const handle = createHandler(api, {
+    seed: 'ids',
+    operations: { showPetById: { respond: (ctx: Ctx) => ctx.respond(200, { id: ctx.requestId }) } }
+  }).fetch
+
+  const response = await handle(
+    new Request('http://x/pets/42', { headers: { 'x-request-id': 'caller-42' } })
+  )
+
+  assert.equal(((await response.json()) as { id: string }).id, 'caller-42')
+})
+
+test('the injected clock drives the default store', async () => {
+  // Proves `now` actually reaches createMemoryStore rather than only the log
+  // record: an outage armed with a TTL must expire when the clock advances.
+  // The outage key is `outage|<operationId>` — see outageKey and targetKey in
+  // src/runtime/failure.ts. No `failure` policy is needed: checkFailure reads
+  // the outage key unconditionally, before it looks at any policy.
+  let value = 1_000
+  const handler = createHandler(api, { seed: 'clock', now: () => value })
+  await handler.store.set('outage|showPetById', { status: 503 }, 5_000)
+
+  assert.equal((await handler.fetch(new Request('http://x/pets/42'))).status, 503)
+  value += 6_000
+  assert.equal((await handler.fetch(new Request('http://x/pets/42'))).status, 200)
+})
+
+test('decisions are populated by the time a response callback runs', async () => {
+  const handle = createHandler(api, {
+    seed: 'decisions',
+    operations: { showPetById: { respond: (ctx: Ctx) => ctx.respond(200, ctx.decisions) } }
+  }).fetch
+
+  const body = await (await handle(new Request('http://x/pets/42'))).json()
+
+  // petstore declares no security, so auth is 'anonymous' rather than 'ok' —
+  // a real outcome, not a missing one.
+  assert.deepEqual(body, { auth: 'anonymous', validation: 'ok', failure: 'ok' })
 })

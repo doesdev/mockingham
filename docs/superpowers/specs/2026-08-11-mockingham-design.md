@@ -117,7 +117,7 @@ interface Mock {
   failNext(target: string, opts: FailNextOptions): void
   outage(target: string, opts: OutageOptions): void
   setSeed(seed: string): void
-  reset(): void            // chaos state, idempotency keys, counters,
+  reset(): Promise<void>   // chaos state, idempotency keys, counters,
                            // runtime overrides, pending emits, deliveries
 
   emit(webhook: string, opts?: EmitOptions): Promise<Delivery>
@@ -446,8 +446,14 @@ parameter. Behavior:
 - First request stores `{ status, headers, body, fingerprint }` under the scoped key.
 - Replay returns the stored response plus `Idempotent-Replay: true`.
 - Same key, different body fingerprint → `409` with `MOCK_IDEMPOTENCY_MISMATCH`.
-- Key seen but no stored response yet (concurrent in-flight) → `409` with
-  `MOCK_IDEMPOTENCY_IN_FLIGHT`.
+- Key seen but no stored response yet → `409` with `MOCK_IDEMPOTENCY_IN_FLIGHT`.
+  The lookup and the claim are two separate `Store` calls with no atomicity
+  across the await, so this is reliably reachable only for a *wedged prior*
+  request — one whose process died mid-request, or whose handler threw before
+  the boundary catch released the marker. Two genuinely concurrent identical
+  requests in the same process can both read no record and both proceed; a
+  `Store` with a compare-and-set primitive would close that gap. See the
+  phases 7-9 design §6, known limitation 6.
 
 Both 409s are emitted on-contract per §7.
 
@@ -518,7 +524,7 @@ operations: {
 ```
 
 `afterMs` is a single awaited timer bound to the request's lifetime, not a
-scheduler entry — it is cancelled by `close()` and cleared by `reset()`. There is
+scheduler entry — it is canceled by `close()` and cleared by `reset()`. There is
 no background job, no persistence, and no lifecycle to reason about. Emission
 never blocks or delays the triggering response; a delivery failure is logged and
 never affects it.

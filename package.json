@@ -14,8 +14,11 @@
   "author": "Andrew Carpenter",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "mockingham": "src/server/cli.ts"
+  },
   "engines": {
-    "node": ">=24"
+    "node": ">=24.2.0"
   },
   "scripts": {
     "test": "node --test 'test/**/*.test.ts'",

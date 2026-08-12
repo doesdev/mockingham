@@ -1,6 +1,6 @@
 # Deferred items
 
-Findings raised by code review during plans 2–4, deliberately deferred rather than
+Findings raised by code review during plans 2–5, deliberately deferred rather than
 fixed at the time, each with the ruling that deferred it and where it belongs.
 
 This file is tracked in git on purpose. The SDD ledgers that originally held these
@@ -8,49 +8,60 @@ live under `.superpowers/` inside per-plan worktrees, which is gitignored scratc
 one `git worktree remove` and the reasoning is gone. Anything here is meant to
 survive that.
 
-Status as of 2026-08-12: plans 1–4 merged, 408 tests, `main` at the phases 7–9
-design spec.
+Status as of 2026-08-12: plan 5 implements the phases 7–9 design spec and is in
+its final fix wave on a worktree branch; it is not yet merged to `main`. 494
+tests passing before this wave.
 
 ---
 
-## Must be done first in plan 5
+## Settled
 
-These block phase 9 rather than merely annoying it.
+1. **Collapse `run()`'s four exit points into one.** Settled by Task 1. The
+   single exit is `handle()` — `produce()` keeps its branches and fills a mutable
+   `Trace`, but every response, however it was built, passes through `handle()`
+   before it leaves. See phases 7–9 design §2.8.
 
-1. **Collapse `run()`'s four exit points into one.**
-   `src/server/handler.ts` returns from the 404/405 path, the body-parse failure,
-   a stage short-circuit, and the rendered response. Logging is pipeline stage 11
-   and must observe **every** response — a 401 from auth and a 503 from chaos are
-   exactly what an operator wants — and there is nowhere to hook it.
-   *Deferred twice: once in plan 3's fix wave, once in plan 4's, both times because
-   a single fix wave with no second review is the wrong place for a restructure
-   sitting beside correctness fixes.*
+2. **Give each stage a named factory colocated with its module.** Settled by
+   Task 1. Stages moved to named factories beside their own modules
+   (`createAuthStage`, `createIdempotencyStage`, etc.), executed through one
+   ordered loop in `handler.ts`.
 
-2. **Give each stage a named factory colocated with its module.**
-   Phases 4–6 design §2.3 specifies an explicit named sequence; the code has an
-   array of anonymous closures, losing both stated benefits — the order
-   typechecking, and a stack trace naming the stage that responded.
+3. **Settle whether `reset()` owns the whole Store.** Settled by Task 2. Both
+   surfaces now clear the store: `Handler.reset()` clears it, and `Mock.reset()`
+   delegates to it. The contract is "`reset()` clears the store it was given."
+   `Handler.reset()` is now `Promise<void>`.
 
-3. **Settle whether `reset()` owns the whole Store.**
-   `Mock.reset()` calls `store.clear()`, wiping a caller-supplied store wholesale,
-   while `Handler.reset()` does not touch the store at all. The two surfaces
-   disagree, and idempotency records are about to start living there.
+4. **`circuit-count` has no TTL.** Settled by Task 9. `CircuitPolicy.within`
+   bounds how long failures accumulate, in milliseconds, defaulting to
+   `openFor` (no explicit window, the natural scale is how long the circuit
+   stays open once it trips). See phases 7–9 design §6, known limitation 4.
+
+5. **Circuit keys are scoped by operation, not by the policy that declared
+   them.** Settled by Task 9. `compilePolicies` (`src/runtime/failure.ts`)
+   assigns each compiled policy `id: String(index)` at compile time — the
+   policy's target string is not part of the id. The circuit keys are
+   `` circuit-open|${id}|${targetKey} `` and `` circuit-count|${id}|${targetKey} ``,
+   where `targetKey` is the *matched operation's* key. Both axes are carried:
+   two policies matching the same operation get separate circuits (the id
+   differs), and one wildcard policy matching several operations still gets one
+   circuit per operation (the targetKey differs). A fix-round correction — the
+   first pass under this task satisfied its own test literals with an id-only
+   key, which silently dropped the per-operation axis; a new test now proves one
+   wildcard policy keeps separate circuits per operation.
+
+9. **`requestKey` is computed twice per request.** Settled by Task 1 —
+   `requestKey` is now computed once and threaded through the pipeline.
 
 ---
 
 ## Correctness, not blocking
 
-4. **`circuit-count` has no TTL** (`src/runtime/failure.ts`), so it never decays.
-   A policy with `after: 5` eventually trips from failures accumulated across the
-   whole process lifetime rather than within any window.
-
-5. **Circuit keys are scoped by operation, not by the policy that declared them.**
-   Two failure policies each carrying a `circuit` block and matching the same
-   operation share one counter and one open-state. Fix when policies gain identity.
-
 6. **`override()` is absent from `Mock`** although phases 4–6 design §7.3 and §1.3
    both specify it. Decide deliberately and record the outcome; it was never
    consciously dropped, it was simply never planned in.
+   **Status: decided deferral, plan 5.** The scope question was put to the user
+   during plan 5 and they ruled it out of this plan's scope. It goes to plan 6 —
+   this is now a deliberate deferral, not an oversight.
 
 7. **Cookie parameters cannot validate.** `Parameter['location']` includes
    `'cookie'` and `src/runtime/validate.ts` handles only path/query/header.
@@ -61,13 +72,50 @@ These block phase 9 rather than merely annoying it.
    sleeps.*
    **Status: DONE, plan 3.**
 
+15. **The idempotency lookup-then-claim is not atomic.** `createIdempotencyStage`
+    (`src/runtime/idempotency.ts`) does `store.get(key)` and then
+    `store.set(key, {state: 'in-flight'}, ...)` with no compare-and-set across
+    the await. Two genuinely concurrent identical requests in the same process
+    can both read `undefined`, both claim, and both execute — probe-verified
+    during plan 5's final review: `runs: 2`, both 201. `MOCK_IDEMPOTENCY_IN_FLIGHT`
+    is consequently reachable only for a *wedged prior* request (a dead process,
+    or a throw before the boundary catch releases the marker), not for a real
+    race. A `Store` with no compare-and-set primitive cannot fix this properly.
+    **Status: documented deferral, plan 5.** `Store.setIfAbsent` is the eventual
+    fix and is plan 6 scope — adding it mid-plan-5 was judged out of scope for a
+    fix wave. See phases 7-9 design §6 (known limitation 6) and master spec §11.
+
+16. **The response-always-returned guarantee has one remaining hole.**
+    `handle()`'s first line (`const startedAt = now()`) and `internalError()`'s
+    `String(error)` sit outside every guard, so an injected clock that throws,
+    or an exotic throwable whose `toString` throws, can still make `fetch()`
+    reject with no response. The stage-11 block itself was fully guarded
+    during plan 5's fix wave; this is the narrow remainder. Pre-existing
+    rather than introduced.
+    **Status: documented deferral, plan 5.**
+
+17. **A failed body capture still stores an idempotency record.** When
+    `captureBody` fails and a key was claimed, the record is written with
+    `body: null`, so the key replays a bodiless response for the full TTL.
+    That is better than the pre-fix behavior of rejecting the request
+    outright, but arguably storage should be skipped entirely when capture
+    failed. Untested either way.
+    **Status: documented deferral, plan 5.**
+
+19. **`an injected 429 is not stored, so a retry re-runs` has an inert half.**
+    The test (`test/server/idempotency.test.ts`) never increments its
+    `attempts` counter, because `decide` fires on every call and the
+    `respond` callback therefore never runs. The `idempotent-replay` header
+    assertion is what gives the test teeth, and that was mutation-confirmed —
+    but the name promises re-execution the assertions do not check.
+    **Status: documented deferral, plan 5.**
+
 ---
 
 ## Polish
 
 8. `chaosSeed` is frozen at construction, so `setSeed` does not update it. Cosmetic
    only — chaos still varies because `requestKey` carries the seed.
-9. `requestKey` is computed twice per request in `src/server/handler.ts`.
 10. Latency is skipped on an injected failure. The literal spec order permits it,
     but a slow outage is the more realistic behavior. Worth one line in §7.2 either
     way.
@@ -82,6 +130,16 @@ These block phase 9 rather than merely annoying it.
 14. `split()` is duplicated between `src/resolve/target.ts` and
     `src/spec/routes.ts`. Identical one-liners; extracting couples two modules for
     little gain.
+18. A failed body parse consumes a request ordinal. Parse failures now draw from
+    `requestOrdinals` under the matched key, so a failed parse shifts the
+    `requestId` of the next successful request sharing that identity. Harmless —
+    `requestId` never feeds the PRNG — but it is an unremarked behavior change
+    from plan 5.
+20. The log block's own `try`/`catch` in `src/server/handler.ts` is untested.
+    Nothing inside it can realistically throw now that `emitLog` self-isolates,
+    so this is defense in depth rather than a gap.
+21. `templateFor` duplicates `allowedMethods`' loop body in the router.
+    Extracting the shared walk would couple two small functions for little gain.
 
 ---
 
@@ -104,3 +162,31 @@ before accepting a test that proves a mechanism. Revert the fix, watch the test
 fail, report the exact message. That caught all four.
 
 **A deferral's justification can expire.** See item 7.
+
+**A deterministic system makes replay tests toothless by default.** Generation is
+seeded, so two real executions of the same request already return byte-identical
+bytes — an idempotency replay test that only compares bodies passes with
+idempotency removed entirely. Plan 5's replay test counts executions through a
+plain closure counter (`let runs = 0`, incremented inside the `respond`
+callback) so the two paths genuinely differ. Whenever a test asserts "the same
+output", ask what else could produce that same output.
+
+**A mutation that exercises the wrong branch proves nothing.** A test in plan 5
+survived both its author's and its implementer's mutation runs because both
+mutated a nearby line rather than the specific condition the test targeted; a
+reviewer caught it. Name the exact condition to mutate, not just "the
+implementation line" — see Task 7's note in the plan 5 ledger.
+
+**A brief that contradicts itself will be resolved silently unless the
+implementer is asked to flag it.** One plan 5 task's key formula disagreed with
+its own test literals, and the first resolution quietly dropped a scoping axis
+(see item 5). Ask implementers to report self-contradictions rather than
+resolve them unremarked.
+
+**A refactor can move code out of a safety net without touching the net.**
+Plan 5 split the request pipeline so every response leaves through one exit,
+then hung idempotency's store write on that exit — outside the boundary catch
+that had covered every previous `Store` touch. Each per-task review saw
+correct code; the defect existed only where two tasks met, and only the
+whole-branch review could see it. When a refactor relocates work, ask what
+invariants were being enforced by its old location.

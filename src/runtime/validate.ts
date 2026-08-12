@@ -3,7 +3,7 @@ import { compileSchema } from '../schema/compile.ts'
 import { classify } from '../schema/walk.ts'
 import { cookieValue } from './auth.ts'
 import { pickMedia } from './body.ts'
-import type { Ctx } from './types.ts'
+import type { Ctx, Fail, Stage } from './types.ts'
 
 export interface ValidationFailure {
   path: string
@@ -111,4 +111,28 @@ export function validateRequest(
   }
 
   return errors.length === 0 ? { ok: true } : { ok: false, errors }
+}
+
+export interface ValidationStageInput {
+  operation: Operation
+  fail: Fail
+}
+
+/** Pipeline stage 4. */
+export function createValidationStage(input: ValidationStageInput): Stage {
+  return async function validationStage(ctx) {
+    const result = validateRequest(ctx, input.operation)
+    if (result.ok) {
+      ctx.decisions.validation = 'ok'
+      return undefined
+    }
+    ctx.decisions.validation = 'failed'
+    return await input.fail(
+      400,
+      'MOCK_REQUEST_INVALID',
+      'Request does not match the declared schema',
+      ctx,
+      result.errors
+    )
+  }
 }

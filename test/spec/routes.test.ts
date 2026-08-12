@@ -63,3 +63,13 @@ test('a malformed percent-escape is a non-match, not a crash', () => {
   assert.equal(router.match('GET', '/pets/%zz'), undefined)
   assert.deepEqual(router.allowedMethods('/pets/%'), [])
 })
+
+test('templateFor finds the path template on segments alone, ignoring method', () => {
+  // Used for a 405's log record — the method is wrong but the route is known.
+  const router = createRouter([
+    op('get', '/pets/{petId}', 'showPet'),
+    op('post', '/pets/{petId}', 'updatePet')
+  ])
+  assert.equal(router.templateFor('/pets/42'), '/pets/{petId}')
+  assert.equal(router.templateFor('/nope'), undefined)
+})

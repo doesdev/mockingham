@@ -2124,49 +2124,12 @@ const api = loadApi({
   }
 })
 
-/**
- * A counter in the response is what makes the replay test able to fail.
- * Generation is deterministic, so two real executions already return identical
- * bytes — a replay test that only compares bodies passes with idempotency
- * removed entirely. Counting executions is the mechanism under test.
- */
-function counting() {
-  let runs = 0
-  return {
-    runs: () => runs,
-    operations: {
-      createOrder: {
-        respond: (ctx: Ctx) => {
-          runs += 1
-          return ctx.respond(201, { run: runs })
-        }
-      }
-    }
-  }
-}
-
-const order = (key: string, body = '{"item":"a"}') =>
+export const order = (key: string, body = '{"item":"a"}') =>
   new Request('http://mock/orders', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'idempotency-key': key },
     body
   })
-
-test('a replay returns the first response byte-for-byte and does not re-execute', async () => {
-  const spy = counting()
-  const handle = createHandler(api, { seed: 'idem', operations: spy.operations }).fetch
-
-  const first = await handle(order('k1'))
-  const firstBody = await first.text()
-  const second = await handle(order('k1'))
-  const secondBody = await second.text()
-
-  assert.equal(secondBody, firstBody)
-  assert.equal(secondBody, '{"run":1}')
-  assert.equal(spy.runs(), 1)
-  assert.equal(first.headers.get('idempotent-replay'), null)
-  assert.equal(second.headers.get('idempotent-replay'), 'true')
-})
 
 test('the same key with a different body conflicts', async () => {
   // Default scope. This is the case §11 describes and §2.7 makes reachable.
@@ -2189,31 +2152,32 @@ test('an operation with no key parameter is untouched', async () => {
   assert.equal((await handle(request())).status, 200)
 })
 
-test('config.methods enables an operation the document did not mark', async () => {
-  const handle = createHandler(api, {
-    seed: 'idem',
-    idempotency: { methods: ['POST'] }
-  }).fetch
-  const request = () =>
-    new Request('http://mock/plain', { method: 'POST', headers: { 'idempotency-key': 'k9' } })
+test('a second request against an unresolved key is in flight', async () => {
+  // Stage 11 does not store anything yet, so the first request's claim is still
+  // outstanding when the second arrives. This is the honest end state of the
+  // read half on its own — Task 7 turns this pair into a replay.
+  const handle = createHandler(api, { seed: 'idem' }).fetch
 
-  await handle(request())
-  assert.equal((await handle(request())).headers.get('idempotent-replay'), 'true')
+  await handle(order('k1'))
+  const second = await handle(order('k1'))
+
+  assert.equal(second.status, 409)
+  assert.equal(
+    ((await second.json()) as { error: { code: string } }).error.code,
+    'MOCK_IDEMPOTENCY_IN_FLIGHT'
+  )
 })
 ```
 
-The last two tests depend on Task 7's storage — they will not pass until then.
-Write them now, watch them fail, and let Task 7 turn them green; the first test
-does too. Only the mismatch test passes on this task's code alone.
+Every test here passes on this task's code alone. The replay tests belong to
+Task 7, which is where the storage half that makes them pass is written.
 
-- [ ] **Step 6: Run to verify the expected failures**
+- [ ] **Step 6: Run to verify they fail**
 
 Run: `node --test test/server/idempotency.test.ts`
 
-Expected: FAIL — the mismatch test passes; the replay tests fail because nothing
-stores a response yet (the second request sees the in-flight marker and returns
-`409 MOCK_IDEMPOTENCY_IN_FLIGHT`). **That specific failure is the proof stage 5
-works**; report the exact message.
+Expected: FAIL — nothing is wired into the pipeline yet, so the requests are
+served normally and no 409 appears.
 
 - [ ] **Step 7: Wire stage 5 into the handler**
 
@@ -2259,19 +2223,17 @@ In `produce`, insert stage 5 between validation and failure — after the
 Import `createIdempotencyStage` and `resolveIdempotency`, plus the
 `IdempotencyConfig` type, from `../runtime/idempotency.ts`.
 
-- [ ] **Step 8: Run and confirm the shape of what still fails**
+- [ ] **Step 8: Run to verify they pass**
 
 Run: `node --test test/server/idempotency.test.ts`
 
-Expected: the mismatch and "untouched" tests pass; the two replay tests still fail
-with `MOCK_IDEMPOTENCY_IN_FLIGHT`. Task 7 closes them.
+Expected: PASS, 3 tests.
 
 - [ ] **Step 9: Run the whole suite and typecheck**
 
 Run: `npm test`
 
-Expected: the two replay tests fail; nothing else does. Confirm no pre-existing
-test broke.
+Expected: PASS. Confirm no pre-existing test broke.
 
 Run: `npx tsc --noEmit`
 
@@ -2284,7 +2246,7 @@ git add -A
 ```
 
 ```sh
-git commit -m 'feat: add the idempotency lookup stage' -m 'Stage 5 replays a stored response with Idempotent-Replay, conflicts on a fingerprint mismatch or an unresolved in-flight marker, and otherwise claims the key with a short-TTL marker. Both conflicts go through buildError so they stay on-contract.' -m 'The two replay integration tests fail until stage 11 stores a response; their failure with MOCK_IDEMPOTENCY_IN_FLIGHT is the proof that this half works.'
+git commit -m 'feat: add the idempotency lookup stage' -m 'Stage 5 replays a stored response with Idempotent-Replay, conflicts on a fingerprint mismatch or an unresolved in-flight marker, and otherwise claims the key with a short-TTL marker. Both conflicts go through buildError so they stay on-contract.' -m 'Nothing stores a response yet, so a second request against a live claim is reported in flight. Stage 11 turns that pair into a replay in the next task.'
 ```
 
 ---
@@ -2305,9 +2267,59 @@ The write half, at the single exit, plus the boundary clearing from delta design
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `test/server/idempotency.test.ts`:
+Append to `test/server/idempotency.test.ts`. The first test is the load-bearing
+one — Step 5 proves it can fail.
 
 ```ts
+/**
+ * A counter in the response is what makes the replay test able to fail.
+ * Generation is deterministic, so two real executions already return identical
+ * bytes — a replay test that only compares bodies passes with idempotency
+ * removed entirely. Counting executions is the mechanism under test.
+ */
+function counting() {
+  let runs = 0
+  return {
+    runs: () => runs,
+    operations: {
+      createOrder: {
+        respond: (ctx: Ctx) => {
+          runs += 1
+          return ctx.respond(201, { run: runs })
+        }
+      }
+    }
+  }
+}
+
+test('a replay returns the first response byte-for-byte and does not re-execute', async () => {
+  const spy = counting()
+  const handle = createHandler(api, { seed: 'idem', operations: spy.operations }).fetch
+
+  const first = await handle(order('k1'))
+  const firstBody = await first.text()
+  const second = await handle(order('k1'))
+  const secondBody = await second.text()
+
+  assert.equal(secondBody, firstBody)
+  assert.equal(secondBody, '{"run":1}')
+  assert.equal(spy.runs(), 1)
+  assert.equal(first.headers.get('idempotent-replay'), null)
+  assert.equal(second.headers.get('idempotent-replay'), 'true')
+})
+
+test('config.methods enables an operation the document did not mark', async () => {
+  const handle = createHandler(api, {
+    seed: 'idem',
+    idempotency: { methods: ['POST'] }
+  }).fetch
+  const request = () =>
+    new Request('http://mock/plain', { method: 'POST', headers: { 'idempotency-key': 'k9' } })
+
+  await handle(request())
+  assert.equal((await handle(request())).headers.get('idempotent-replay'), 'true')
+})
+
 test('a claimed key is released when the request throws', async () => {
   // The wedge case: without this, every retry sees a marker that never resolves.
   let attempts = 0
@@ -2390,6 +2402,13 @@ test('a stored record expires', async () => {
 })
 ```
 
+**Delete Task 6's `'a second request against an unresolved key is in flight'`
+test in the same commit.** It asserted the honest end state of the read half
+alone; storage is exactly what changes that pair into a replay, so leaving it
+would be asserting the bug. In-flight is still covered — by the unit test in
+`test/runtime/idempotency.test.ts` that drives the marker directly, which is what
+the design §5 asks for rather than racing two real requests.
+
 The `decide` in the 5xx test fires on the first call only because `attempts` is
 still 0 then; the second call sees `attempts === 0` as well, since the first
 request never reached the callback. That is the intended assertion — both calls
@@ -2401,8 +2420,9 @@ second 503 carries no `Idempotent-Replay` header instead.
 
 Run: `node --test test/server/idempotency.test.ts`
 
-Expected: FAIL — the throw test's retry returns 409 (wedged marker), the 4xx test
-does not replay, and the earlier replay tests still fail.
+Expected: FAIL — the replay test's second request returns
+`409 MOCK_IDEMPOTENCY_IN_FLIGHT` instead of the stored response, the throw test's
+retry hits the same wedged marker, and the 4xx test does not replay.
 
 - [ ] **Step 3: Implement stage 11's storage half**
 
@@ -3081,19 +3101,31 @@ test('within defaults to openFor', async () => {
 
 test('two policies matching one operation keep separate circuits', async () => {
   const store = createMemoryStore()
+  // NOTE the second target's spelling. A bare '*' has no space in it, so
+  // `compileTarget` reads it as an operationId and it matches NOTHING — which
+  // would make the second assertion below pass for entirely the wrong reason.
+  // '* /x' is the match-any-method form. See src/resolve/target.ts.
   const policies: FailurePolicy[] = [
     { match: 'x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 503 } },
-    { match: '*', rate: 1, circuit: { after: 2, openFor: 1_000, then: 504 } }
+    { match: '* /x', rate: 1, circuit: { after: 2, openFor: 1_000, then: 504 } }
   ]
 
   await checkFailure(input({ policies, store, counter: () => 1 }).args)
 
-  // The first policy fired and returned, so only its counter moved — and it
-  // moved under its OWN key. Sharing one key per operation is the bug: the
-  // second policy's failures would land on the first policy's counter and open
-  // a circuit neither policy asked for.
+  // Both policies match this operation, but the first one fired and returned,
+  // so only its counter moved — and it moved under its OWN key. Sharing one key
+  // per operation is the bug: the second policy's failures would land on the
+  // first policy's counter and open a circuit neither policy asked for.
   assert.equal(await store.get('circuit-count|0|x'), 1)
-  assert.equal(await store.get('circuit-count|1|*'), undefined)
+  assert.equal(await store.get('circuit-count|1|* /x'), undefined)
+})
+
+test('a bare star target matches nothing, so the fixture above is honest', () => {
+  // Guards the note above: if compileTarget ever started treating a bare '*' as
+  // a wildcard, the previous test would still pass but would stop proving what
+  // it claims. This is the canary for that.
+  assert.equal(compileTarget('*').matches(operation), false)
+  assert.equal(compileTarget('* /x').matches(operation), true)
 })
 ```
 
