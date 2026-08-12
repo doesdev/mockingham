@@ -28,7 +28,15 @@ export interface Handler {
   fetch(request: Request): Promise<Response>
   store: Store
   setSeed(next: string): void
-  reset(): void
+  /**
+   * Clears the store it was given — not only the store it created. The two
+   * surfaces disagreed until plan 5: `Mock.reset()` wiped a caller-supplied
+   * store while `Handler.reset()` left it untouched. Agreeing on "reset clears
+   * the store it was given" is the honest contract now that idempotency records
+   * live there too; supply a dedicated Store rather than sharing your
+   * application's.
+   */
+  reset(): Promise<void>
 }
 
 export interface HandlerOptions {
@@ -330,10 +338,11 @@ export function createHandler(
     setSeed(next) {
       seed = next
     },
-    reset() {
+    async reset() {
       seed = options.seed ?? 'mockingham'
       counters.reset()
       chaosCounts.clear()
+      await store.clear()
     }
   }
 }

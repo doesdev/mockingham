@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { loadApi } from '../../src/spec/load.ts'
 import { createHandler } from '../../src/server/handler.ts'
+import { createMemoryStore } from '../../src/runtime/store.ts'
 import { petstore } from '../fixtures/petstore.ts'
 
 const api = loadApi(petstore)
@@ -88,4 +89,19 @@ test('a response with no content yields 204-style empty body', async () => {
   const res = await handler(new Request('http://x/pets', { method: 'POST' }))
   assert.equal(res.status, 201)
   assert.equal(await res.text(), '')
+})
+
+test('reset clears a caller-supplied store', async () => {
+  const store = createMemoryStore()
+  const handler = createHandler(api, { seed: 'reset', store })
+  await store.set('left-behind', 1)
+
+  await handler.reset()
+
+  assert.equal(await store.get('left-behind'), undefined)
+})
+
+test('reset is awaitable', async () => {
+  const handler = createHandler(api, { seed: 'reset' })
+  assert.ok(handler.reset() instanceof Promise)
 })
