@@ -55,7 +55,7 @@ export async function parseBody(
   if (
     declared.length > 0 &&
     mediaType !== undefined &&
-    !declared.includes(mediaType)
+    pickMedia(operation.requestBody ?? {}, mediaType) === undefined
   ) {
     return {
       ok: false,

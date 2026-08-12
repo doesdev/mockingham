@@ -4,6 +4,47 @@ import { createHandler } from '../../src/server/handler.ts'
 import { loadApi } from '../../src/spec/load.ts'
 import { petstore } from '../fixtures/petstore.ts'
 
+test('a +json body is negotiated, parsed, and validated end to end', async () => {
+  const api = loadApi({
+    openapi: '3.1.0',
+    paths: {
+      '/things': {
+        post: {
+          operationId: 'createThing',
+          requestBody: {
+            required: true,
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['age'],
+                  properties: { age: { type: 'integer' } }
+                }
+              }
+            }
+          },
+          responses: { '200': { description: 'ok' } }
+        }
+      }
+    }
+  })
+  const handle = createHandler(api, { seed: 'suffix' })
+
+  const send = (body: string) =>
+    handle(new Request('http://mock/things', {
+      method: 'POST',
+      body,
+      headers: { 'content-type': 'application/vnd.api+json' }
+    }))
+
+  // Negotiated and parsed rather than 415'd...
+  assert.equal((await send('{"age":7}')).status, 200)
+  // ...and actually validated, not merely waved through.
+  const bad = await send('{"age":"old"}')
+  assert.equal(bad.status, 400)
+  assert.equal(((await bad.json()) as any).error.errors[0].path, 'body.age')
+})
+
 const api = loadApi(petstore)
 
 test('a bad path param is a 400 with a flattened error list', async () => {
