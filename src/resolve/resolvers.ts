@@ -1,5 +1,6 @@
 import type { Schema } from '../spec/types.ts'
-import type { Ctx, Resolvers } from '../runtime/types.ts'
+import type { Ctx, Resolvers, Resolver } from '../runtime/types.ts'
+import { markCallback } from '../runtime/errors.ts'
 
 export type ResolverHit = { hit: true; value: unknown } | { hit: false }
 
@@ -21,6 +22,16 @@ export interface ResolverLookup {
 }
 
 const MISS: ResolverHit = { hit: false }
+
+function callResolver(fn: Resolver, request: Ctx): unknown {
+  try {
+    return fn(request)
+  } catch (error) {
+    // A resolver is a user callback like any override, so the boundary must be
+    // able to tell its failure from a defect in mockingham's own code.
+    throw markCallback(error)
+  }
+}
 
 /**
  * Converts a glob to an anchored RegExp. Every regex metacharacter is escaped
@@ -50,7 +61,7 @@ export function compileResolvers(resolvers: Resolvers = {}): ResolverLookup {
 
       if (schemaName !== undefined && propertyName !== undefined) {
         const fn = resolvers.bySchema?.[schemaName]?.[propertyName]
-        if (fn) return { hit: true, value: fn(request) }
+        if (fn) return { hit: true, value: callResolver(fn, request) }
       }
 
       if (propertyName !== undefined) {
@@ -59,14 +70,14 @@ export function compileResolvers(resolvers: Resolvers = {}): ResolverLookup {
           // test it from a known state rather than trusting the caller's flags.
           entry.test.lastIndex = 0
           if (entry.test.test(propertyName)) {
-            return { hit: true, value: entry.fn(request) }
+            return { hit: true, value: callResolver(entry.fn, request) }
           }
         }
       }
 
       if (schema.format !== undefined) {
         const fn = resolvers.byFormat?.[schema.format]
-        if (fn) return { hit: true, value: fn(request) }
+        if (fn) return { hit: true, value: callResolver(fn, request) }
       }
 
       return MISS
@@ -78,7 +89,7 @@ export function compileResolvers(resolvers: Resolvers = {}): ResolverLookup {
       for (const entry of byName) {
         entry.headerTest.lastIndex = 0
         if (entry.headerTest.test(name)) {
-          return { hit: true, value: entry.fn(ctx as Ctx) }
+          return { hit: true, value: callResolver(entry.fn, ctx as Ctx) }
         }
       }
       return MISS

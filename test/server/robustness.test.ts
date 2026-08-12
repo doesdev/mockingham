@@ -122,3 +122,25 @@ test('an internal failure is not reported as a callback failure', async () => {
   const body = (await response.json()) as any
   assert.equal(body.error.code, 'MOCK_INTERNAL')
 })
+
+test('a synchronously throwing resolver is a callback failure', async () => {
+  const handle = createHandler(loadApi(petstore), {
+    seed: 'resolver-throw',
+    resolvers: { byName: [['name', () => { throw new Error('resolver boom') }]] }
+  })
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  const body = (await response.json()) as any
+  assert.equal(body.error.code, 'MOCK_CALLBACK_FAILED')
+  assert.match(body.error.message, /resolver boom/)
+})
+
+test('an async resolver that rejects is also a callback failure', async () => {
+  const handle = createHandler(loadApi(petstore), {
+    seed: 'resolver-reject',
+    resolvers: { byName: [['name', async () => { throw new Error('async boom') }]] }
+  })
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  assert.equal(((await response.json()) as any).error.code, 'MOCK_CALLBACK_FAILED')
+})
