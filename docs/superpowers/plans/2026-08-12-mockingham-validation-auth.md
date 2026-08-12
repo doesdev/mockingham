@@ -664,11 +664,14 @@ test('a promise left in the generated tree is settled', async () => {
 Append to `test/runtime/headers.test.ts`:
 
 ```ts
-test('a header override resolving to a further promise is settled', async () => {
-  // headers.ts settles through resolve/layer.ts, so nested pending values
-  // behave the same in headers as in bodies.
-  const headers = await build({ 'x-nested': async () => Promise.resolve('deep') })
-  assert.equal(headers.get('x-nested'), 'deep')
+test('a pending value inside a header array is settled', async () => {
+  // The distinguishing case for settling through resolve/layer.ts: a one-level
+  // Promise.all leaves the inner promise untouched inside the array, which
+  // stringifies to 'a,[object Promise]'. Do NOT weaken this to
+  // `async () => Promise.resolve(x)` — JS auto-flattens that, and the test then
+  // passes against the very implementation it exists to rule out.
+  const headers = await build({ 'x-list': ['a', Promise.resolve('b')] })
+  assert.equal(headers.get('x-list'), 'a,b')
 })
 ```
 
@@ -799,14 +802,17 @@ keeps the single-batch property the previous code had.
 
 - [ ] **Step 5: Rewire `src/server/handler.ts`**
 
-Delete from `handler.ts`: the `JSON_TYPE` constant, the `buildHeaders` and
-`applyOverrides` imports, the header-building block, the debug-header block, the
+Delete from `handler.ts`: the `buildHeaders` and `applyOverrides` imports, the header-building block, the debug-header block, the
 body-generation block, the override-application block, and both `Response`
 returns at the end of `run`. Add:
 
 ```ts
 import { renderResponse } from '../runtime/render.ts'
 ```
+
+**Keep the `JSON_TYPE` constant.** The `mediaFor` helper still reads
+`.content[JSON_TYPE]` and is not part of the moved rendering, so removing the
+constant would not compile.
 
 Replace all of it with:
 
