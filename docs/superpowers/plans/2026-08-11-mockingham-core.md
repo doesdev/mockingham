@@ -2292,7 +2292,9 @@ test('listens on an ephemeral port and serves over real HTTP', async () => {
   try {
     const res = await fetch(`${url}/pets/7`)
     assert.equal(res.status, 200)
-    const body = await res.json()
+    // `as any` because this project has no DOM lib, so Response.json() resolves
+    // to undici-types' Promise<unknown> rather than DOM's Promise<any>.
+    const body = (await res.json()) as any
     assert.equal(typeof body.name, 'string')
   } finally {
     await mock.close()
