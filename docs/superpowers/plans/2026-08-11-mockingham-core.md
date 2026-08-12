@@ -316,6 +316,26 @@ test('resolves a self-recursive schema without infinite recursion', () => {
   assert.strictEqual(inner.properties.children.items, node)
 })
 
+test('resolves a recursive schema reached through an alias', () => {
+  const doc = {
+    components: {
+      schemas: {
+        A: { $ref: '#/components/schemas/B' },
+        B: {
+          type: 'object',
+          properties: { self: { $ref: '#/components/schemas/A' } }
+        }
+      }
+    }
+  }
+  const out = resolveDocument(doc) as any
+  const b = out.components.schemas.B
+  assert.equal(b.type, 'object')
+  // A is an alias for B, so B.self must be B itself
+  assert.strictEqual(b.properties.self, b)
+  assert.strictEqual(out.components.schemas.A, b)
+})
+
 test('throws on a reference chain that never reaches a schema', () => {
   const doc = {
     components: {
@@ -417,6 +437,12 @@ export function resolveDocument(
     const record = node as Record<string, unknown>
     const ref = record['$ref']
     if (typeof ref === 'string') {
+      const target = lookup(ref)
+      // A target already in byNode is a real schema, mid-construction. Return
+      // its live object so the cycle forms — however many alias hops away it is.
+      // This check must precede the `resolving` guard, or an alias chain like
+      // `A -> B` where B recurses back through A is rejected as circular.
+      if (byNode.has(target)) return byNode.get(target)
       if (resolving.has(ref)) {
         throw new Error(
           `mockingham: circular $ref chain at "${ref}" — a reference resolves ` +
@@ -424,7 +450,7 @@ export function resolveDocument(
         )
       }
       resolving.add(ref)
-      const resolved = walk(lookup(ref))
+      const resolved = walk(target)
       resolving.delete(ref)
       return resolved
     }
@@ -442,7 +468,7 @@ export function resolveDocument(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `node --test test/spec/refs.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Typecheck and commit**
 
