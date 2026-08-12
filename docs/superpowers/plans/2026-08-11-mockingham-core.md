@@ -308,9 +308,24 @@ test('resolves a self-recursive schema without infinite recursion', () => {
     }
   }
   const out = resolveDocument(doc) as any
-  const inner = out.components.schemas.Node.properties.children.items
+  const node = out.components.schemas.Node
+  const inner = node.properties.children.items
   assert.equal(inner.type, 'object')
-  assert.equal(inner.properties.children.items.type, 'object')
+  // the cycle is a real object cycle, not a copy
+  assert.strictEqual(inner, node)
+  assert.strictEqual(inner.properties.children.items, node)
+})
+
+test('throws on a reference chain that never reaches a schema', () => {
+  const doc = {
+    components: {
+      schemas: {
+        A: { $ref: '#/components/schemas/B' },
+        B: { $ref: '#/components/schemas/A' }
+      }
+    }
+  }
+  assert.throws(() => resolveDocument(doc), /circular \$ref chain/)
 })
 
 test('decodes JSON pointer escapes', () => {
@@ -349,7 +364,13 @@ Expected: FAIL — cannot find module `../../src/spec/refs.ts`.
 
 - [ ] **Step 3: Implement `src/spec/refs.ts`**
 
-The `box` indirection is what makes cycles work: the placeholder is cached *before* its target is walked, so a ref that points back at an ancestor resolves to the placeholder rather than recursing forever.
+Cycles work through `byNode`, which registers a node's output object *before* that
+object's own children are walked. A `$ref` pointing back at an ancestor therefore
+returns the ancestor's live output object, and the cycle forms naturally as the
+ancestor finishes filling in. The `resolving` set is a separate guard, for the
+pathological case of references that resolve only to further references with no
+schema in between — `byNode` cannot break those, because a bare `$ref` node never
+gets registered.
 
 ```ts
 function decodeToken(token: string): string {
@@ -359,8 +380,8 @@ function decodeToken(token: string): string {
 export function resolveDocument(
   doc: Record<string, unknown>
 ): Record<string, unknown> {
-  const byPointer = new Map<string, unknown>()
   const byNode = new Map<unknown, unknown>()
+  const resolving = new Set<string>()
 
   function lookup(pointer: string): unknown {
     if (!pointer.startsWith('#/')) {
@@ -396,13 +417,16 @@ export function resolveDocument(
     const record = node as Record<string, unknown>
     const ref = record['$ref']
     if (typeof ref === 'string') {
-      const cached = byPointer.get(ref)
-      if (cached !== undefined) return cached
-      const box: Record<string, unknown> = {}
-      byPointer.set(ref, box)
+      if (resolving.has(ref)) {
+        throw new Error(
+          `mockingham: circular $ref chain at "${ref}" — a reference resolves ` +
+            'only to further references, with no schema between them.'
+        )
+      }
+      resolving.add(ref)
       const resolved = walk(lookup(ref))
-      Object.assign(box, resolved as Record<string, unknown>)
-      return box
+      resolving.delete(ref)
+      return resolved
     }
 
     const out: Record<string, unknown> = {}
@@ -418,7 +442,7 @@ export function resolveDocument(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `node --test test/spec/refs.test.ts`
-Expected: PASS, 6 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 5: Typecheck and commit**
 
