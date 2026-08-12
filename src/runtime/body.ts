@@ -23,7 +23,7 @@ export async function parseBody(
   const raw = new Uint8Array(await request.arrayBuffer())
   const mediaType = baseMediaType(request.headers.get('content-type'))
 
-  if (raw.length === 0 && mediaType === undefined) {
+  if (raw.length === 0) {
     return { ok: true, body: { value: undefined, mediaType, raw } }
   }
 

@@ -53,7 +53,7 @@ test('parses a text body as a string', async () => {
 })
 
 test('an unrecognized content type is exposed as raw bytes', async () => {
-  const result = await parseBody(post('', 'application/octet-stream'), op())
+  const result = await parseBody(post('\x00\x01binary', 'application/octet-stream'), op())
   assert.equal(result.ok, true)
   if (result.ok) assert.ok(result.body.value instanceof Uint8Array)
 })
@@ -80,4 +80,25 @@ test('a content type the operation does not declare is a 415', async () => {
 test('an operation declaring no request body accepts anything', async () => {
   const result = await parseBody(post('x=1', 'application/x-www-form-urlencoded'), op())
   assert.equal(result.ok, true)
+})
+
+test('an empty body is not a 415 even when the type is undeclared', async () => {
+  const operation = op({
+    requestBody: { 'application/json': { schema: { type: 'object' } } }
+  })
+  const request = new Request('http://mock/things', {
+    method: 'POST', headers: { 'content-type': 'application/xml' }
+  })
+  const result = await parseBody(request, operation)
+  assert.equal(result.ok, true)
+  if (result.ok) assert.equal(result.body.value, undefined)
+})
+
+test('an empty body with a JSON content type is not a parse error', async () => {
+  const request = new Request('http://mock/things', {
+    method: 'POST', headers: { 'content-type': 'application/json' }
+  })
+  const result = await parseBody(request, op())
+  assert.equal(result.ok, true)
+  if (result.ok) assert.equal(result.body.value, undefined)
 })
