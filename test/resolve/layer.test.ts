@@ -79,9 +79,13 @@ test('every async leaf is started before any is awaited', async () => {
   assert.deepEqual(await promise, { a: 1, b: 2, c: 3 })
 })
 
-test('a promise resolving to a further promise is settled too', async () => {
-  const out = await applyOverrides({ a: 0 }, { a: async () => Promise.resolve(7) }, ctx)
-  assert.deepEqual(out, { a: 7 })
+test('a promise resolving to a value containing promises is settled too', async () => {
+  // The inner promise only becomes visible after the outer one settles, so a
+  // single-pass settle would leave it unresolved in the result.
+  const out = await applyOverrides(
+    { a: 0 }, { a: async () => ({ b: Promise.resolve(3), c: 4 }) }, ctx
+  )
+  assert.deepEqual(out, { a: { b: 3, c: 4 } })
 })
 
 test('an override at the root replaces everything', async () => {
