@@ -1501,7 +1501,18 @@ export function numberBounds(schema: Schema): { min: number; max: number } {
     max = schema.maximum - 1
   }
 
-  if (max < min) max = min
+  // As with `bounded`, an explicit bound is never violated. When the two sides
+  // conflict, only the side that came from a default yields — a lone explicit
+  // maximum below the default minimum of 0 must win, not be silently
+  // overwritten back up to 0.
+  const hasExplicitMin =
+    schema.minimum !== undefined || typeof schema.exclusiveMinimum === 'number'
+  const hasExplicitMax =
+    schema.maximum !== undefined || typeof schema.exclusiveMaximum === 'number'
+  if (max < min) {
+    if (hasExplicitMax && !hasExplicitMin) min = max
+    else max = min
+  }
   return { min, max }
 }
 
