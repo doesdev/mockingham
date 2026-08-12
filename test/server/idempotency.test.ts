@@ -149,7 +149,13 @@ test('a 5xx is not stored, so a retry re-runs', async () => {
   }).fetch
 
   assert.equal((await handle(order('k4'))).status, 503)
-  assert.equal((await handle(order('k4'))).status, 503)
+  const second = await handle(order('k4'))
+  assert.equal(second.status, 503)
+  // A stored 5xx would replay with this header set; asserting it stays absent
+  // is what distinguishes "re-run, coincidentally also 503" from "replayed
+  // from a stored 503" — a stored/replayed 503 is exactly what the 5xx
+  // exclusion exists to prevent.
+  assert.equal(second.headers.get('idempotent-replay'), null)
 })
 
 test('a 4xx IS stored and replays', async () => {
