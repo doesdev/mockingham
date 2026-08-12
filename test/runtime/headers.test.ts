@@ -90,9 +90,10 @@ test('resolvers do not invent headers that no layer set', async () => {
   assert.equal(headers.get('x-absent'), null)
 })
 
-test('a header override resolving to a further promise is settled', async () => {
-  // headers.ts settles through resolve/layer.ts, so nested pending values
-  // behave the same in headers as in bodies.
-  const headers = await build({ 'x-nested': async () => Promise.resolve('deep') })
-  assert.equal(headers.get('x-nested'), 'deep')
+test('a pending value inside a header array is settled', async () => {
+  // The distinguishing case for settling through resolve/layer.ts: a one-level
+  // Promise.all leaves the inner promise untouched inside the array, which
+  // stringifies to 'a,[object Promise]'.
+  const headers = await build({ 'x-list': ['a', Promise.resolve('b')] })
+  assert.equal(headers.get('x-list'), 'a,b')
 })
