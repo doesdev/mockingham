@@ -44,10 +44,12 @@ export async function buildHeaders(input: HeaderInput): Promise<Headers> {
   }
 
   // 3. byName resolvers. These resolve values for headers some layer already
-  //    set; they do not invent headers of their own.
+  //    set; they do not invent headers of their own. `name` is already
+  //    lowercased here, so the lookup matches patterns case-insensitively —
+  //    otherwise a pattern written 'X-Request-Id' could never fire.
   if (input.resolvers) {
     for (const name of Object.keys(values)) {
-      const hit = input.resolvers.resolve({}, name, undefined, input.ctx)
+      const hit = input.resolvers.resolveHeader(name, input.ctx)
       if (hit.hit) values[name] = hit.value
     }
   }

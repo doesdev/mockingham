@@ -1,5 +1,6 @@
 import type { Operation } from '../spec/types.ts'
 import type { Rng } from '../generate/rng.ts'
+import { applyOverrides } from '../resolve/layer.ts'
 import type { Ctx } from './types.ts'
 
 export interface Counters {
@@ -51,7 +52,7 @@ export function createContext(input: ContextInput): Ctx {
     headers[name.toLowerCase()] = value
   })
 
-  return {
+  const ctx: Ctx = {
     req: input.request,
     operation: input.operation,
     params: input.params,
@@ -64,11 +65,21 @@ export function createContext(input: ContextInput): Ctx {
     seq: (name) => input.counters.next(name),
     generate: (status) => input.generate(status),
     example: (status, name) => input.example(status, name),
-    respond(status, body, extra) {
+    // Async because serializing is the point at which promises must be gone.
+    // `ctx.generate` deliberately stays synchronous and may hand back a tree
+    // with unsettled promises in it — an async resolver leaves them there for
+    // the override pass. The pipeline settles them through `applyOverrides`;
+    // a response callback bypasses the pipeline, so `respond` runs the same
+    // settle pass here rather than stringifying a Promise into `{}`.
+    async respond(status, body, extra) {
       const out = new Headers(extra)
       if (body === undefined) return new Response(null, { status, headers: out })
+      const settled = await applyOverrides(body, undefined, ctx)
+      if (settled === undefined) return new Response(null, { status, headers: out })
       out.set('content-type', 'application/json')
-      return new Response(JSON.stringify(body), { status, headers: out })
+      return new Response(JSON.stringify(settled), { status, headers: out })
     }
   }
+
+  return ctx
 }

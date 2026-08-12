@@ -90,7 +90,7 @@ export function createHandler(
 
   const counters: Counters = createCounters()
 
-  return async function handle(request: Request): Promise<Response> {
+  async function run(request: Request): Promise<Response> {
     // Stage 1 — route match.
     const url = new URL(request.url)
     const matched = router.match(request.method, url.pathname)
@@ -281,5 +281,30 @@ export function createHandler(
     // Content-Length is left to Response, per design amendment 1.4.
     headers.set('content-type', JSON_TYPE)
     return new Response(JSON.stringify(body), { status: chosen.status, headers })
+  }
+
+  /**
+   * The single failure boundary. Every user callback — resolvers, override
+   * functions, header overrides, response callbacks — runs somewhere inside
+   * `run`, and invariant 4 says the mock keeps serving whatever they do. One
+   * catch here rather than one per leaf: a per-leaf catch would let a
+   * half-built body reach the client as if it were real.
+   */
+  return async function handle(request: Request): Promise<Response> {
+    try {
+      return await run(request)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error)
+      const headers = new Headers()
+      if (options.debugHeaders) {
+        // Header values cannot carry line breaks, and a thrown message might.
+        headers.set('x-mock-error', message.replace(/[\r\n]+/g, ' '))
+      }
+      return Response.json(
+        { error: { code: 'MOCK_CALLBACK_FAILED', message } },
+        { status: 500, headers }
+      )
+    }
   }
 }

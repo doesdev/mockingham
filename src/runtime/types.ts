@@ -22,7 +22,13 @@ export interface Ctx {
   seq(name: string): number
   generate(status?: number): unknown
   example(status?: number, name?: string): unknown
-  respond(status: number, body?: unknown, headers?: Record<string, string>): Response
+  /**
+   * Async because it settles the body before serializing it: `generate` is
+   * synchronous and may leave promises from async resolvers in the tree.
+   */
+  respond(
+    status: number, body?: unknown, headers?: Record<string, string>
+  ): Promise<Response>
 }
 
 /** A resolver or override leaf. May return a value or a promise of one. */
@@ -37,6 +43,7 @@ export interface Resolvers {
 
 /**
  * A node in an override tree: a literal value, a function, or a deeper object
- * whose keys address object properties, array indices, or '*' for every index.
+ * whose keys address object properties, array indices, or '*' for every
+ * existing index of an array or key of an object.
  */
 export type OverrideNode = unknown

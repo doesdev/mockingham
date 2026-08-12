@@ -68,15 +68,15 @@ test('header names are lowercased', () => {
 
 test('respond builds a JSON response', async () => {
   const ctx = build('http://mock/things/7')
-  const response = ctx.respond(201, { ok: true }, { 'x-custom': 'y' })
+  const response = await ctx.respond(201, { ok: true }, { 'x-custom': 'y' })
   assert.equal(response.status, 201)
   assert.equal(response.headers.get('x-custom'), 'y')
   assert.equal(response.headers.get('content-type'), 'application/json')
   assert.deepEqual(await response.json(), { ok: true })
 })
 
-test('respond with no body sends no content type', () => {
-  const response = build('http://mock/things/7').respond(204)
+test('respond with no body sends no content type', async () => {
+  const response = await build('http://mock/things/7').respond(204)
   assert.equal(response.status, 204)
   assert.equal(response.headers.get('content-type'), null)
 })

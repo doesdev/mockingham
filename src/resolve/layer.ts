@@ -28,13 +28,21 @@ function overlay(base: unknown, node: OverrideNode, ctx: unknown): unknown {
     }
 
     const source = isPlainObject(base) ? base : {}
+    // '*' addresses every key the base already has, mirroring how it addresses
+    // every index of an array. An explicit key beats it, exactly as a numeric
+    // index beats it for arrays.
+    const wildcard = node['*']
     const out: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(source)) {
-      out[key] = key in node ? overlay(value, node[key], ctx) : value
+      const byKey = node[key]
+      const chosen = byKey !== undefined ? byKey : wildcard
+      out[key] = chosen === undefined ? value : overlay(value, chosen, ctx)
     }
     // Keys the override adds are appended in declaration order, so the result
-    // is deterministic.
+    // is deterministic. '*' is never one of them — it selects existing keys and
+    // must never surface as a literal property.
     for (const [key, value] of Object.entries(node)) {
+      if (key === '*') continue
       if (key in out) continue
       out[key] = overlay(undefined, value, ctx)
     }

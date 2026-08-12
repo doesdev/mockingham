@@ -41,6 +41,13 @@ test('byName resolvers overwrite global defaults', async () => {
   assert.equal(headers.get('x-next'), 'from-resolver')
 })
 
+test('a byName resolver pattern matches the header name case-insensitively', async () => {
+  const headers = await build({}, {
+    resolvers: compileResolvers({ byName: [['X-Next', () => 'from-resolver']] })
+  })
+  assert.equal(headers.get('x-next'), 'from-resolver')
+})
+
 test('per-operation overrides beat everything below them', async () => {
   const headers = await build({ 'x-next': 'from-operation' }, {
     globals: { 'x-next': 'from-global' },
