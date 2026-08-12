@@ -58,10 +58,11 @@ export async function buildError(input: ErrorInput): Promise<Response> {
 
   const headers = new Headers()
   if (input.debugHeaders) {
-    headers.set(
-      'x-mock-error',
-      `${input.code}: ${input.message}`.replace(/[\r\n]+/g, ' ')
-    )
+    const detail = input.errors?.length
+      ? `${input.code}: ${input.message}; ` +
+        input.errors.map((entry) => `${entry.path}: ${entry.message}`).join('; ')
+      : `${input.code}: ${input.message}`
+    headers.set('x-mock-error', detail.replace(/[\r\n]+/g, ' '))
   }
 
   if (typeof input.mode === 'function') {
@@ -74,6 +75,11 @@ export async function buildError(input: ErrorInput): Promise<Response> {
     const declared = responseForStatus(input.operation, input.status)
     const media = declared?.content[JSON_TYPE]
     if (media) {
+      // The flattened validation list is deliberately NOT merged into this
+      // body: doing so would add a key the operation's own schema does not
+      // declare, breaking the very contract the client was told to expect.
+      // The diagnostic goes on `x-mock-error` above instead, so a
+      // contract-shaped 400 is still debuggable with debugHeaders on.
       const body = generateValue(media.schema, input.rng, input.generateOptions)
       headers.set('content-type', JSON_TYPE)
       return new Response(JSON.stringify(body), {
