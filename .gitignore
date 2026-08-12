@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.claude/worktrees/
+.superpowers/
 *.tsbuildinfo
 .mockingham/
 .env
