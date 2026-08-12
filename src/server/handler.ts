@@ -21,6 +21,7 @@ import { createFailureStage, compilePolicies } from '../runtime/failure.ts'
 import type { Directive, FailurePolicy } from '../runtime/failure.ts'
 import { createMemoryStore } from '../runtime/store.ts'
 import type { Store } from '../runtime/store.ts'
+import { requestIdFor } from '../runtime/logging.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -55,6 +56,13 @@ export interface HandlerOptions {
   chaosSeed?: string
   store?: Store
   sleep?: (ms: number) => Promise<void>
+  /**
+   * The wall clock, injected. Log timestamps and Store TTLs are the only two
+   * consumers; neither can reach a response body, so neither violates the
+   * determinism invariant. Defaults to `Date.now` at this boundary and nowhere
+   * else.
+   */
+  now?: () => number
 }
 
 function requestKey(
@@ -81,11 +89,16 @@ export function createHandler(
 
   const counters: Counters = createCounters()
 
-  const store = options.store ?? createMemoryStore()
+  const now = options.now ?? (() => Date.now())
+  // One clock for the store and the log, so a fake clock in a test drives both.
+  const store = options.store ?? createMemoryStore(now)
   const policies = compilePolicies(options.failure, api.operations)
   const chaosSeed = options.chaosSeed ?? seed
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   const chaosCounts = new Map<string, number>()
+  // Its OWN counter. Sharing the chaos counter would shift every chaos roll the
+  // moment logging was enabled — phases 7-9 design §2.2.
+  const requestOrdinals = new Map<string, number>()
 
   const mode: ErrorBodyMode = options.errorBody ?? 'contract'
 
@@ -189,6 +202,13 @@ export function createHandler(
       ctx: () => ctx
     })
 
+    const ordinal = (requestOrdinals.get(key) ?? 0) + 1
+    requestOrdinals.set(key, ordinal)
+    // The caller's id wins: correlating with whatever they already log matters
+    // more than an id we made up.
+    const inbound = request.headers.get('x-request-id')
+    const requestId = inbound ?? requestIdFor(key, ordinal)
+
     const ctx: Ctx = createContext({
       request,
       url,
@@ -198,6 +218,7 @@ export function createHandler(
       mediaType: parsed.body.mediaType,
       rng: responders.rngFor('ctx'),
       requestKey: key,
+      requestId,
       counters,
       generate: responders.generate,
       example: responders.example
@@ -342,6 +363,7 @@ export function createHandler(
       seed = options.seed ?? 'mockingham'
       counters.reset()
       chaosCounts.clear()
+      requestOrdinals.clear()
       await store.clear()
     }
   }

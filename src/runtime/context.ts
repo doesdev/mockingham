@@ -31,6 +31,7 @@ export interface ContextInput {
   mediaType?: string
   rng: Rng
   requestKey: string
+  requestId: string
   counters: Counters
   generate(status?: number): unknown
   example(status?: number, name?: string): unknown
@@ -63,6 +64,7 @@ export function createContext(input: ContextInput): Ctx {
     mediaType: input.mediaType,
     rng: input.rng,
     requestKey: input.requestKey,
+    requestId: input.requestId,
     log: {},
     seq: (name) => input.counters.next(name),
     generate: (status) => input.generate(status),

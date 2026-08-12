@@ -23,6 +23,7 @@ export function buildCtx(input: BuildCtxInput): Ctx {
     mediaType: input.mediaType,
     rng: createRng('test'),
     requestKey: input.requestKey ?? 'test-key',
+    requestId: 'test-id',
     counters: createCounters(),
     generate: () => undefined,
     example: () => undefined

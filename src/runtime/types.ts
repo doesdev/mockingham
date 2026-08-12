@@ -21,6 +21,12 @@ export interface Ctx {
   mediaType?: string
   rng: Rng
   requestKey: string
+  /**
+   * A correlation id: an inbound `X-Request-Id` when the caller sent one,
+   * otherwise `hash(requestKey, ordinal)`. Derived rather than random so a
+   * replayed run correlates across processes — see the phases 7-9 design §2.2.
+   */
+  requestId: string
   log: Record<string, unknown>
   seq(name: string): number
   generate(status?: number): unknown
