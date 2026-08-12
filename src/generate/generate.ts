@@ -1,5 +1,5 @@
 import type { Schema } from '../spec/types.ts'
-import { classify } from '../schema/walk.ts'
+import { classify, mergeAllOf } from '../schema/walk.ts'
 import { arrayLength } from './constraints.ts'
 import type { Rng } from './rng.ts'
 import type { ResolverLookup } from '../resolve/resolvers.ts'
@@ -44,6 +44,13 @@ export function generateValue(
     if (current.default !== undefined) return current.default
 
     const kind = classify(current)
+    // `classify` merges `allOf` internally to decide the shape, but the
+    // constraint readers below (`generateString`, `generateInteger`, ...)
+    // still need the merged view — otherwise a bound that lives only on an
+    // `allOf` member is silently dropped even though `classify` saw it. This
+    // must mirror `src/schema/compile.ts` exactly, or generation and
+    // validation drift on precisely the schemas that need them to agree most.
+    const merged = mergeAllOf(current)
 
     switch (kind.kind) {
       case 'const':
@@ -51,11 +58,11 @@ export function generateValue(
       case 'enum':
         return rng.pick(kind.values)
       case 'string':
-        return generateString(current, rng)
+        return generateString(merged, rng)
       case 'integer':
-        return generateInteger(current, rng)
+        return generateInteger(merged, rng)
       case 'number':
-        return generateNumber(current, rng)
+        return generateNumber(merged, rng)
       case 'boolean':
         return generateBoolean(rng)
       case 'null':
@@ -64,7 +71,7 @@ export function generateValue(
         return depth >= maxDepth ? null : walk(rng.pick(kind.variants), depth + 1)
       case 'array': {
         if (depth >= maxDepth) return []
-        const { min, max } = arrayLength(current)
+        const { min, max } = arrayLength(merged)
         const count = rng.int(min, max)
         const items: unknown[] = []
         for (let i = 0; i < count; i++) {

@@ -2,6 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createCompiler } from '../../src/schema/compile.ts'
 import type { Schema } from '../../src/spec/types.ts'
+import { generateValue } from '../../src/generate/generate.ts'
+import { createRng } from '../../src/generate/rng.ts'
 
 function parse(schema: Schema, value: unknown) {
   return createCompiler().compile(schema).safeParse(value)
@@ -123,4 +125,50 @@ test('the same schema object compiles once', () => {
   const compiler = createCompiler()
   const schema: Schema = { type: 'string' }
   assert.strictEqual(compiler.compile(schema), compiler.compile(schema))
+})
+
+test('a usable discriminated union still parses correctly', () => {
+  const schema: Schema = {
+    oneOf: [
+      { type: 'object', required: ['kind'], properties: { kind: { const: 'a' }, a: { type: 'string' } } },
+      { type: 'object', required: ['kind'], properties: { kind: { const: 'b' }, b: { type: 'integer' } } }
+    ],
+    discriminator: { propertyName: 'kind' }
+  }
+  assert.equal(parse(schema, { kind: 'a', a: 'x' }).success, true)
+  assert.equal(parse(schema, { kind: 'b', b: 1 }).success, true)
+  assert.equal(parse(schema, { kind: 'b', b: 'x' }).success, false)
+})
+
+test('a discriminated union with a variant missing the key falls back instead of throwing', () => {
+  const schema: Schema = {
+    oneOf: [
+      { type: 'object', required: ['kind'], properties: { kind: { const: 'a' }, a: { type: 'string' } } },
+      { type: 'object', properties: { b: { type: 'integer' } } }
+    ],
+    discriminator: { propertyName: 'kind' }
+  }
+  const compiled = createCompiler().compile(schema)
+  assert.doesNotThrow(() => compiled.safeParse({ kind: 'a', a: 'x' }))
+  assert.equal(compiled.safeParse({ kind: 'a', a: 'x' }).success, true)
+  assert.equal(compiled.safeParse({ b: 1 }).success, true)
+})
+
+test('honors the 3.0 boolean spelling of exclusive bounds', () => {
+  assert.equal(parse({ type: 'integer', minimum: 5, exclusiveMinimum: true }, 5).success, false)
+  assert.equal(parse({ type: 'integer', minimum: 5, exclusiveMinimum: true }, 6).success, true)
+  assert.equal(parse({ type: 'integer', maximum: 5, exclusiveMaximum: true }, 5).success, false)
+})
+
+test('a value generated from an allOf schema satisfies the compiled validator', () => {
+  // Generation and validation must read a schema the same way. If either drops
+  // an allOf-nested constraint, this fails.
+  const schema: Schema = {
+    allOf: [
+      { type: 'object', required: ['name'], properties: { name: { type: 'string', minLength: 8 } } },
+      { type: 'object', required: ['age'], properties: { age: { type: 'integer', minimum: 21 } } }
+    ]
+  }
+  const value = generateValue(schema, createRng('allof'), {})
+  assert.equal(createCompiler().compile(schema).safeParse(value).success, true)
 })
