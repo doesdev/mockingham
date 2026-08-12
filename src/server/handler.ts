@@ -16,6 +16,7 @@ import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred, selectResponse } from '../runtime/select.ts'
 import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
 import type { ErrorBodyMode } from '../runtime/errors.ts'
+import { validateRequest } from '../runtime/validate.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -28,6 +29,7 @@ export interface HandlerOptions {
   headers?: Record<string, OverrideNode>
   operations?: Record<string, OperationConfig>
   errorBody?: ErrorBodyMode
+  validateRequests?: boolean
 }
 
 const JSON_TYPE = 'application/json'
@@ -175,6 +177,22 @@ export function createHandler(
     // Stages 3 through 6. Auth and validation arrive in this plan; idempotency
     // and failure policy in plan 4. Each returns a Response to short-circuit.
     const stages: Stage[] = []
+
+    if (options.validateRequests !== false) {
+      stages.push(async (current) => {
+        const result = validateRequest(current, operation)
+        if (result.ok) return undefined
+        return await fail(
+          operation,
+          400,
+          'MOCK_REQUEST_INVALID',
+          'Request does not match the declared schema',
+          key,
+          current,
+          result.errors
+        )
+      })
+    }
 
     for (const stage of stages) {
       const short = await stage(ctx)
