@@ -14,13 +14,15 @@ interface Entry {
 /**
  * The in-process `Store`.
  *
- * `now` is injected because determinism forbids reading the clock inside the
- * runtime — tests drive expiry with a fake clock rather than by waiting. The
- * default reads `Date.now` once, at construction, which is the single boundary
- * where that is allowed.
+ * `now` is injected because determinism forbids scattering wall-clock reads
+ * through the runtime — tests drive expiry with a fake clock rather than by
+ * waiting. The default is a FUNCTION called fresh on every operation; the
+ * invariant is that this parameter is the only `Date.now()` call site in the
+ * runtime, not that it is read once. Snapshotting it at construction would
+ * freeze the clock and disable expiry altogether.
  *
- * Expiry is lazy: an entry is dropped when it is read after its deadline, not on
- * a timer. That keeps the store free of scheduling and of `node:` imports.
+ * Expiry is lazy: an entry is dropped when read after its deadline, not on a
+ * timer. That keeps the store free of scheduling and of `node:` imports.
  */
 export function createMemoryStore(now: () => number = () => Date.now()): Store {
   const entries = new Map<string, Entry>()
@@ -58,6 +60,10 @@ export function createMemoryStore(now: () => number = () => Date.now()): Store {
       const base = typeof current === 'number' ? current : 0
       const next = base + by
       const existing = entries.get(key)
+      // If the entry was live, preserve its deadline; if expired or absent,
+      // produce an entry with no deadline, because incr has no way to re-arm one.
+      // A caller wanting a decaying counter must set() it with a TTL rather than
+      // relying on incr alone.
       entries.set(key, { value: next, expiresAt: existing?.expiresAt })
       return next
     },

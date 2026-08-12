@@ -86,3 +86,36 @@ test('clear empties the store', async () => {
   await store.clear()
   assert.equal(await store.get('a'), undefined)
 })
+
+test('an entry read at exactly its deadline is still alive', async () => {
+  const time = clock()
+  const store = createMemoryStore(time.now)
+  await store.set('a', 1, 1000)
+  time.advance(1000)
+  assert.equal(await store.get('a'), 1)
+  time.advance(1)
+  assert.equal(await store.get('a'), undefined)
+})
+
+test('incr preserves the deadline of a live entry', async () => {
+  const time = clock()
+  const store = createMemoryStore(time.now)
+  await store.set('n', 1, 1000)
+  time.advance(500)
+  await store.incr('n')
+  time.advance(501)
+  // Still expires on the ORIGINAL deadline; incr did not extend it.
+  assert.equal(await store.get('n'), undefined)
+})
+
+test('incr on an expired entry produces one with no deadline', async () => {
+  const time = clock()
+  const store = createMemoryStore(time.now)
+  await store.set('n', 5, 1000)
+  time.advance(1001)
+  assert.equal(await store.incr('n'), 1)
+  time.advance(1_000_000)
+  // incr takes no ttlMs, so it cannot re-arm a deadline it was never given.
+  // A caller wanting a decaying counter must set() it with a TTL.
+  assert.equal(await store.get('n'), 1)
+})
