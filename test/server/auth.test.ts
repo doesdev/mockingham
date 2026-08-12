@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHandler } from '../../src/server/handler.ts'
 import { loadApi } from '../../src/spec/load.ts'
+import type { Ctx } from '../../src/runtime/types.ts'
 
 // A dedicated document rather than the shared petstore: adding security to that
 // fixture would make every existing /pets/7 test start failing on 401.
@@ -59,7 +60,7 @@ test('the principal from verify reaches ctx.auth', async () => {
     auth: { bearerAuth: { verify: () => ({ sub: 'u_9', scopes: ['pets:read'] }) } },
     operations: {
       guarded: {
-        respond: (ctx: any) => {
+        respond: (ctx: Ctx) => {
           seen.push(ctx.auth)
           return ctx.respond(200, { ok: true })
         }
