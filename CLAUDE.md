@@ -45,25 +45,42 @@ Breaking any of these is a defect even if tests pass.
 
 ## Shell conventions
 
-These exist to keep autonomous runs from stalling on permission prompts.
+These exist to keep autonomous runs from stalling on permission prompts. A
+permission rule matches a command by its literal prefix, so **any shell
+metacharacter makes a command unmatchable and forces a prompt** — even when every
+individual part of it would have been allowed on its own.
 
-- **Never use heredocs** (`<<'EOF'`). They read from stdin, which defeats command
-  matching and forces a prompt. To write a file, use the Write tool. For a
-  multi-paragraph commit message, pass repeated `-m` flags — each becomes its own
-  paragraph:
+**The rule: one plain command per Bash call, with literal arguments.**
+
+Never put any of these in a Bash call:
+
+| Forbidden | Instead |
+|---|---|
+| `&&`, `\|\|`, `;` chains | One Bash call per command |
+| `\|` pipes | Use the Grep tool, or read the output yourself |
+| `$(...)` or backticks | Run the inner command as its own call and use the result |
+| `VAR=value cmd` prefixes | Write the value literally into the command |
+| `<<'EOF'` heredocs | Use the Write tool |
+| `>`, `>>` redirects | Use the Write tool |
+| `cd x && ...` | Absolute paths — never `cd` |
+
+If a check genuinely needs composition, write a script with Write and run it as a
+single command (`node scripts/check.ts`). That is one matchable command, and it
+is reviewable and re-runnable besides.
+
+Also:
+
+- **Prefer single quotes.** Double quotes invite `$` and backtick interpolation;
+  single quotes are inert. Avoid apostrophes in commit messages so single quoting
+  always works.
+- **Multi-paragraph commits use repeated `-m` flags** — each becomes its own
+  paragraph. This replaces the heredoc pattern:
 
   ```sh
   git commit -m 'feat: add route matcher' -m 'Static segments beat dynamic ones at equal depth.'
   ```
 
-- **Prefer single quotes** in shell arguments. Double quotes invite `$` and
-  backtick interpolation; single quotes are inert. Avoid apostrophes in commit
-  messages so single quoting always works.
-- **Avoid `&&` chains** for anything that writes. Run the commands as separate
-  calls — a chain is matched as a unit and one unmatched half prompts for both.
-- **Never `cd`.** Use absolute paths; `cd` inside a compound command triggers a
-  prompt.
 - **Prefer the dedicated tools** — Read, Write, Edit, Glob, Grep — over `cat`,
-  `sed`, `find`, and `grep`. They are faster, never prompt, and do not need quoting.
+  `sed`, `find`, and `grep`. They never prompt, need no quoting, and are faster.
 - `git push`, `npm publish`, `rm -rf`, and `sudo` are denied by policy. If you
   think you need one, stop and ask rather than working around it.
