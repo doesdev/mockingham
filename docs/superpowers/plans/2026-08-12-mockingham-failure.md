@@ -944,13 +944,20 @@ interface Entry {
 /**
  * The in-process `Store`.
  *
- * `now` is injected because determinism forbids reading the clock inside the
- * runtime — tests drive expiry with a fake clock rather than by waiting. The
- * default reads `Date.now` once, at construction, which is the single boundary
- * where that is allowed.
+ * `now` is injected because determinism forbids scattering wall-clock reads
+ * through the runtime — tests drive expiry with a fake clock rather than by
+ * waiting. The default is a FUNCTION called fresh on every operation; the
+ * invariant is that this parameter is the only `Date.now()` call site in the
+ * runtime, NOT that it is read once. Snapshotting it at construction would
+ * freeze the clock and disable expiry altogether.
  *
  * Expiry is lazy: an entry is dropped when it is read after its deadline, not on
  * a timer. That keeps the store free of scheduling and of `node:` imports.
+ *
+ * `incr` takes no `ttlMs`, so it cannot arm a deadline it was never given: a live
+ * entry keeps its existing deadline, while an expired or absent one produces an
+ * entry with none. A caller wanting a counter that decays must `set` it with a
+ * TTL rather than relying on `incr`.
  */
 export function createMemoryStore(now: () => number = () => Date.now()): Store {
   const entries = new Map<string, Entry>()
@@ -1742,8 +1749,10 @@ git commit -m 'feat: add the async control plane' -m 'failNext, outage, setSeed,
 - [ ] `npm test` passes with every test file green.
 - [ ] `npx tsc --noEmit` reports no errors.
 - [ ] `grep -rn "from 'node:" src/spec src/schema src/generate src/resolve src/runtime src/server/handler.ts` returns nothing.
-- [ ] `grep -rn "Math.random" src/` returns nothing, and `Date.now()` appears only
-      as `createMemoryStore`'s default clock.
+- [ ] `grep -rn "Math.random" src/` returns nothing. `grep -rn "Date.now()" src/`
+      returns only `createMemoryStore`'s default clock parameter and the comment
+      above it that names the invariant — two hits in one file, no call sites
+      anywhere else.
 - [ ] `node scripts/determinism.ts` run twice is byte-identical and still matches
       plan 1's values.
 - [ ] Status selection happens AFTER the stage list; an unauthenticated request to
