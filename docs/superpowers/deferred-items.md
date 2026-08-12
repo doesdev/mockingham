@@ -8,8 +8,9 @@ live under `.superpowers/` inside per-plan worktrees, which is gitignored scratc
 one `git worktree remove` and the reasoning is gone. Anything here is meant to
 survive that.
 
-Status as of 2026-08-12: plan 5 merged, 494 tests, `main` at the phases 7–9
-design spec (now implemented).
+Status as of 2026-08-12: plan 5 implements the phases 7–9 design spec and is in
+its final fix wave on a worktree branch; it is not yet merged to `main`. 494
+tests passing before this wave.
 
 ---
 
@@ -71,6 +72,19 @@ design spec (now implemented).
    sleeps.*
    **Status: DONE, plan 3.**
 
+15. **The idempotency lookup-then-claim is not atomic.** `createIdempotencyStage`
+    (`src/runtime/idempotency.ts`) does `store.get(key)` and then
+    `store.set(key, {state: 'in-flight'}, ...)` with no compare-and-set across
+    the await. Two genuinely concurrent identical requests in the same process
+    can both read `undefined`, both claim, and both execute — probe-verified
+    during plan 5's final review: `runs: 2`, both 201. `MOCK_IDEMPOTENCY_IN_FLIGHT`
+    is consequently reachable only for a *wedged prior* request (a dead process,
+    or a throw before the boundary catch releases the marker), not for a real
+    race. A `Store` with no compare-and-set primitive cannot fix this properly.
+    **Status: documented deferral, plan 5.** `Store.setIfAbsent` is the eventual
+    fix and is plan 6 scope — adding it mid-plan-5 was judged out of scope for a
+    fix wave. See phases 7-9 design §6 (known limitation 6) and master spec §11.
+
 ---
 
 ## Polish
@@ -118,8 +132,9 @@ fail, report the exact message. That caught all four.
 seeded, so two real executions of the same request already return byte-identical
 bytes — an idempotency replay test that only compares bodies passes with
 idempotency removed entirely. Plan 5's replay test counts executions through a
-`ctx.seq()`-backed callback so the two paths genuinely differ. Whenever a test
-asserts "the same output", ask what else could produce that same output.
+plain closure counter (`let runs = 0`, incremented inside the `respond`
+callback) so the two paths genuinely differ. Whenever a test asserts "the same
+output", ask what else could produce that same output.
 
 **A mutation that exercises the wrong branch proves nothing.** A test in plan 5
 survived both its author's and its implementer's mutation runs because both
