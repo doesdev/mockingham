@@ -74,7 +74,7 @@ export function loadApi(doc: Record<string, unknown>): Api {
     )
   }
 
-  const resolved = resolveDocument(doc)
+  const { document: resolved, schemaNames } = resolveDocument(doc)
   const operations: Operation[] = []
 
   const rawPaths = resolved['paths']
@@ -128,5 +128,5 @@ export function loadApi(doc: Record<string, unknown>): Api {
     }
   }
 
-  return { version, operations }
+  return { version, operations, schemaNames }
 }
