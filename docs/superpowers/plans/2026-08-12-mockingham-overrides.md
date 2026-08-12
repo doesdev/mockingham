@@ -638,13 +638,41 @@ test('parses a text body as a string', async () => {
 })
 
 test('an unrecognized content type is exposed as raw bytes', async () => {
-  const result = await parseBody(post('', 'application/octet-stream'), op())
+  // Non-empty on purpose: the empty-body short-circuit returns undefined
+  // before the raw-bytes fallback is ever reached.
+  const result = await parseBody(
+    post('\x00\x01binary', 'application/octet-stream'), op()
+  )
   assert.equal(result.ok, true)
   if (result.ok) assert.ok(result.body.value instanceof Uint8Array)
 })
 
 test('an empty body yields undefined', async () => {
   const request = new Request('http://mock/things', { method: 'POST' })
+  const result = await parseBody(request, op())
+  assert.equal(result.ok, true)
+  if (result.ok) assert.equal(result.body.value, undefined)
+})
+
+// An empty body must never error, whatever Content-Type it carries. Many
+// clients send Content-Type even with no body, so gating the short-circuit on
+// the media type turns those into spurious 415s and 400s.
+test('an empty body is not a 415 even when the type is undeclared', async () => {
+  const operation = op({
+    requestBody: { 'application/json': { schema: { type: 'object' } } }
+  })
+  const request = new Request('http://mock/things', {
+    method: 'POST', headers: { 'content-type': 'application/xml' }
+  })
+  const result = await parseBody(request, operation)
+  assert.equal(result.ok, true)
+  if (result.ok) assert.equal(result.body.value, undefined)
+})
+
+test('an empty body with a JSON content type is not a parse error', async () => {
+  const request = new Request('http://mock/things', {
+    method: 'POST', headers: { 'content-type': 'application/json' }
+  })
   const result = await parseBody(request, op())
   assert.equal(result.ok, true)
   if (result.ok) assert.equal(result.body.value, undefined)
@@ -759,7 +787,7 @@ export async function parseBody(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `node --test test/runtime/body.test.ts`
-Expected: PASS, 9 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Typecheck and commit**
 
