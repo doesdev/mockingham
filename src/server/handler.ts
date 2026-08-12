@@ -17,6 +17,8 @@ import { preferred, selectResponse } from '../runtime/select.ts'
 import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
 import type { ErrorBodyMode } from '../runtime/errors.ts'
 import { validateRequest } from '../runtime/validate.ts'
+import { checkAuth } from '../runtime/auth.ts'
+import type { AuthConfig } from '../runtime/auth.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -30,6 +32,7 @@ export interface HandlerOptions {
   operations?: Record<string, OperationConfig>
   errorBody?: ErrorBodyMode
   validateRequests?: boolean
+  auth?: AuthConfig
 }
 
 const JSON_TYPE = 'application/json'
@@ -112,8 +115,8 @@ export function createHandler(
       return await fail(operation, parsed.status, parsed.code, parsed.message, requestKey(operation, params, seed))
     }
 
-    // Stages 3, 4, 5, and 6 (auth, validation, idempotency, failure) arrive
-    // with plans 3 and 4.
+    // Stages 3 and 4 (auth, validation) are built below, once ctx exists.
+    // Stages 5 and 6 (idempotency, failure) arrive with plan 4.
 
     // Stage 7 — status selection.
     const key = requestKey(operation, params, seed)
@@ -174,10 +177,31 @@ export function createHandler(
       example: exampleFor
     })
 
-    // Stages 3 through 6. Auth and validation arrive in this plan; idempotency
-    // and failure policy in plan 4. Each returns a Response to short-circuit.
+    // Stages 3 through 6. Auth runs before validation so an unauthenticated
+    // caller cannot learn whether their body was well-formed; idempotency and
+    // failure policy arrive in plan 4. Each stage may return a Response to
+    // short-circuit the rest.
     const stages: Stage[] = []
 
+    // Stage 3 — auth.
+    stages.push(async (current) => {
+      const outcome = await checkAuth({
+        security: operation.security,
+        schemes: api.securitySchemes,
+        config: options.auth ?? {},
+        ctx: current
+      })
+      if (outcome.ok) {
+        current.auth = outcome.principal
+        return undefined
+      }
+      if (outcome.response) return outcome.response
+      return await fail(
+        operation, outcome.status, outcome.code, outcome.message, key, current
+      )
+    })
+
+    // Stage 4 — request validation.
     if (options.validateRequests !== false) {
       stages.push(async (current) => {
         const result = validateRequest(current, operation)

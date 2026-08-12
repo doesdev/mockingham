@@ -78,6 +78,12 @@ export function createContext(input: ContextInput): Ctx {
       if (settled === undefined) return new Response(null, { status, headers: out })
       out.set('content-type', 'application/json')
       return new Response(JSON.stringify(settled), { status, headers: out })
+    },
+    deny(status, code) {
+      return Response.json(
+        { error: { code: code ?? 'MOCK_DENIED', message: `Denied with ${status}` } },
+        { status }
+      )
     }
   }
 

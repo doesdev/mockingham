@@ -29,6 +29,8 @@ export interface Ctx {
   respond(
     status: number, body?: unknown, headers?: Record<string, string>
   ): Promise<Response>
+  auth?: unknown
+  deny(status: number, code?: string): Response
 }
 
 /** A resolver or override leaf. May return a value or a promise of one. */
