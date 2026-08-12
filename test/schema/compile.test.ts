@@ -2,8 +2,6 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createCompiler } from '../../src/schema/compile.ts'
 import type { Schema } from '../../src/spec/types.ts'
-import { generateValue } from '../../src/generate/generate.ts'
-import { createRng } from '../../src/generate/rng.ts'
 
 function parse(schema: Schema, value: unknown) {
   return createCompiler().compile(schema).safeParse(value)
@@ -160,15 +158,15 @@ test('honors the 3.0 boolean spelling of exclusive bounds', () => {
   assert.equal(parse({ type: 'integer', maximum: 5, exclusiveMaximum: true }, 5).success, false)
 })
 
-test('a value generated from an allOf schema satisfies the compiled validator', () => {
-  // Generation and validation must read a schema the same way. If either drops
-  // an allOf-nested constraint, this fails.
-  const schema: Schema = {
-    allOf: [
-      { type: 'object', required: ['name'], properties: { name: { type: 'string', minLength: 8 } } },
-      { type: 'object', required: ['age'], properties: { age: { type: 'integer', minimum: 21 } } }
-    ]
-  }
-  const value = generateValue(schema, createRng('allof'), {})
-  assert.equal(createCompiler().compile(schema).safeParse(value).success, true)
+test('honors a constraint declared inside allOf', () => {
+  // allOf wrapping a primitive is the reproducing shape: classify() flattens it
+  // structurally, but the constraint read used to go to the un-merged node, so
+  // minLength was silently dropped. Object-level allOf does NOT reproduce this.
+  assert.equal(parse({ allOf: [{ type: 'string', minLength: 5 }] }, 'ab').success, false)
+  assert.equal(parse({ allOf: [{ type: 'string', minLength: 5 }] }, 'abcdef').success, true)
+})
+
+test('honors a numeric constraint declared inside allOf', () => {
+  assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 7).success, false)
+  assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 42).success, true)
 })

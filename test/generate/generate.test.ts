@@ -39,6 +39,16 @@ test('preferExamples false ignores the example', () => {
   assert.notEqual(value, 'fixed-value')
 })
 
+test('honors a length constraint declared inside allOf', () => {
+  // Pre-fix, generation read constraints off the un-merged schema and produced a
+  // default-length string, so a 40-character minimum was ignored.
+  const value = generateValue(
+    { allOf: [{ type: 'string', minLength: 40 }] }, createRng('allof'), {}
+  ) as string
+  assert.equal(typeof value, 'string')
+  assert.ok(value.length >= 40, `expected at least 40 characters, got ${value.length}`)
+})
+
 test('uses default when no example is present', () => {
   assert.equal(generateValue({ type: 'string', default: 'dflt' }, createRng('d')), 'dflt')
 })
