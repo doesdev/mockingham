@@ -145,6 +145,7 @@ export function createHandler(
       operation,
       params,
       body: parsed.body.value,
+      mediaType: parsed.body.mediaType,
       rng: responders.rngFor('ctx'),
       requestKey: key,
       counters,

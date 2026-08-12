@@ -28,6 +28,7 @@ export interface ContextInput {
   operation: Operation
   params: Record<string, string>
   body: unknown
+  mediaType?: string
   rng: Rng
   requestKey: string
   counters: Counters
@@ -59,6 +60,7 @@ export function createContext(input: ContextInput): Ctx {
     query,
     headers,
     body: input.body,
+    mediaType: input.mediaType,
     rng: input.rng,
     requestKey: input.requestKey,
     log: {},

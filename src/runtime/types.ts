@@ -18,6 +18,7 @@ export interface Ctx {
   query: Record<string, string | string[]>
   headers: Record<string, string>
   body: unknown
+  mediaType?: string
   rng: Rng
   requestKey: string
   log: Record<string, unknown>

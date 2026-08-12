@@ -160,3 +160,38 @@ test('an absent security field stays undefined when the document declares none',
   }
   assert.equal(loadApi(doc).operations[0]?.security, undefined)
 })
+
+test('records whether a request body is required', () => {
+  const doc = {
+    openapi: '3.1.0',
+    paths: {
+      '/a': {
+        post: {
+          operationId: 'a',
+          requestBody: {
+            required: true,
+            content: { 'application/json': { schema: { type: 'object' } } }
+          },
+          responses: { '200': { description: 'ok' } }
+        }
+      }
+    }
+  }
+  assert.equal(loadApi(doc).operations[0]?.requestBodyRequired, true)
+})
+
+test('an absent required flag is falsy', () => {
+  const doc = {
+    openapi: '3.1.0',
+    paths: {
+      '/a': {
+        post: {
+          operationId: 'a',
+          requestBody: { content: { 'application/json': { schema: { type: 'object' } } } },
+          responses: { '200': { description: 'ok' } }
+        }
+      }
+    }
+  }
+  assert.notEqual(loadApi(doc).operations[0]?.requestBodyRequired, true)
+})

@@ -138,7 +138,23 @@ export function createCompiler(): Compiler {
         // be checked here, or a document zod cannot model that way becomes a
         // crash at request time rather than a slower plain union.
         if (key !== undefined && kind.variants.every((variant) => usable(variant, key))) {
+          // A discriminator already guarantees at most one match.
           return z.discriminatedUnion(key, variants as never) as ZodType
+        }
+        if (kind.mode === 'one') {
+          // oneOf means EXACTLY one variant matches; a plain union means at
+          // least one, which is anyOf's rule.
+          return z.unknown().superRefine((value, context) => {
+            const matched = variants.filter(
+              (variant) => variant.safeParse(value).success
+            ).length
+            if (matched !== 1) {
+              context.addIssue({
+                code: 'custom',
+                message: `Expected exactly one oneOf variant to match, ${matched} did`
+              })
+            }
+          }) as ZodType
         }
         return z.union(variants as never) as ZodType
       }
@@ -152,13 +168,15 @@ export function createCompiler(): Compiler {
         const shape: Record<string, ZodType> = {}
         for (const [name, property] of Object.entries(kind.properties)) {
           const compiled = compile(property)
-          shape[name] = kind.required.includes(name)
-            ? compiled
-            : compiled.optional()
+          shape[name] = kind.required.includes(name) ? compiled : compiled.optional()
         }
-        return kind.additional === false
-          ? z.strictObject(shape)
-          : z.looseObject(shape)
+        if (kind.additional === false) return z.strictObject(shape)
+        // An `additionalProperties` SCHEMA constrains unknown keys rather than
+        // merely allowing them, so it becomes a catchall.
+        if (Object.keys(kind.additional).length > 0) {
+          return z.object(shape).catchall(compile(kind.additional))
+        }
+        return z.looseObject(shape)
       }
       default:
         return z.unknown()

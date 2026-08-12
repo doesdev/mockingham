@@ -181,3 +181,42 @@ test('honors a numeric constraint declared inside allOf', () => {
   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 7).success, false)
   assert.equal(parse({ allOf: [{ type: 'integer', minimum: 21 }] }, 42).success, true)
 })
+
+test('additionalProperties as a schema constrains unknown keys', () => {
+  const schema: Schema = {
+    type: 'object',
+    properties: { a: { type: 'string' } },
+    additionalProperties: { type: 'integer' }
+  }
+  assert.equal(parse(schema, { a: 'x', extra: 1 }).success, true)
+  assert.equal(parse(schema, { a: 'x', extra: 'no' }).success, false)
+})
+
+test('oneOf requires exactly one variant to match', () => {
+  // classify carries `mode` precisely so a validator can tell oneOf from anyOf.
+  const schema: Schema = {
+    oneOf: [
+      { type: 'object', properties: { a: { type: 'string' } } },
+      { type: 'object', properties: { b: { type: 'string' } } }
+    ]
+  }
+  // Both variants are loose objects, so this matches BOTH — oneOf must reject it.
+  assert.equal(parse(schema, { a: 'x', b: 'y' }).success, false)
+})
+
+test('anyOf accepts a value matching several variants', () => {
+  const schema: Schema = {
+    anyOf: [
+      { type: 'object', properties: { a: { type: 'string' } } },
+      { type: 'object', properties: { b: { type: 'string' } } }
+    ]
+  }
+  assert.equal(parse(schema, { a: 'x', b: 'y' }).success, true)
+})
+
+test('oneOf still accepts a value matching exactly one variant', () => {
+  const schema: Schema = { oneOf: [{ type: 'string' }, { type: 'integer' }] }
+  assert.equal(parse(schema, 'x').success, true)
+  assert.equal(parse(schema, 1).success, true)
+  assert.equal(parse(schema, true).success, false)
+})

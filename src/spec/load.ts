@@ -156,6 +156,7 @@ export function loadApi(doc: Record<string, unknown>): Api {
         requestBody: op['requestBody']
           ? toContent(asRecord(op['requestBody'])['content'])
           : undefined,
+        requestBodyRequired: asRecord(op['requestBody'])['required'] === true,
         responses,
         defaultResponse,
         security: toSecurity(op['security']) ?? documentSecurity

@@ -166,3 +166,30 @@ test('a cookie parameter is coerced like any other wire value', () => {
     { ok: true }
   )
 })
+
+test('a missing required body is reported', () => {
+  const operation = op([], {
+    'application/json': { schema: { type: 'object' } }
+  })
+  operation.requestBodyRequired = true
+  const result = validateRequest(ctx({ body: undefined }), operation)
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.equal(result.errors[0]?.path, 'body')
+})
+
+test('a missing optional body is fine', () => {
+  const operation = op([], { 'application/json': { schema: { type: 'object' } } })
+  assert.deepEqual(validateRequest(ctx({ body: undefined }), operation), { ok: true })
+})
+
+test('a suffix JSON body is validated', () => {
+  const operation = op([], {
+    'application/json': {
+      schema: { type: 'object', required: ['a'], properties: { a: { type: 'string' } } }
+    }
+  })
+  const result = validateRequest(
+    ctx({ body: { a: 1 }, mediaType: 'application/vnd.api+json' }), operation
+  )
+  assert.equal(result.ok, false)
+})
