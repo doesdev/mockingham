@@ -1,0 +1,89 @@
+import type { Operation } from './types.ts'
+
+export interface RouteMatch {
+  operation: Operation
+  params: Record<string, string>
+}
+
+export interface Router {
+  match(method: string, path: string): RouteMatch | undefined
+  allowedMethods(path: string): string[]
+}
+
+interface Segment {
+  value: string
+  dynamic: boolean
+}
+
+interface Route {
+  operation: Operation
+  segments: Segment[]
+  score: number[]
+}
+
+function split(path: string): string[] {
+  return path.split('/').filter((segment) => segment.length > 0)
+}
+
+function compile(operation: Operation): Route {
+  const segments = split(operation.path).map((raw) => {
+    const matched = /^\{(.+)\}$/.exec(raw)
+    return matched
+      ? { value: matched[1] as string, dynamic: true }
+      : { value: raw, dynamic: false }
+  })
+  return { operation, segments, score: segments.map((s) => (s.dynamic ? 1 : 0)) }
+}
+
+function compareScore(a: Route, b: Route): number {
+  const length = Math.max(a.score.length, b.score.length)
+  for (let i = 0; i < length; i++) {
+    const left = a.score[i] ?? -1
+    const right = b.score[i] ?? -1
+    if (left !== right) return left - right
+  }
+  return 0
+}
+
+function matchSegments(
+  route: Route,
+  parts: string[]
+): Record<string, string> | undefined {
+  if (route.segments.length !== parts.length) return undefined
+  const params: Record<string, string> = {}
+  for (let i = 0; i < route.segments.length; i++) {
+    const segment = route.segments[i] as Segment
+    const part = parts[i] as string
+    if (segment.dynamic) params[segment.value] = decodeURIComponent(part)
+    else if (segment.value !== part) return undefined
+  }
+  return params
+}
+
+export function createRouter(operations: Operation[]): Router {
+  const routes = operations.map(compile).sort(compareScore)
+
+  return {
+    match(method, path) {
+      const wanted = method.toUpperCase()
+      const parts = split(path)
+      for (const route of routes) {
+        if (route.operation.method.toUpperCase() !== wanted) continue
+        const params = matchSegments(route, parts)
+        if (params !== undefined) return { operation: route.operation, params }
+      }
+      return undefined
+    },
+
+    allowedMethods(path) {
+      const parts = split(path)
+      const found: string[] = []
+      for (const route of routes) {
+        if (matchSegments(route, parts) === undefined) continue
+        const method = route.operation.method.toUpperCase()
+        if (!found.includes(method)) found.push(method)
+      }
+      return found
+    }
+  }
+}
