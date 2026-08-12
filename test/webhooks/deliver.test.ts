@@ -72,10 +72,12 @@ test('a 500 retries to the attempt limit, sleeping the exact seeded sequence', a
   assert.equal(delivery.outcome, 'failed')
   assert.equal(delivery.status, 500)
   assert.equal(delivery.attempts, 3)
-  assert.deepEqual(h.slept, [
-    backoffFor({ seed: 'plan6', webhook: 'onOrderShipped', attempt: 0, retry }),
-    backoffFor({ seed: 'plan6', webhook: 'onOrderShipped', attempt: 1, retry })
-  ])
+  // Literal rather than computed: deriving the expectation from backoffFor()
+  // would make any mutation to it change both sides of this assertion equally,
+  // and the test could never fail. These are the seeded values for
+  // seed 'plan6', webhook 'onOrderShipped', attempts 0 and 1 — a change to the
+  // seed, the jitter formula, or the PRNG is expected to change them.
+  assert.deepEqual(h.slept, [243, 371])
 })
 
 test('a 404 does not retry', async () => {
