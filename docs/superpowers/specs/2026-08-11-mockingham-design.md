@@ -20,8 +20,9 @@ via a fixture store.
 ## Non-goals (v1)
 
 YAML parsing, Swagger 2.0, external/remote `$ref` resolution, stateful CRUD
-persistence, an HTTP admin control plane, webhooks/callbacks, SSE/streaming
-responses, multipart body generation, HTTPS termination.
+persistence, an HTTP admin control plane, SSE/streaming responses, multipart body
+generation, HTTPS termination. Webhooks are in scope (§13) but recurring emitters
+and chained deliveries are not.
 
 Each of these is deliberately excluded, not overlooked. The architecture leaves
 room for stateful CRUD as a later addition.
@@ -29,9 +30,11 @@ room for stateful CRUD as a later addition.
 ## Primary consumer
 
 The first real user of this is an **agent building a client against the mocked
-API**. That shapes two decisions that would otherwise be marginal: the MCP server
-(§14) is in scope for v1 rather than deferred, and the control plane is designed
-to be driven by something other than a human from the start.
+API**. That shapes three decisions that would otherwise be marginal: the MCP
+server (§15) is in scope for v1 rather than deferred, webhooks (§13) ship with a
+capture mode and an `emit_webhook` tool so an agent can exercise its own receiver,
+and the control plane is designed to be driven by something other than a human
+from the start.
 
 ---
 
@@ -76,6 +79,11 @@ src/
     logging.ts     log record assembly and emission
     store.ts       Store interface + MemoryStore
     errors.ts      on-contract error body construction
+  webhooks/
+    emit.ts        trigger handling, payload assembly
+    deliver.ts     outbound fetch, retry, capture
+    sign.ts        HMAC signing
+    expr.ts        OpenAPI runtime expression resolution
   fixtures/
     store.ts       disk-backed fixture store
     source.ts      ContentSource interface
@@ -109,7 +117,12 @@ interface Mock {
   failNext(target: string, opts: FailNextOptions): void
   outage(target: string, opts: OutageOptions): void
   setSeed(seed: string): void
-  reset(): void            // clears chaos state, idempotency keys, counters
+  reset(): void            // chaos state, idempotency keys, counters,
+                           // runtime overrides, pending emits, deliveries
+
+  emit(webhook: string, opts?: EmitOptions): Promise<Delivery>
+  deliveries(filter?: DeliveryFilter): Delivery[]
+  clearDeliveries(): void
 
   bake(opts?: BakeOptions): Promise<BakeReport>
   mcp(opts?: McpOptions): McpServer
@@ -118,7 +131,7 @@ interface Mock {
 ```
 
 The control plane is a clean programmatic API rather than HTTP endpoints, and
-both the MCP server (§14) and any future admin HTTP surface are thin adapters
+both the MCP server (§15) and any future admin HTTP surface are thin adapters
 over it — the same relationship `node.ts` has to `fetch`. Every control-plane
 method is therefore designed to be callable by a machine: targets are strings,
 arguments are JSON-serializable, and results are structured.
@@ -465,7 +478,109 @@ example lives in the docs, not in code — no dependency.
 
 ---
 
-## 13. Fixtures and LLM content
+## 13. Webhooks and callbacks
+
+The mock emits outbound requests whose bodies conform to the document's declared
+schemas. Both OpenAPI shapes are supported:
+
+- **`webhooks`** (3.1, top-level) — outbound requests the API makes, described as
+  path items.
+- **`callbacks`** (3.0 and 3.1, per-operation) — out-of-band requests triggered by
+  a specific operation, whose destination is given by a runtime expression.
+
+Emission reuses the existing machinery wholesale: payloads come from §3
+generation, are shaped by the §4 override layers, carry §5-layered headers, can be
+baked by the §14 fixture store, and record their outcome through §12 logging.
+The only genuinely new code is delivery, expression resolution, and signing.
+
+### Triggers
+
+Two, and deliberately no more.
+
+**Imperative** — the control plane and MCP:
+
+```ts
+await mock.emit('onOrderShipped', { to: url, body: { id: 'o_1' } })
+```
+
+**Operation-linked** — declared in config, fired after the response is returned:
+
+```ts
+operations: {
+  'POST /orders': {
+    emits: [{
+      webhook: 'onOrderShipped',
+      afterMs: 200,                                   // or (ctx) => ms
+      body: { orderId: ctx => ctx.result.body.id }    // full §4 layering
+    }]
+  }
+}
+```
+
+`afterMs` is a single awaited timer bound to the request's lifetime, not a
+scheduler entry — it is cancelled by `close()` and cleared by `reset()`. There is
+no background job, no persistence, and no lifecycle to reason about. Emission
+never blocks or delays the triggering response; a delivery failure is logged and
+never affects it.
+
+Excluded on purpose: recurring emitters, chained webhooks where one delivery
+triggers another, and retry durable across restarts. Each would require a real
+scheduler, and that is the one part of this feature that would touch modules
+other than its own.
+
+### Destinations
+
+Resolved in precedence order:
+
+1. Explicit `to:` on the `emit()` call.
+2. A URL captured at runtime from the callback's OpenAPI runtime expression —
+   `{$request.body#/callbackUrl}`, `{$request.query.url}`, `{$request.header.x-cb}`
+   — recorded in the Store when a client subscribed via a real request. This is
+   what makes the common "client POSTs its own callback URL" flow work.
+3. A static per-webhook `url` from config.
+4. Nothing resolves → the delivery is captured but not sent, and logged as
+   `unresolved`. An emit never hard-fails.
+
+Supported runtime expression subset: `$url`, `$method`, `$statusCode`,
+`$request.{header|query|path}.name`, `$request.body#/json-pointer`, and the
+`$response.*` equivalents. Anything outside the subset warns at startup and falls
+through to the next destination tier.
+
+### Delivery, signing, capture
+
+```ts
+webhooks: {
+  onOrderShipped: {
+    url: 'http://localhost:5173/hooks/shipped',
+    secret: process.env.HOOK_SECRET,
+    retry: { attempts: 3, backoff: 'exponential', maxDelayMs: 10_000 },
+    headers: { 'x-source': 'mockingham' }
+  }
+},
+captureOnly: false
+```
+
+Delivery is `fetch` with retry and jittered exponential backoff; attempt state
+lives in the Store. Non-2xx responses retry, 4xx other than 408/429 do not.
+
+**Signing** is on whenever `secret` is set: HMAC-SHA256 over
+`timestamp + '.' + rawBody`, sent as `x-mockingham-signature: t=<ts>,v1=<hex>`
+using `node:crypto`. This exists so the client's signature-verification path —
+the security-critical one — is exercised before production rather than after.
+
+**Capture mode** records every delivery instead of, or alongside, sending it:
+
+```ts
+mock.deliveries()   // [{ webhook, url, body, headers, status, attempts, error? }]
+mock.clearDeliveries()
+```
+
+`captureOnly: true` makes webhooks fully testable in-process with no receiver,
+the same way `fetch()` made responses testable without a port.
+
+---
+
+## 14. Fixtures and LLM content
 
 ### The idea
 
@@ -594,7 +709,7 @@ instruction.
 
 ---
 
-## 14. MCP server
+## 15. MCP server
 
 The primary consumer is an agent building a client against the mocked API. Two
 problems follow, and the MCP server solves both.
@@ -620,6 +735,8 @@ Read — introspection over the loaded document:
 | `search_operations` | operations matching a free-text query over path, summary, description, tags |
 | `sample_response` | a **live generated response** for an operation/status, produced by the real pipeline — the exact bytes the agent's code will receive |
 | `get_auth_requirements` | security schemes and per-operation requirements |
+| `list_webhooks` | declared webhooks and callbacks, with payload schemas and which operations emit them |
+| `list_deliveries` | what has been emitted so far — the agent's feedback loop for verifying its own handler |
 
 `sample_response` is the one that earns its place: an agent writing a parser
 against a schema is guessing, and an agent that has seen the concrete payload —
@@ -633,6 +750,7 @@ Write — the control plane, exposed:
 | `set_override` | pin a value at a path for an operation/status |
 | `clear_overrides` | drop overrides, scoped or all |
 | `fail_next` / `outage` | drive error paths on demand |
+| `emit_webhook` | fire a webhook at a chosen URL — lets an agent test its own receiver without provoking the triggering flow |
 | `set_seed` | reshuffle all generated content |
 | `regenerate_fixture` | re-run the LLM for one operation |
 | `reset` | clear chaos state, idempotency keys, counters, runtime overrides |
@@ -658,14 +776,14 @@ agent points at one URL for both the API it is mocking and the tools describing
 it, and the mock it introspects is provably the mock it calls.
 
 `@modelcontextprotocol/sdk` is an **optional peer dependency**, imported lazily
-when the MCP server starts — the same pattern as the Anthropic source in §13.
+when the MCP server starts — the same pattern as the Anthropic source in §14.
 Core stays zero-dependency; users who want MCP get a maintained protocol
 implementation instead of ~200 lines of owned JSON-RPC that has to track a moving
 spec.
 
 ---
 
-## 15. Configuration surface
+## 16. Configuration surface
 
 ```ts
 createMock(doc, {
@@ -685,6 +803,8 @@ createMock(doc, {
   failure?: FailurePolicy[]
   decide?: (ctx) => Directive | undefined
   idempotency?: IdempotencyConfig
+  webhooks?: Record<string, WebhookConfig>
+  captureOnly?: boolean             // default false
   llm?: LlmConfig
   mcp?: McpOptions
   onLog?: (record: LogRecord) => void | Promise<void>
@@ -697,7 +817,7 @@ immediately rather than silently doing nothing.
 
 ---
 
-## 16. Testing
+## 17. Testing
 
 **`node:test`** with `node --test`, no test-framework dependency at all. Node
 strips TypeScript natively, so tests are written in TypeScript and run directly
@@ -715,13 +835,18 @@ with `as const` replace enums cleanly.
   PRNG determinism and distribution, each format producer, each constraint,
   override layering incl. async and wildcard, zod compilation for
   `allOf`/`oneOf`/discriminator, each pipeline stage in isolation, `MemoryStore`
-  TTL, fixture store round-trip and staleness detection.
+  TTL, fixture store round-trip and staleness detection, runtime expression
+  resolution, HMAC signature vectors, retry backoff sequencing.
 - **Integration** through `mock.fetch()` against fixture specs: a petstore-ish
   document, an auth-and-idempotency-heavy document, and a deliberately nasty one
   (deep nesting, recursion, `oneOf` with discriminator, every format).
 - **Adapter smoke test** through a real `node:http` port.
 - **Determinism test**: the same request twice, across a fresh process, must be
   byte-identical.
+- **Webhooks** tested in `captureOnly` mode end-to-end (subscribe via a real
+  request carrying a callback URL, trigger the operation, assert the captured
+  delivery), plus one real loopback delivery to a throwaway `node:http` receiver
+  covering signing and retry. No outbound network in the suite.
 - **LLM path** tested against a stub `ContentSource`; no network in the test suite.
 - **MCP tools** tested by calling handlers directly, plus one stdio round-trip
   smoke test. `sample_response` is asserted to equal what `mock.fetch()` returns
@@ -729,7 +854,7 @@ with `as const` replace enums cleanly.
 
 ---
 
-## 17. Implementation sequencing
+## 18. Implementation sequencing
 
 Each phase leaves the project in a working, tested state.
 
@@ -747,18 +872,22 @@ Each phase leaves the project in a working, tested state.
    `runtime/errors`.
 6. **Failure** — `runtime/failure`, `runtime/store`, control plane.
 7. **Idempotency** — `runtime/idempotency`.
-8. **Logging and CLI** — `runtime/logging`, `server/cli`.
-9. **MCP server** — `mcp/tools`, `mcp/server`, stdio and HTTP transports.
-   Read tools depend only on phases 1–3 and can land as soon as generation works
-   if the consuming agent needs them sooner; write tools need phase 6.
-10. **Fixtures** — `fixtures/store`, `fixtures/source`, `bake`, the Anthropic
+8. **Webhooks** — `webhooks/expr`, `webhooks/sign`, `webhooks/deliver`,
+   `webhooks/emit`. Depends on generation, overrides, and the Store; nothing in
+   phases 1–7 changes to accommodate it.
+9. **Logging and CLI** — `runtime/logging`, `server/cli`.
+10. **MCP server** — `mcp/tools`, `mcp/server`, stdio and HTTP transports.
+    Read tools depend only on phases 1–3 and can land as soon as generation works
+    if the consuming agent needs them sooner; write tools need phases 6 and 8.
+11. **Fixtures** — `fixtures/store`, `fixtures/source`, `bake`, the Anthropic
     source, batch path.
-11. **Docs** — README, a Datadog logging recipe, a fixture-workflow guide, and an
-    MCP setup guide with a ready-to-paste client config.
+12. **Docs** — README, a Datadog logging recipe, a fixture-workflow guide, a
+    webhook-testing guide, and an MCP setup guide with a ready-to-paste client
+    config.
 
 ---
 
-## 18. Known limitations, stated up front
+## 19. Known limitations, stated up front
 
 - Regex `pattern` generation covers a documented subset; outside it, an override
   or fixture is required (warned at startup).
@@ -767,3 +896,7 @@ Each phase leaves the project in a working, tested state.
 - YAML documents must be parsed by the caller and passed in as objects.
 - `oneOf`/`anyOf` selection is seeded, not exhaustive; use `Prefer: example=` or
   an override to pin a specific variant.
+- Webhooks fire only on explicit emit or a triggering operation. No recurring
+  emitters, no chained deliveries, and retry state does not survive a restart.
+- Runtime expression support covers a documented subset; expressions outside it
+  warn at startup and fall through to the configured static URL.
