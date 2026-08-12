@@ -22,6 +22,8 @@ import type { Directive, FailurePolicy } from '../runtime/failure.ts'
 import { createMemoryStore } from '../runtime/store.ts'
 import type { Store } from '../runtime/store.ts'
 import { requestIdFor } from '../runtime/logging.ts'
+import { createIdempotencyStage, resolveIdempotency } from '../runtime/idempotency.ts'
+import type { IdempotencyConfig } from '../runtime/idempotency.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -56,6 +58,7 @@ export interface HandlerOptions {
   chaosSeed?: string
   store?: Store
   sleep?: (ms: number) => Promise<void>
+  idempotency?: IdempotencyConfig
   /**
    * The wall clock, injected. Log timestamps and Store TTLs are the only two
    * consumers; neither can reach a response body, so neither violates the
@@ -92,6 +95,7 @@ export function createHandler(
   const now = options.now ?? (() => Date.now())
   // One clock for the store and the log, so a fake clock in a test drives both.
   const store = options.store ?? createMemoryStore(now)
+  const idempotency = resolveIdempotency(options.idempotency)
   const policies = compilePolicies(options.failure, api.operations)
   const chaosSeed = options.chaosSeed ?? seed
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
@@ -141,6 +145,8 @@ export function createHandler(
     bytesIn: number
     ctx?: Ctx
     error?: unknown
+    /** Set by stage 5 when this request claimed a key; read by the single exit. */
+    claimed?: { key: string; fingerprint: string }
   }
 
   async function produce(request: Request, trace: Trace): Promise<Response> {
@@ -227,7 +233,7 @@ export function createHandler(
 
     // Stages 3 through 6, in the master spec's order. Auth runs before
     // validation so an unauthenticated caller cannot learn whether their body
-    // was well-formed. Stage 5 (idempotency) arrives in Task 6.
+    // was well-formed.
     const stages: Stage[] = [
       createAuthStage({
         security: operation.security,
@@ -240,6 +246,21 @@ export function createHandler(
     if (options.validateRequests !== false) {
       stages.push(createValidationStage({ operation, fail }))
     }
+
+    // Stage 5 — idempotency lookup. After validation so a malformed request
+    // never claims a key it will not be able to honor.
+    stages.push(
+      createIdempotencyStage({
+        operation,
+        config: idempotency,
+        store,
+        raw: parsed.body.raw,
+        fail,
+        claim: (claimedKey, claimedFingerprint) => {
+          trace.claimed = { key: claimedKey, fingerprint: claimedFingerprint }
+        }
+      })
+    )
 
     // Pushed after validation so a malformed request is still rejected on its
     // merits rather than by chaos.

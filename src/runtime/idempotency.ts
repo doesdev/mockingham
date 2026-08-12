@@ -1,5 +1,7 @@
 import type { Operation } from '../spec/types.ts'
 import { fnv1aBytes } from '../generate/rng.ts'
+import type { Ctx, Fail, Stage } from './types.ts'
+import type { Store } from './store.ts'
 
 export type ScopePart = 'key' | 'route' | 'bodyHash'
 
@@ -130,4 +132,81 @@ export function recordKey(input: RecordKeyInput): string {
  */
 export function comparesBody(config: ResolvedIdempotency): boolean {
   return config.scope.includes('bodyHash')
+}
+
+export interface IdempotencyStageInput {
+  operation: Operation
+  config: ResolvedIdempotency
+  store: Store
+  /** The raw request bytes, from stage 2's parse. */
+  raw: Uint8Array
+  fail: Fail
+  /**
+   * Called when this request claims the key. The single exit uses it to know
+   * what to store, and the boundary catch uses it to know what to clear.
+   */
+  claim: (key: string, fingerprint: string) => void
+}
+
+/**
+ * Pipeline stage 5 — the read half. Stage 11, at the single exit, is the write
+ * half. Idempotency spans two stages, which is why it is more invasive than its
+ * size suggests.
+ */
+export function createIdempotencyStage(input: IdempotencyStageInput): Stage {
+  return async function idempotencyStage(ctx) {
+    if (!isIdempotent(input.operation, input.config)) return undefined
+
+    const supplied = ctx.headers[input.config.header.toLowerCase()]
+    // No key, nothing to key on. A document that wants the header mandatory
+    // declares it `required`, and stage 4 has already rejected its absence.
+    if (supplied === undefined) return undefined
+
+    const bodyHash = fingerprint(input.raw)
+    const key = recordKey({
+      key: supplied,
+      operation: input.operation,
+      scope: input.config.scope
+    })
+
+    const entry = (await input.store.get(key)) as IdempotencyEntry | undefined
+
+    if (entry === undefined) {
+      ctx.decisions.idempotency = 'first'
+      await input.store.set(
+        key,
+        { state: 'in-flight', fingerprint: bodyHash },
+        input.config.inFlightTtlMs
+      )
+      input.claim(key, bodyHash)
+      return undefined
+    }
+
+    // Mismatch before in-flight: a different body is a conflict on its merits,
+    // whether or not the first request has finished.
+    if (comparesBody(input.config) && entry.fingerprint !== bodyHash) {
+      ctx.decisions.idempotency = 'mismatch'
+      return await input.fail(
+        input.config.conflictStatus,
+        'MOCK_IDEMPOTENCY_MISMATCH',
+        `Idempotency key "${supplied}" was already used with a different request body.`,
+        ctx
+      )
+    }
+
+    if (entry.state === 'in-flight') {
+      ctx.decisions.idempotency = 'in-flight'
+      return await input.fail(
+        input.config.conflictStatus,
+        'MOCK_IDEMPOTENCY_IN_FLIGHT',
+        `Idempotency key "${supplied}" is still in flight.`,
+        ctx
+      )
+    }
+
+    ctx.decisions.idempotency = 'replayed'
+    const headers = new Headers(entry.headers)
+    headers.set('idempotent-replay', 'true')
+    return new Response(entry.body, { status: entry.status, headers })
+  }
 }

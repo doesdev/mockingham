@@ -131,3 +131,160 @@ test('a scope with neither key nor route is rejected', () => {
   // rather than silently collapsing every caller onto one another's responses.
   assert.throws(() => resolveIdempotency({ scope: ['bodyHash'] }), /scope/)
 })
+
+import { createIdempotencyStage } from '../../src/runtime/idempotency.ts'
+import { createMemoryStore } from '../../src/runtime/store.ts'
+import { buildCtx, recordingFail } from '../helpers/ctx.ts'
+
+const post = () => find('createOrder')
+
+function stageFor(
+  store = createMemoryStore(),
+  raw = new TextEncoder().encode('{"a":1}'),
+  config = resolveIdempotency()
+) {
+  const { fail, calls } = recordingFail()
+  const claimed: Array<{ key: string; fingerprint: string }> = []
+  const stage = createIdempotencyStage({
+    operation: post(),
+    config,
+    store,
+    raw,
+    fail,
+    claim: (key, print) => claimed.push({ key, fingerprint: print })
+  })
+  return { stage, store, calls, claimed, raw }
+}
+
+const keyed = (value?: string) =>
+  new Request('http://mock/orders', {
+    method: 'POST',
+    headers: value === undefined ? {} : { 'idempotency-key': value }
+  })
+
+test('a request with no key header passes straight through', async () => {
+  const { stage, claimed } = stageFor()
+  const ctx = buildCtx({ request: keyed(), operation: post() })
+
+  assert.equal(await stage(ctx), undefined)
+  assert.deepEqual(claimed, [])
+  assert.equal(ctx.decisions.idempotency, undefined)
+})
+
+test('a first request claims the key and writes an in-flight marker', async () => {
+  const { stage, store, claimed, raw } = stageFor()
+  const ctx = buildCtx({ request: keyed('k1'), operation: post() })
+
+  assert.equal(await stage(ctx), undefined)
+  assert.equal(claimed.length, 1)
+  assert.equal(ctx.decisions.idempotency, 'first')
+  assert.deepEqual(await store.get(claimed[0]!.key), {
+    state: 'in-flight',
+    fingerprint: fingerprint(raw)
+  })
+})
+
+test('a stored response replays with the Idempotent-Replay header', async () => {
+  const { stage, store, raw } = stageFor()
+  const ctx = buildCtx({ request: keyed('k1'), operation: post() })
+  const key = recordKey({ key: 'k1', operation: post(), scope: ['key', 'route', 'bodyHash'] })
+  await store.set(key, {
+    state: 'done',
+    fingerprint: fingerprint(raw),
+    status: 201,
+    headers: { 'content-type': 'application/json' },
+    body: '{"id":7}'
+  })
+
+  const response = await stage(ctx)
+
+  assert.equal(response?.status, 201)
+  assert.equal(response?.headers.get('idempotent-replay'), 'true')
+  assert.equal(response?.headers.get('content-type'), 'application/json')
+  assert.equal(await response?.text(), '{"id":7}')
+  assert.equal(ctx.decisions.idempotency, 'replayed')
+})
+
+test('a different body under the same key conflicts', async () => {
+  const store = createMemoryStore()
+  const first = stageFor(store, new TextEncoder().encode('{"a":1}'))
+  await first.stage(buildCtx({ request: keyed('k1'), operation: post() }))
+
+  const second = stageFor(store, new TextEncoder().encode('{"a":2}'))
+  const ctx = buildCtx({ request: keyed('k1'), operation: post() })
+  const response = await second.stage(ctx)
+
+  // Reachable under the DEFAULT scope because the fingerprint is compared
+  // rather than keyed (§2.7). The in-flight marker carries a fingerprint too,
+  // so a mismatch is reported as a mismatch rather than as mere concurrency —
+  // and asserting the code, not just the 409, is what distinguishes them.
+  assert.equal(response?.status, 409)
+  assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_MISMATCH' }])
+  assert.equal(ctx.decisions.idempotency, 'mismatch')
+})
+
+test('a different body replays when the scope does not compare bodies', async () => {
+  const store = createMemoryStore()
+  const loose = resolveIdempotency({ scope: ['key', 'route'] })
+  const first = stageFor(store, new TextEncoder().encode('{"a":1}'), loose)
+  await first.stage(buildCtx({ request: keyed('k1'), operation: post() }))
+
+  const second = stageFor(store, new TextEncoder().encode('{"a":2}'), loose)
+  const ctx = buildCtx({ request: keyed('k1'), operation: post() })
+  const response = await second.stage(ctx)
+
+  // Not a mismatch: the caller opted out of comparing bodies, so this is simply
+  // a second request against a key still in flight.
+  assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_IN_FLIGHT' }])
+  assert.equal(response?.status, 409)
+  assert.equal(ctx.decisions.idempotency, 'in-flight')
+})
+
+test('a matching body against an unresolved marker is in-flight', async () => {
+  const store = createMemoryStore()
+  const first = stageFor(store)
+  await first.stage(buildCtx({ request: keyed('k1'), operation: post() }))
+
+  const second = stageFor(store)
+  const ctx = buildCtx({ request: keyed('k1'), operation: post() })
+  const response = await second.stage(ctx)
+
+  assert.equal(response?.status, 409)
+  assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_IN_FLIGHT' }])
+  assert.equal(ctx.decisions.idempotency, 'in-flight')
+})
+
+test('conflictStatus is configurable', async () => {
+  const store = createMemoryStore()
+  const { fail } = recordingFail()
+  const build = (raw: Uint8Array) =>
+    createIdempotencyStage({
+      operation: post(),
+      config: resolveIdempotency({ conflictStatus: 422 }),
+      store,
+      raw,
+      fail,
+      claim: () => {}
+    })
+  await build(new TextEncoder().encode('a'))(buildCtx({ request: keyed('k'), operation: post() }))
+  const response = await build(new TextEncoder().encode('b'))(
+    buildCtx({ request: keyed('k'), operation: post() })
+  )
+
+  assert.equal(response?.status, 422)
+})
+
+test('the in-flight marker expires', async () => {
+  let value = 0
+  const store = createMemoryStore(() => value)
+  const first = stageFor(store)
+  await first.stage(buildCtx({ request: keyed('k1'), operation: post() }))
+
+  value += 31_000
+  const second = stageFor(store)
+  const ctx = buildCtx({ request: keyed('k1'), operation: post() })
+
+  // Not a 409: the marker aged out, so the retry is a fresh first request.
+  assert.equal(await second.stage(ctx), undefined)
+  assert.equal(ctx.decisions.idempotency, 'first')
+})
