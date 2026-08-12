@@ -58,7 +58,7 @@ test('treats a 3.1 type array as nullable plus the base type', () => {
   assert.equal(isNullable({ type: ['string', 'null'] }), true)
 })
 
-test('honours the 3.0 nullable keyword', () => {
+test('honors the 3.0 nullable keyword', () => {
   assert.equal(isNullable({ type: 'string', nullable: true }), true)
   assert.equal(isNullable({ type: 'string' }), false)
 })
