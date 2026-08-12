@@ -2010,10 +2010,16 @@ export async function buildError(input: ErrorInput): Promise<Response> {
 
   const headers = new Headers()
   if (input.debugHeaders) {
-    headers.set(
-      'x-mock-error',
-      `${input.code}: ${input.message}`.replace(/[\r\n]+/g, ' ')
-    )
+    // The flattened failure list goes HERE, not into the body. In contract mode
+    // the body comes from the document's own error schema, and adding an
+    // `errors` key to it would violate the very schema the client was told to
+    // expect — which is what contract mode exists to preserve. One line, because
+    // header values cannot carry line breaks.
+    const detail = input.errors?.length
+      ? `${input.code}: ${input.message}; ` +
+        input.errors.map((entry) => `${entry.path}: ${entry.message}`).join('; ')
+      : `${input.code}: ${input.message}`
+    headers.set('x-mock-error', detail.replace(/[\r\n]+/g, ' '))
   }
 
   if (typeof input.mode === 'function') {
