@@ -7,7 +7,7 @@ import { petstore } from '../fixtures/petstore.ts'
 const api = loadApi(petstore)
 
 function handler(options = {}) {
-  return createHandler(api, { seed: 'robust', ...options })
+  return createHandler(api, { seed: 'robust', ...options }).fetch
 }
 
 test('ctx.respond settles promises an async resolver left in the tree', async () => {
@@ -116,7 +116,7 @@ test('an internal failure is not reported as a callback failure', async () => {
   ;(target as any).responses[0].content['application/json'].schema = {
     get type(): string { throw new Error('internal boom') }
   }
-  const handle = createHandler(broken, { seed: 'internal' })
+  const handle = createHandler(broken, { seed: 'internal' }).fetch
   const response = await handle(new Request('http://mock/pets/7'))
   assert.equal(response.status, 500)
   const body = (await response.json()) as any
@@ -127,7 +127,7 @@ test('a synchronously throwing resolver is a callback failure', async () => {
   const handle = createHandler(loadApi(petstore), {
     seed: 'resolver-throw',
     resolvers: { byName: [['name', () => { throw new Error('resolver boom') }]] }
-  })
+  }).fetch
   const response = await handle(new Request('http://mock/pets/7'))
   assert.equal(response.status, 500)
   const body = (await response.json()) as any
@@ -144,7 +144,7 @@ test('a throwing auth verify is a callback failure', async () => {
   const handle = createHandler(loadApi(doc), {
     seed: 'verify-throw',
     auth: { b: { verify: () => { throw new Error('verify boom') } } }
-  })
+  }).fetch
   const response = await handle(
     new Request('http://mock/g', { headers: { authorization: 'Bearer x' } })
   )
@@ -156,7 +156,7 @@ test('a throwing errorBody function is a callback failure', async () => {
   const handle = createHandler(loadApi(petstore), {
     seed: 'errorbody-throw',
     errorBody: () => { throw new Error('errorBody boom') }
-  })
+  }).fetch
   // /pets/abc fails validation, which routes through the error builder.
   const response = await handle(new Request('http://mock/pets/abc'))
   assert.equal(response.status, 500)
@@ -167,7 +167,7 @@ test('an async resolver that rejects is also a callback failure', async () => {
   const handle = createHandler(loadApi(petstore), {
     seed: 'resolver-reject',
     resolvers: { byName: [['name', async () => { throw new Error('async boom') }]] }
-  })
+  }).fetch
   const response = await handle(new Request('http://mock/pets/7'))
   assert.equal(response.status, 500)
   assert.equal(((await response.json()) as any).error.code, 'MOCK_CALLBACK_FAILED')

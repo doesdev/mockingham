@@ -38,18 +38,18 @@ const api = loadApi(doc)
 const withToken = { headers: { authorization: 'Bearer abc' } }
 
 test('a protected operation without a credential is 401', async () => {
-  const handle = createHandler(api, { seed: 'auth' })
+  const handle = createHandler(api, { seed: 'auth' }).fetch
   assert.equal((await handle(new Request('http://mock/guarded'))).status, 401)
 })
 
 test('a credential satisfies the presence check', async () => {
-  const handle = createHandler(api, { seed: 'auth' })
+  const handle = createHandler(api, { seed: 'auth' }).fetch
   const response = await handle(new Request('http://mock/guarded', withToken))
   assert.equal(response.status, 200)
 })
 
 test('an unprotected operation is unaffected', async () => {
-  const handle = createHandler(api, { seed: 'auth' })
+  const handle = createHandler(api, { seed: 'auth' }).fetch
   assert.equal((await handle(new Request('http://mock/open'))).status, 200)
 })
 
@@ -66,7 +66,7 @@ test('the principal from verify reaches ctx.auth', async () => {
         }
       }
     }
-  })
+  }).fetch
   await handle(new Request('http://mock/guarded', withToken))
   assert.deepEqual(seen[0], { sub: 'u_9', scopes: ['pets:read'] })
 })
@@ -77,7 +77,7 @@ test('an unauthenticated request to a response-less operation is 401, not 501', 
     paths: { '/secret': { get: { operationId: 'secret', security: [{ b: [] }], responses: {} } } },
     components: { securitySchemes: { b: { type: 'http', scheme: 'bearer' } } }
   }
-  const handle = createHandler(loadApi(doc), { seed: 'order' })
+  const handle = createHandler(loadApi(doc), { seed: 'order' }).fetch
   const response = await handle(new Request('http://mock/secret'))
   assert.equal(response.status, 401)
   // The 501 message names the operation; it must not leak pre-auth.
@@ -88,7 +88,7 @@ test('unmet scopes are a 403', async () => {
   const handle = createHandler(api, {
     seed: 'auth',
     auth: { bearerAuth: { verify: () => ({ scopes: [] }) } }
-  })
+  }).fetch
   const response = await handle(new Request('http://mock/guarded', withToken))
   assert.equal(response.status, 403)
 })

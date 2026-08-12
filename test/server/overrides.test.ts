@@ -7,7 +7,7 @@ import { petstore } from '../fixtures/petstore.ts'
 const api = loadApi(petstore)
 
 function handler(options = {}) {
-  return createHandler(api, { seed: 'overrides', ...options })
+  return createHandler(api, { seed: 'overrides', ...options }).fetch
 }
 
 async function get(options: object, path = '/pets/7') {

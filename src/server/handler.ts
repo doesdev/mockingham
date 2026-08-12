@@ -24,6 +24,13 @@ import type { Store } from '../runtime/store.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 
+export interface Handler {
+  fetch(request: Request): Promise<Response>
+  store: Store
+  setSeed(next: string): void
+  reset(): void
+}
+
 export interface HandlerOptions {
   seed?: string
   maxDepth?: number
@@ -57,9 +64,9 @@ function requestKey(
 export function createHandler(
   api: Api,
   options: HandlerOptions = {}
-): (request: Request) => Promise<Response> {
+): Handler {
   const router = createRouter(api.operations)
-  const seed = options.seed ?? 'mockingham'
+  let seed = options.seed ?? 'mockingham'
   const resolvers = compileResolvers(options.resolvers)
 
   const compiled = compileConfigs(options.operations, api.operations)
@@ -290,7 +297,7 @@ export function createHandler(
    * catch here rather than one per leaf: a per-leaf catch would let a
    * half-built body reach the client as if it were real.
    */
-  return async function handle(request: Request): Promise<Response> {
+  async function handle(request: Request): Promise<Response> {
     try {
       return await run(request)
     } catch (error) {
@@ -303,6 +310,19 @@ export function createHandler(
       }
       const code = isCallbackError(error) ? 'MOCK_CALLBACK_FAILED' : 'MOCK_INTERNAL'
       return Response.json(envelope(code, message), { status: 500, headers })
+    }
+  }
+
+  return {
+    fetch: handle,
+    store,
+    setSeed(next) {
+      seed = next
+    },
+    reset() {
+      seed = options.seed ?? 'mockingham'
+      counters.reset()
+      chaosCounts.clear()
     }
   }
 }

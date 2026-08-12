@@ -7,7 +7,7 @@ import { petstore } from '../fixtures/petstore.ts'
 const api = loadApi(petstore)
 
 function handler(options = {}) {
-  return createHandler(api, { seed: 'respond', ...options })
+  return createHandler(api, { seed: 'respond', ...options }).fetch
 }
 
 test('respond replaces the whole response', async () => {

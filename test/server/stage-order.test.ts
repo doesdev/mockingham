@@ -23,13 +23,13 @@ const guarded = loadApi({
 test('auth answers before validation', async () => {
   // Both are wrong: no credential AND a non-integer id. Auth is stage 3 and
   // validation stage 4, so the caller must learn about auth and nothing else.
-  const handle = createHandler(guarded, { seed: 'order' })
+  const handle = createHandler(guarded, { seed: 'order' }).fetch
   const response = await handle(new Request('http://mock/secret/abc'))
   assert.equal(response.status, 401)
 })
 
 test('validation answers once authenticated', async () => {
-  const handle = createHandler(guarded, { seed: 'order' })
+  const handle = createHandler(guarded, { seed: 'order' }).fetch
   const response = await handle(
     new Request('http://mock/secret/abc', { headers: { authorization: 'Bearer x' } })
   )
@@ -48,7 +48,7 @@ test('an unauthenticated request never reaches a response callback', async () =>
         }
       }
     }
-  })
+  }).fetch
   const response = await handle(new Request('http://mock/secret/1'))
   assert.equal(response.status, 401)
   assert.equal(reached, false)
