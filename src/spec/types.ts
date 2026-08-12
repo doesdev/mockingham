@@ -35,6 +35,22 @@ export interface Schema {
   description?: string
 }
 
+export interface SecurityScheme {
+  type: 'http' | 'apiKey' | 'oauth2' | 'openIdConnect'
+  /** For `http`: `bearer`, `basic`, and so on. */
+  scheme?: string
+  /** For `apiKey`: where the credential travels. */
+  location?: 'header' | 'query' | 'cookie'
+  /** For `apiKey`: the header, query parameter, or cookie name. */
+  name?: string
+}
+
+/**
+ * One requirement object. Every scheme named inside it must be satisfied
+ * together; a list of them is satisfied when ANY one object is.
+ */
+export type SecurityRequirement = Record<string, string[]>
+
 export interface Parameter {
   name: string
   location: 'path' | 'query' | 'header' | 'cookie'
@@ -65,6 +81,7 @@ export interface Operation {
   requestBody?: Record<string, MediaType>
   responses: ResponseSpec[]
   defaultResponse?: ResponseSpec
+  security?: SecurityRequirement[]
 }
 
 export interface Api {
@@ -72,4 +89,5 @@ export interface Api {
   operations: Operation[]
   /** Maps a resolved component schema object to the name it was declared under. */
   schemaNames: Map<Schema, string>
+  securitySchemes: Record<string, SecurityScheme>
 }

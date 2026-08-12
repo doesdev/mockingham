@@ -1,7 +1,8 @@
 import { resolveDocument } from './refs.ts'
 import { HTTP_METHODS } from './types.ts'
 import type {
-  Api, HttpMethod, MediaType, Operation, Parameter, ResponseSpec, Schema
+  Api, HttpMethod, MediaType, Operation, Parameter, ResponseSpec, Schema,
+  SecurityScheme, SecurityRequirement
 } from './types.ts'
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -65,6 +66,31 @@ function toResponses(
   return { responses, defaultResponse }
 }
 
+function toSecuritySchemes(raw: unknown): Record<string, SecurityScheme> {
+  const out: Record<string, SecurityScheme> = {}
+  for (const [name, value] of Object.entries(asRecord(raw))) {
+    const record = asRecord(value)
+    out[name] = {
+      type: record['type'] as SecurityScheme['type'],
+      scheme: record['scheme'] as string | undefined,
+      location: record['in'] as SecurityScheme['location'],
+      name: record['name'] as string | undefined
+    }
+  }
+  return out
+}
+
+function toSecurity(raw: unknown): SecurityRequirement[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  return raw.map((entry) => {
+    const out: SecurityRequirement = {}
+    for (const [scheme, scopes] of Object.entries(asRecord(entry))) {
+      out[scheme] = Array.isArray(scopes) ? (scopes as string[]) : []
+    }
+    return out
+  })
+}
+
 export function loadApi(doc: Record<string, unknown>): Api {
   const version = doc['openapi']
   if (typeof version !== 'string') {
@@ -75,6 +101,14 @@ export function loadApi(doc: Record<string, unknown>): Api {
   }
 
   const { document: resolved, schemaNames } = resolveDocument(doc)
+  const securitySchemes = toSecuritySchemes(
+    asRecord(resolved['components'])['securitySchemes']
+  )
+  // A document-level `security` is the default for operations that declare
+  // none. An operation's own `security: []` must survive as an empty array —
+  // it opts out of that default — so the fallback tests for `undefined`, not
+  // for emptiness.
+  const documentSecurity = toSecurity(resolved['security'])
   const operations: Operation[] = []
 
   const rawPaths = resolved['paths']
@@ -123,10 +157,11 @@ export function loadApi(doc: Record<string, unknown>): Api {
           ? toContent(asRecord(op['requestBody'])['content'])
           : undefined,
         responses,
-        defaultResponse
+        defaultResponse,
+        security: toSecurity(op['security']) ?? documentSecurity
       })
     }
   }
 
-  return { version, operations, schemaNames }
+  return { version, operations, schemaNames, securitySchemes }
 }

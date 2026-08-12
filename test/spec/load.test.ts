@@ -92,3 +92,71 @@ test('exposes component schema names on the api', () => {
   assert.ok(schema)
   assert.equal(api.schemaNames.get(schema), 'Pet')
 })
+
+const secured = {
+  openapi: '3.1.0',
+  paths: {
+    '/pets/{petId}': {
+      get: {
+        operationId: 'showPetById',
+        security: [{ bearerAuth: ['pets:read'] }],
+        responses: { '200': { description: 'ok' } }
+      }
+    }
+  },
+  components: {
+    securitySchemes: {
+      bearerAuth: { type: 'http', scheme: 'bearer' },
+      apiKey: { type: 'apiKey', in: 'header', name: 'x-api-key' }
+    }
+  }
+}
+
+test('loads security schemes', () => {
+  const api = loadApi(secured)
+  assert.equal(api.securitySchemes['bearerAuth']?.type, 'http')
+  assert.equal(api.securitySchemes['bearerAuth']?.scheme, 'bearer')
+  assert.equal(api.securitySchemes['apiKey']?.location, 'header')
+  assert.equal(api.securitySchemes['apiKey']?.name, 'x-api-key')
+})
+
+test('loads per-operation security requirements', () => {
+  const api = loadApi(secured)
+  const op = api.operations.find((o) => o.operationId === 'showPetById')
+  assert.deepEqual(op?.security, [{ bearerAuth: ['pets:read'] }])
+})
+
+test('a document with no security schemes yields an empty record', () => {
+  assert.deepEqual(loadApi(petstore).securitySchemes, {})
+})
+
+test('an operation without security inherits the document default', () => {
+  const doc = {
+    openapi: '3.1.0',
+    security: [{ apiKey: [] }],
+    paths: { '/a': { get: { operationId: 'a', responses: { '200': {} } } } }
+  }
+  const api = loadApi(doc)
+  assert.deepEqual(api.operations[0]?.security, [{ apiKey: [] }])
+})
+
+test('an explicit empty security array means no auth and is not overwritten', () => {
+  // `security: []` is meaningfully different from an absent security field:
+  // it opts the operation out of a document-level default.
+  const doc = {
+    openapi: '3.1.0',
+    security: [{ apiKey: [] }],
+    paths: {
+      '/a': { get: { operationId: 'a', security: [], responses: { '200': {} } } }
+    }
+  }
+  assert.deepEqual(loadApi(doc).operations[0]?.security, [])
+})
+
+test('an absent security field stays undefined when the document declares none', () => {
+  const doc = {
+    openapi: '3.1.0',
+    paths: { '/a': { get: { operationId: 'a', responses: { '200': {} } } } }
+  }
+  assert.equal(loadApi(doc).operations[0]?.security, undefined)
+})
