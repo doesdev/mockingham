@@ -32,6 +32,14 @@ export const petstore = {
       ],
       get: {
         operationId: 'showPetById',
+        parameters: [
+          {
+            name: 'petId',
+            in: 'path',
+            required: true,
+            schema: { type: 'integer', minimum: 1 }
+          }
+        ],
         responses: {
           '200': {
             description: 'One pet',

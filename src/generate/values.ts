@@ -83,14 +83,24 @@ export function generateString(schema: Schema, rng: Rng): string {
 
 export function generateInteger(schema: Schema, rng: Rng): number {
   const { min, max } = numberBounds(schema)
-  return applyMultipleOf(rng.int(Math.ceil(min), Math.floor(max)), schema)
+  const low = Math.ceil(min)
+  const high = Math.floor(max)
+  // No integer exists in [min, max] — e.g. minimum 1.2 with maximum 1.8. The
+  // schema is unsatisfiable for an integer, so any value violates something.
+  // Return the nearest integer to the range rather than one derived from an
+  // inverted rng.int call, which would land above the maximum.
+  if (low > high) return applyMultipleOf(Math.round(min), schema)
+  return applyMultipleOf(rng.int(low, high), schema)
 }
 
 export function generateNumber(schema: Schema, rng: Rng): number {
   const { min, max } = numberBounds(schema)
   const raw = min + rng.next() * (max - min)
   const rounded = Math.round(raw * 100) / 100
-  return applyMultipleOf(rounded, schema)
+  // Rounding for readability must not escape the declared range, so clamp
+  // after rounding rather than before.
+  const clamped = rounded < min ? min : rounded > max ? max : rounded
+  return applyMultipleOf(clamped, schema)
 }
 
 export function generateBoolean(rng: Rng): boolean {

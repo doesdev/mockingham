@@ -64,6 +64,7 @@ export interface Operation {
   parameters: Parameter[]
   requestBody?: Record<string, MediaType>
   responses: ResponseSpec[]
+  defaultResponse?: ResponseSpec
 }
 
 export interface Api {

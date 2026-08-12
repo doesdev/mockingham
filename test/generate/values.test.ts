@@ -75,6 +75,35 @@ test('numbers respect bounds', () => {
   }
 })
 
+test('integers stay within bounds when no integer fits the range', () => {
+  const rng = createRng('fractional')
+  for (let i = 0; i < 50; i++) {
+    const value = generateInteger({ minimum: 1.2, maximum: 1.8 }, rng)
+    assert.ok(Number.isInteger(value))
+    assert.ok(value <= 2, `overshot the range: ${value}`)
+  }
+})
+
+test('number rounding never escapes the declared bounds', () => {
+  // The spec's suggested first loop used minimum 1.504 with maximum 1.237 —
+  // an inverted, contradictory range. numberBounds() collapses that to a
+  // single point (max is forced up to min), and the assertion
+  // `value >= 1.237 || value <= 1.504` is a tautology that passes for any
+  // number, so it exercises nothing. This loop replaces it with bounds whose
+  // hundredths digit genuinely forces a rounding overshoot: a raw value like
+  // 1.2369999 rounds to 1.24, above the 1.237 maximum, which is exactly the
+  // case the clamp-after-round fix guards against.
+  const rng = createRng('rounding')
+  for (let i = 0; i < 500; i++) {
+    const value = generateNumber({ minimum: 1.2, maximum: 1.237 }, rng)
+    assert.ok(value >= 1.2 && value <= 1.237, `out of range: ${value}`)
+  }
+  for (let i = 0; i < 500; i++) {
+    const value = generateNumber({ minimum: 0.001, maximum: 0.004 }, rng)
+    assert.ok(value >= 0.001 && value <= 0.004, `out of range: ${value}`)
+  }
+})
+
 test('booleans are booleans', () => {
   assert.equal(typeof generateBoolean(createRng('b')), 'boolean')
 })

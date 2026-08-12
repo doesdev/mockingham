@@ -33,24 +33,36 @@ function toContent(raw: unknown): Record<string, MediaType> {
   return out
 }
 
-function toResponses(raw: unknown): ResponseSpec[] {
-  const out: ResponseSpec[] = []
+function toResponseSpec(status: number, value: unknown): ResponseSpec {
+  const record = asRecord(value)
+  const headers: Record<string, Schema> = {}
+  for (const [name, header] of Object.entries(asRecord(record['headers']))) {
+    headers[name] = asRecord(asRecord(header)['schema']) as Schema
+  }
+  return {
+    status,
+    description: record['description'] as string | undefined,
+    headers,
+    content: toContent(record['content'])
+  }
+}
+
+function toResponses(
+  raw: unknown
+): { responses: ResponseSpec[]; defaultResponse?: ResponseSpec } {
+  const responses: ResponseSpec[] = []
+  let defaultResponse: ResponseSpec | undefined
   for (const [code, value] of Object.entries(asRecord(raw))) {
+    if (code === 'default') {
+      defaultResponse = toResponseSpec(0, value)
+      continue
+    }
     const status = Number.parseInt(code, 10)
     if (Number.isNaN(status)) continue
-    const record = asRecord(value)
-    const headers: Record<string, Schema> = {}
-    for (const [name, header] of Object.entries(asRecord(record['headers']))) {
-      headers[name] = asRecord(asRecord(header)['schema']) as Schema
-    }
-    out.push({
-      status,
-      description: record['description'] as string | undefined,
-      headers,
-      content: toContent(record['content'])
-    })
+    responses.push(toResponseSpec(status, value))
   }
-  return out.sort((a, b) => a.status - b.status)
+  responses.sort((a, b) => a.status - b.status)
+  return { responses, defaultResponse }
 }
 
 export function loadApi(doc: Record<string, unknown>): Api {
@@ -65,7 +77,19 @@ export function loadApi(doc: Record<string, unknown>): Api {
   const resolved = resolveDocument(doc)
   const operations: Operation[] = []
 
-  for (const [path, rawItem] of Object.entries(asRecord(resolved['paths']))) {
+  const rawPaths = resolved['paths']
+  if (
+    rawPaths !== undefined &&
+    (rawPaths === null || typeof rawPaths !== 'object' || Array.isArray(rawPaths))
+  ) {
+    throw new Error(
+      'mockingham: document "paths" must be an object when present. ' +
+        'An absent "paths" is allowed; a malformed one is not, because it would ' +
+        'silently produce a mock with no routes.'
+    )
+  }
+
+  for (const [path, rawItem] of Object.entries(asRecord(rawPaths))) {
     const item = asRecord(rawItem)
     const shared = Array.isArray(item['parameters'])
       ? (item['parameters'] as unknown[]).map(toParameter)
@@ -87,6 +111,7 @@ export function loadApi(doc: Record<string, unknown>): Api {
         else merged[index] = param
       }
 
+      const { responses, defaultResponse } = toResponses(op['responses'])
       operations.push({
         method: method as HttpMethod,
         path,
@@ -97,7 +122,8 @@ export function loadApi(doc: Record<string, unknown>): Api {
         requestBody: op['requestBody']
           ? toContent(asRecord(op['requestBody'])['content'])
           : undefined,
-        responses: toResponses(op['responses'])
+        responses,
+        defaultResponse
       })
     }
   }
