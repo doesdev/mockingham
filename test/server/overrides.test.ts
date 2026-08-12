@@ -61,6 +61,15 @@ test('an operation override beats a resolver', async () => {
   assert.equal(body['name'], 'from-operation')
 })
 
+test('a resolver receives the live ctx during body generation', async () => {
+  // The design's own byName example reads ctx. If ctx is not threaded through,
+  // the resolver gets undefined and this 500s instead of returning the value.
+  const { body } = await get({
+    resolvers: { byName: [['name', (ctx: any) => `pet-${ctx.params.petId}`]] }
+  })
+  assert.equal(body['name'], 'pet-7')
+})
+
 test('a wildcard target matches several operations', async () => {
   const { body } = await get({
     operations: { '* /pets/**': { 200: { body: { name: 'Wild' } } } }

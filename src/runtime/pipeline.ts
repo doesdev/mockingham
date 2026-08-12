@@ -14,6 +14,12 @@ export interface RespondersInput {
   staticStatus: number | undefined
   key: string
   generateOptions: GenerateOptions
+  /**
+   * Reads the request context, which does not exist yet when the responders are
+   * built — ctx needs `generate`/`example` from here. A getter keeps the old
+   * closure behavior: resolvers receive the live ctx at generation time.
+   */
+  ctx?: () => unknown
 }
 
 export interface Responders {
@@ -64,7 +70,10 @@ export function createResponders(input: RespondersInput): Responders {
       if (target === undefined) return undefined
       const media = mediaFor(target)
       if (!media) return undefined
-      return generateValue(media.schema, rngFor(String(target)), input.generateOptions)
+      return generateValue(media.schema, rngFor(String(target)), {
+        ...input.generateOptions,
+        ctx: input.ctx?.()
+      })
     },
 
     example(status, name) {

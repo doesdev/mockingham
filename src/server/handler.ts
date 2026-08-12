@@ -132,7 +132,11 @@ export function createHandler(
         preferExamples: options.preferExamples,
         resolvers,
         schemaNames: api.schemaNames
-      }
+      },
+      // ctx is declared just below; this getter is only invoked later (inside
+      // generateValue, at generation time), by which point the assignment has
+      // already run — the same deferral the old inline closure relied on.
+      ctx: () => ctx
     })
 
     const ctx: Ctx = createContext({
