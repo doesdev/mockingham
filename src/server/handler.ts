@@ -213,6 +213,13 @@ export function createHandler(
       example: exampleFor
     })
 
+    // Stage 10 — the full response callback replaces stages 7 through 10.
+    // It runs after ctx exists so the callback can reach ctx.generate and
+    // ctx.example, both of which are bound to the selected response.
+    if (respond) {
+      return await respond(ctx)
+    }
+
     // Stage 8 — generate the body.
     // Collect this status's overrides across every matching config. Bodies stay
     // a list so they layer; headers are flat, so a shallow merge in declaration
