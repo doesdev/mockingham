@@ -70,4 +70,6 @@ export interface Operation {
 export interface Api {
   version: string
   operations: Operation[]
+  /** Maps a resolved component schema object to the name it was declared under. */
+  schemaNames: Map<Schema, string>
 }

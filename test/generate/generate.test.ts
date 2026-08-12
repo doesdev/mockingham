@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createRng } from '../../src/generate/rng.ts'
 import { generateValue } from '../../src/generate/generate.ts'
 import type { Schema } from '../../src/spec/types.ts'
+import { compileResolvers } from '../../src/resolve/resolvers.ts'
 
 test('generates an object with all required properties', () => {
   const schema: Schema = {
@@ -78,4 +79,44 @@ test('is deterministic for a given seed', () => {
 
 test('an unknown schema generates null', () => {
   assert.equal(generateValue({}, createRng('unk')), null)
+})
+
+test('generation consults byFormat resolvers', () => {
+  const value = generateValue(
+    { type: 'object', properties: { email: { type: 'string', format: 'email' } } },
+    createRng('resolvers'),
+    { resolvers: compileResolvers({ byFormat: { email: () => 'fixed@example.com' } }) }
+  ) as Record<string, unknown>
+  assert.equal(value['email'], 'fixed@example.com')
+})
+
+test('generation consults bySchema using the schema name table', () => {
+  const user = {
+    type: 'object', properties: { id: { type: 'integer' }, name: { type: 'string' } }
+  }
+  const schemaNames = new Map([[user, 'User']])
+  const value = generateValue(user, createRng('resolvers'), {
+    schemaNames,
+    resolvers: compileResolvers({ bySchema: { User: { id: () => 42 } } })
+  }) as Record<string, unknown>
+  assert.equal(value['id'], 42)
+  assert.equal(typeof value['name'], 'string')
+})
+
+test('a resolver beats a spec example', () => {
+  const value = generateValue(
+    { type: 'object', properties: { id: { type: 'string', example: 'from-spec' } } },
+    createRng('resolvers'),
+    { resolvers: compileResolvers({ byName: [['id', () => 'from-resolver']] }) }
+  ) as Record<string, unknown>
+  assert.equal(value['id'], 'from-resolver')
+})
+
+test('a resolver may return a promise, left unsettled for the override pass', () => {
+  const value = generateValue(
+    { type: 'object', properties: { id: { type: 'string' } } },
+    createRng('resolvers'),
+    { resolvers: compileResolvers({ byName: [['id', async () => 'later']] }) }
+  ) as Record<string, unknown>
+  assert.ok(value['id'] instanceof Promise)
 })

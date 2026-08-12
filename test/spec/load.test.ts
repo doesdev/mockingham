@@ -84,3 +84,11 @@ test('captures a default response separately from numeric ones', () => {
   assert.deepEqual(op?.responses.map((r) => r.status), [200])
   assert.equal(op?.defaultResponse?.description, 'error')
 })
+
+test('exposes component schema names on the api', () => {
+  const api = loadApi(petstore)
+  const op = api.operations.find((o) => o.operationId === 'showPetById')
+  const schema = op?.responses[0]?.content['application/json']?.schema
+  assert.ok(schema)
+  assert.equal(api.schemaNames.get(schema), 'Pet')
+})

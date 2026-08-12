@@ -1,10 +1,17 @@
+import type { Schema } from './types.ts'
+
+export interface ResolvedDocument {
+  document: Record<string, unknown>
+  schemaNames: Map<Schema, string>
+}
+
 function decodeToken(token: string): string {
   return token.replace(/~1/g, '/').replace(/~0/g, '~')
 }
 
 export function resolveDocument(
   doc: Record<string, unknown>
-): Record<string, unknown> {
+): ResolvedDocument {
   const byNode = new Map<unknown, unknown>()
   const resolving = new Set<string>()
 
@@ -67,5 +74,26 @@ export function resolveDocument(
     return out
   }
 
-  return walk(doc) as Record<string, unknown>
+  const document = walk(doc) as Record<string, unknown>
+  const schemaNames = new Map<Schema, string>()
+
+  const components = document['components']
+  if (components !== null && typeof components === 'object') {
+    const schemas = (components as Record<string, unknown>)['schemas']
+    if (schemas !== null && typeof schemas === 'object') {
+      for (const [name, schema] of Object.entries(
+        schemas as Record<string, unknown>
+      )) {
+        if (schema === null || typeof schema !== 'object') continue
+        // An alias (`A: { $ref: '.../B' }`) resolves to the very same object as
+        // its target, so both names would map to one schema. First declared
+        // name wins, which keeps the table stable regardless of read order.
+        if (!schemaNames.has(schema as Schema)) {
+          schemaNames.set(schema as Schema, name)
+        }
+      }
+    }
+  }
+
+  return { document, schemaNames }
 }

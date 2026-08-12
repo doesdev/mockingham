@@ -7,7 +7,7 @@ test('inlines a simple internal ref', () => {
     components: { schemas: { User: { type: 'object' } } },
     paths: { '/u': { get: { schema: { $ref: '#/components/schemas/User' } } } }
   }
-  const out = resolveDocument(doc) as any
+  const out = resolveDocument(doc).document as any
   assert.equal(out.paths['/u'].get.schema.type, 'object')
 })
 
@@ -24,13 +24,43 @@ test('resolves a self-recursive schema without infinite recursion', () => {
       }
     }
   }
-  const out = resolveDocument(doc) as any
+  const out = resolveDocument(doc).document as any
   const node = out.components.schemas.Node
   const inner = node.properties.children.items
   assert.equal(inner.type, 'object')
-  // the cycle is a real object cycle, not a copy
   assert.strictEqual(inner, node)
   assert.strictEqual(inner.properties.children.items, node)
+})
+
+test('resolves a recursive schema reached through an alias', () => {
+  const doc = {
+    components: {
+      schemas: {
+        A: { $ref: '#/components/schemas/B' },
+        B: {
+          type: 'object',
+          properties: { self: { $ref: '#/components/schemas/A' } }
+        }
+      }
+    }
+  }
+  const out = resolveDocument(doc).document as any
+  const b = out.components.schemas.B
+  assert.equal(b.type, 'object')
+  assert.strictEqual(b.properties.self, b)
+  assert.strictEqual(out.components.schemas.A, b)
+})
+
+test('throws on a reference chain that never reaches a schema', () => {
+  const doc = {
+    components: {
+      schemas: {
+        A: { $ref: '#/components/schemas/B' },
+        B: { $ref: '#/components/schemas/A' }
+      }
+    }
+  }
+  assert.throws(() => resolveDocument(doc), /circular \$ref chain/)
 })
 
 test('decodes JSON pointer escapes', () => {
@@ -38,7 +68,7 @@ test('decodes JSON pointer escapes', () => {
     components: { schemas: { 'a/b': { type: 'string' } } },
     x: { $ref: '#/components/schemas/a~1b' }
   }
-  const out = resolveDocument(doc) as any
+  const out = resolveDocument(doc).document as any
   assert.equal(out.x.type, 'string')
 })
 
@@ -61,34 +91,40 @@ test('does not mutate the input document', () => {
   assert.deepEqual((doc as any).x, { $ref: '#/components/schemas/User' })
 })
 
-test('resolves a recursive schema reached through an alias', () => {
+test('names every component schema by identity', () => {
   const doc = {
     components: {
       schemas: {
-        A: { $ref: '#/components/schemas/B' },
-        B: {
-          type: 'object',
-          properties: { self: { $ref: '#/components/schemas/A' } }
-        }
+        User: { type: 'object', properties: { id: { type: 'integer' } } },
+        Pet: { type: 'object' }
       }
-    }
+    },
+    paths: { '/u': { get: { schema: { $ref: '#/components/schemas/User' } } } }
   }
-  const out = resolveDocument(doc) as any
-  const b = out.components.schemas.B
-  assert.equal(b.type, 'object')
-  // A is an alias for B, so B.self must be B itself
-  assert.strictEqual(b.properties.self, b)
-  assert.strictEqual(out.components.schemas.A, b)
+  const { document, schemaNames } = resolveDocument(doc)
+  const user = (document as any).paths['/u'].get.schema
+  assert.equal(schemaNames.get(user), 'User')
+  assert.equal(schemaNames.get((document as any).components.schemas.Pet), 'Pet')
 })
 
-test('throws on a reference chain that never reaches a schema', () => {
+test('an alias records the first declared name', () => {
   const doc = {
     components: {
       schemas: {
-        A: { $ref: '#/components/schemas/B' },
+        A: { type: 'object' },
         B: { $ref: '#/components/schemas/A' }
       }
     }
   }
-  assert.throws(() => resolveDocument(doc), /circular \$ref chain/)
+  const { document, schemaNames } = resolveDocument(doc)
+  // A and B resolve to the same object; the first declared name wins so the
+  // table is stable no matter what order later code reads it in.
+  assert.strictEqual((document as any).components.schemas.A, (document as any).components.schemas.B)
+  assert.equal(schemaNames.get((document as any).components.schemas.A), 'A')
+})
+
+test('schemas outside components are absent from the table', () => {
+  const doc = { paths: { '/u': { get: { schema: { type: 'string' } } } } }
+  const { document, schemaNames } = resolveDocument(doc)
+  assert.equal(schemaNames.get((document as any).paths['/u'].get.schema), undefined)
 })

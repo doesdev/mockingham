@@ -638,13 +638,41 @@ test('parses a text body as a string', async () => {
 })
 
 test('an unrecognized content type is exposed as raw bytes', async () => {
-  const result = await parseBody(post('', 'application/octet-stream'), op())
+  // Non-empty on purpose: the empty-body short-circuit returns undefined
+  // before the raw-bytes fallback is ever reached.
+  const result = await parseBody(
+    post('\x00\x01binary', 'application/octet-stream'), op()
+  )
   assert.equal(result.ok, true)
   if (result.ok) assert.ok(result.body.value instanceof Uint8Array)
 })
 
 test('an empty body yields undefined', async () => {
   const request = new Request('http://mock/things', { method: 'POST' })
+  const result = await parseBody(request, op())
+  assert.equal(result.ok, true)
+  if (result.ok) assert.equal(result.body.value, undefined)
+})
+
+// An empty body must never error, whatever Content-Type it carries. Many
+// clients send Content-Type even with no body, so gating the short-circuit on
+// the media type turns those into spurious 415s and 400s.
+test('an empty body is not a 415 even when the type is undeclared', async () => {
+  const operation = op({
+    requestBody: { 'application/json': { schema: { type: 'object' } } }
+  })
+  const request = new Request('http://mock/things', {
+    method: 'POST', headers: { 'content-type': 'application/xml' }
+  })
+  const result = await parseBody(request, operation)
+  assert.equal(result.ok, true)
+  if (result.ok) assert.equal(result.body.value, undefined)
+})
+
+test('an empty body with a JSON content type is not a parse error', async () => {
+  const request = new Request('http://mock/things', {
+    method: 'POST', headers: { 'content-type': 'application/json' }
+  })
   const result = await parseBody(request, op())
   assert.equal(result.ok, true)
   if (result.ok) assert.equal(result.body.value, undefined)
@@ -759,7 +787,7 @@ export async function parseBody(
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `node --test test/runtime/body.test.ts`
-Expected: PASS, 9 tests.
+Expected: PASS, 11 tests.
 
 - [ ] **Step 5: Typecheck and commit**
 
@@ -1454,9 +1482,15 @@ test('every async leaf is started before any is awaited', async () => {
   assert.deepEqual(await promise, { a: 1, b: 2, c: 3 })
 })
 
-test('a promise resolving to a further promise is settled too', async () => {
-  const out = await applyOverrides({ a: 0 }, { a: async () => Promise.resolve(7) }, ctx)
-  assert.deepEqual(out, { a: 7 })
+test('a promise resolving to a value containing promises is settled too', async () => {
+  // The inner promise only becomes reachable after the outer one settles, so a
+  // single-pass settle would leave it pending in the result. Do NOT weaken this
+  // to `async () => Promise.resolve(x)` — JS auto-flattens that, and the test
+  // then passes without the loop it exists to prove.
+  const out = await applyOverrides(
+    { a: 0 }, { a: async () => ({ b: Promise.resolve(3), c: 4 }) }, ctx
+  )
+  assert.deepEqual(out, { a: { b: 3, c: 4 } })
 })
 
 test('an override at the root replaces everything', async () => {
@@ -2197,8 +2231,6 @@ export function createHandler(
     })
 
     // Stage 8 — generate the body.
-    const media = chosen.content[JSON_TYPE]
-
     // Collect this status's overrides across every matching config. Bodies stay
     // a list so they layer; headers are flat, so a shallow merge in declaration
     // order is already the right precedence.
@@ -2235,12 +2267,10 @@ export function createHandler(
     if (exampleName !== undefined) {
       body = exampleFor(chosen.status, exampleName)
     }
-    if (body === undefined && media) {
-      body = generateValue(media.schema, rngFor(String(chosen.status)), {
-        ...generateOptions,
-        ctx
-      })
-    }
+    // Deliberately the same call ctx.generate(status) makes, rather than a
+    // second copy of it — a response callback and the pipeline must never
+    // produce different bodies for the same status.
+    if (body === undefined) body = generateFor(chosen.status)
 
     // Stage 9 — apply the override layers, broad targets first so specific ones
     // refine their result rather than replacing it.
