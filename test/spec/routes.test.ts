@@ -56,3 +56,10 @@ test('reports allowed methods for a known path', () => {
   assert.deepEqual(router.allowedMethods('/pets').sort(), ['GET', 'POST'])
   assert.deepEqual(router.allowedMethods('/nope'), [])
 })
+
+test('a malformed percent-escape is a non-match, not a crash', () => {
+  const router = createRouter([op('get', '/pets/{name}', 'byName')])
+  assert.equal(router.match('GET', '/pets/%'), undefined)
+  assert.equal(router.match('GET', '/pets/%zz'), undefined)
+  assert.deepEqual(router.allowedMethods('/pets/%'), [])
+})

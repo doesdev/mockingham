@@ -52,3 +52,8 @@ test('fnv1a is stable and differs across inputs', () => {
   assert.ok(Number.isInteger(fnv1a('abc')))
   assert.ok(fnv1a('abc') >= 0)
 })
+
+test('pick throws on an empty array', () => {
+  const rng = createRng('empty')
+  assert.throws(() => rng.pick([]), /empty array/)
+})

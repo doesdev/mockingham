@@ -45,6 +45,20 @@ function compareScore(a: Route, b: Route): number {
   return 0
 }
 
+/**
+ * `decodeURIComponent` throws a `URIError` on a malformed escape such as `%`
+ * or `%zz`. Path segments come straight off the wire, so a client could
+ * otherwise crash route matching with `GET /pets/%`. An undecodable segment is
+ * treated as a non-match, which surfaces as a 404 rather than an exception.
+ */
+function decodeSegment(part: string): string | undefined {
+  try {
+    return decodeURIComponent(part)
+  } catch {
+    return undefined
+  }
+}
+
 function matchSegments(
   route: Route,
   parts: string[]
@@ -54,8 +68,11 @@ function matchSegments(
   for (let i = 0; i < route.segments.length; i++) {
     const segment = route.segments[i] as Segment
     const part = parts[i] as string
-    if (segment.dynamic) params[segment.value] = decodeURIComponent(part)
-    else if (segment.value !== part) return undefined
+    if (segment.dynamic) {
+      const decoded = decodeSegment(part)
+      if (decoded === undefined) return undefined
+      params[segment.value] = decoded
+    } else if (segment.value !== part) return undefined
   }
   return params
 }

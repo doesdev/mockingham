@@ -49,3 +49,24 @@ test('array length defaults and honors bounds', () => {
 test('array length keeps max at or above min', () => {
   assert.deepEqual(arrayLength({ minItems: 8 }), { min: 8, max: 8 })
 })
+
+test('an explicit lone max is never violated', () => {
+  assert.deepEqual(stringLength({ maxLength: 2 }), { min: 2, max: 2 })
+  assert.deepEqual(arrayLength({ maxItems: 0 }), { min: 0, max: 0 })
+  assert.deepEqual(numberBounds({ maximum: -5 }), { min: -5, max: -5 })
+})
+
+test('a numeric exclusive bound combines with a plain bound, tighter wins', () => {
+  assert.deepEqual(
+    numberBounds({ minimum: 10, exclusiveMinimum: 5, maximum: 20 }),
+    { min: 10, max: 20 }
+  )
+  assert.deepEqual(
+    numberBounds({ minimum: 1, exclusiveMinimum: 10, maximum: 20 }),
+    { min: 11, max: 20 }
+  )
+})
+
+test('applyMultipleOf stays in range when no multiple fits', () => {
+  assert.equal(applyMultipleOf(7, { multipleOf: 5, minimum: 6, maximum: 8 }), 6)
+})

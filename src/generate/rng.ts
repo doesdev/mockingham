@@ -28,8 +28,15 @@ export function createRng(seed: number | string): Rng {
   return {
     next,
     int: (min, max) => min + Math.floor(next() * (max - min + 1)),
-    pick: <T,>(items: readonly T[]): T =>
-      items[Math.floor(next() * items.length)] as T,
+    pick: <T,>(items: readonly T[]): T => {
+      // The signature promises a T. Returning `items[0]` of an empty array
+      // would hand back `undefined` wearing a T's type, which surfaces far
+      // from the cause. Fail loudly at the call site instead.
+      if (items.length === 0) {
+        throw new Error('mockingham: cannot pick from an empty array')
+      }
+      return items[Math.floor(next() * items.length)] as T
+    },
     bool: () => next() < 0.5
   }
 }

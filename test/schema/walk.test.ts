@@ -92,3 +92,38 @@ test('classify merges allOf before classifying', () => {
 test('an empty schema is unknown', () => {
   assert.equal(classify({}).kind, 'unknown')
 })
+
+test('mergeAllOf carries constraint keywords from members', () => {
+  const merged = mergeAllOf({
+    allOf: [{ type: 'string', minLength: 3, pattern: '^a' }]
+  })
+  assert.equal(merged.type, 'string')
+  assert.equal(merged.minLength, 3)
+  assert.equal(merged.pattern, '^a')
+})
+
+test('the outer schema wins over an allOf member', () => {
+  const merged = mergeAllOf({
+    type: 'string',
+    minLength: 10,
+    allOf: [{ type: 'integer', minLength: 3 }]
+  })
+  assert.equal(merged.type, 'string')
+  assert.equal(merged.minLength, 10)
+})
+
+test('a later allOf member overrides an earlier one', () => {
+  const merged = mergeAllOf({
+    allOf: [{ minLength: 3 }, { minLength: 7 }]
+  })
+  assert.equal(merged.minLength, 7)
+})
+
+test('union mode distinguishes oneOf from anyOf', () => {
+  const one = classify({ oneOf: [{ type: 'string' }] })
+  assert.equal(one.kind, 'union')
+  if (one.kind === 'union') assert.equal(one.mode, 'one')
+  const any = classify({ anyOf: [{ type: 'string' }] })
+  assert.equal(any.kind, 'union')
+  if (any.kind === 'union') assert.equal(any.mode, 'any')
+})
