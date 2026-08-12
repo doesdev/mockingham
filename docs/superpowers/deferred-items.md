@@ -85,6 +85,31 @@ tests passing before this wave.
     fix and is plan 6 scope — adding it mid-plan-5 was judged out of scope for a
     fix wave. See phases 7-9 design §6 (known limitation 6) and master spec §11.
 
+16. **The response-always-returned guarantee has one remaining hole.**
+    `handle()`'s first line (`const startedAt = now()`) and `internalError()`'s
+    `String(error)` sit outside every guard, so an injected clock that throws,
+    or an exotic throwable whose `toString` throws, can still make `fetch()`
+    reject with no response. The stage-11 block itself was fully guarded
+    during plan 5's fix wave; this is the narrow remainder. Pre-existing
+    rather than introduced.
+    **Status: documented deferral, plan 5.**
+
+17. **A failed body capture still stores an idempotency record.** When
+    `captureBody` fails and a key was claimed, the record is written with
+    `body: null`, so the key replays a bodiless response for the full TTL.
+    That is better than the pre-fix behavior of rejecting the request
+    outright, but arguably storage should be skipped entirely when capture
+    failed. Untested either way.
+    **Status: documented deferral, plan 5.**
+
+19. **`an injected 429 is not stored, so a retry re-runs` has an inert half.**
+    The test (`test/server/idempotency.test.ts`) never increments its
+    `attempts` counter, because `decide` fires on every call and the
+    `respond` callback therefore never runs. The `idempotent-replay` header
+    assertion is what gives the test teeth, and that was mutation-confirmed —
+    but the name promises re-execution the assertions do not check.
+    **Status: documented deferral, plan 5.**
+
 ---
 
 ## Polish
@@ -105,6 +130,16 @@ tests passing before this wave.
 14. `split()` is duplicated between `src/resolve/target.ts` and
     `src/spec/routes.ts`. Identical one-liners; extracting couples two modules for
     little gain.
+18. A failed body parse consumes a request ordinal. Parse failures now draw from
+    `requestOrdinals` under the matched key, so a failed parse shifts the
+    `requestId` of the next successful request sharing that identity. Harmless —
+    `requestId` never feeds the PRNG — but it is an unremarked behavior change
+    from plan 5.
+20. The log block's own `try`/`catch` in `src/server/handler.ts` is untested.
+    Nothing inside it can realistically throw now that `emitLog` self-isolates,
+    so this is defense in depth rather than a gap.
+21. `templateFor` duplicates `allowedMethods`' loop body in the router.
+    Extracting the shared walk would couple two small functions for little gain.
 
 ---
 
@@ -147,3 +182,11 @@ implementer is asked to flag it.** One plan 5 task's key formula disagreed with
 its own test literals, and the first resolution quietly dropped a scoping axis
 (see item 5). Ask implementers to report self-contradictions rather than
 resolve them unremarked.
+
+**A refactor can move code out of a safety net without touching the net.**
+Plan 5 split the request pipeline so every response leaves through one exit,
+then hung idempotency's store write on that exit — outside the boundary catch
+that had covered every previous `Store` touch. Each per-task review saw
+correct code; the defect existed only where two tasks met, and only the
+whole-branch review could see it. When a refactor relocates work, ask what
+invariants were being enforced by its old location.
