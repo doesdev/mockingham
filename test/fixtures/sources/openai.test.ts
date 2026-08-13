@@ -77,11 +77,15 @@ test('strict: true is honored when explicitly passed', async () => {
   assert.equal(format.strict, true)
 })
 
-test('json_schema mode strips constraints real OpenAI strict mode rejects outright', async () => {
+test('json_schema mode with strict:true strips constraints real OpenAI strict mode rejects outright', async () => {
+  // Stripping is only justified when strict mode is what would otherwise
+  // reject these keywords, so this test must opt into strict explicitly —
+  // it is no longer the default.
   let schema: Record<string, unknown> = {}
   const source = createOpenAiSource({
     baseUrl: 'http://x/v1',
     model: 'm',
+    strict: true,
     fetch: async (_url, init) => {
       const body = JSON.parse(String(init?.body))
       schema = body.response_format.json_schema.schema
@@ -103,6 +107,34 @@ test('json_schema mode strips constraints real OpenAI strict mode rejects outrig
   const countProps = (schema.properties as Record<string, unknown>).count as Record<string, unknown>
   assert.deepEqual(bioProps, { type: 'string' })
   assert.deepEqual(countProps, { type: 'integer' })
+})
+
+test('json_schema mode with the default strict:false sends constraints intact', async () => {
+  // With strict false (the default), OpenAI imposes no subset restriction
+  // and local grammar decoders (GBNF, outlines, xgrammar) genuinely use
+  // these keywords as generation guidance, so nothing should be stripped.
+  // Nothing pinned this before round 2 of task 8 — the stripping helper was
+  // (wrongly) called unconditionally in json_schema mode.
+  let schema: Record<string, unknown> = {}
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      schema = body.response_format.json_schema.schema
+      return reply({ bio: 'ok' })
+    }
+  })
+  await source.generate([
+    request({
+      jsonSchema: {
+        type: 'object',
+        properties: { bio: { type: 'string', minLength: 1, format: 'email' } }
+      }
+    })
+  ])
+  const bioProps = (schema.properties as Record<string, unknown>).bio as Record<string, unknown>
+  assert.deepEqual(bioProps, { type: 'string', minLength: 1, format: 'email' })
 })
 
 test('json_object mode does NOT strip constraints: the full schema is useful guidance and nothing validates it server-side', async () => {

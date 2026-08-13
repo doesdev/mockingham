@@ -27,17 +27,24 @@ export interface OpenAiSourceOptions {
 }
 
 /**
- * Real OpenAI strict mode rejects a schema outright — an HTTP error, not a
- * silent ignore — if it carries any of these numeric/string constraints or an
- * unrecognized `format`. Ollama, llama.cpp, and vLLM are the opposite: their
- * grammar decoders best-effort honor or ignore these and never reject. So
- * this is stripped only from the copy placed in `response_format` for
- * `json_schema` mode; `request.zodSchema.safeParse` already enforces all of
- * it client-side on the way back in, unconditionally, in every mode — the
- * "enforce" half of strip-and-enforce was already built, this is the other
- * half. `format` is stripped entirely rather than allow-listing the subset
- * OpenAI accepts, since which formats are accepted is model/version-specific
- * and an over-permissive allow-list risks reintroducing the same class of
+ * Only called when `strict` is true: that is the ONLY condition under which
+ * this stripping is needed. Real OpenAI strict mode rejects a schema
+ * outright — an HTTP error, not a silent ignore — if it carries any of
+ * these numeric/string constraints or an unrecognized `format`. Stripping
+ * is not a general improvement to apply unconditionally: with `strict:
+ * false` (the default) OpenAI imposes no such subset restriction, and local
+ * grammar-constrained decoders (GBNF in llama.cpp, outlines, xgrammar in
+ * vLLM) genuinely use `minLength`, `maximum`, `pattern`, and friends as
+ * generation guidance — stripping them there would only throw away signal
+ * for no benefit. So this must stay gated on `strict`, not just on
+ * `json_schema` mode. `request.zodSchema.safeParse` already enforces all of
+ * these client-side on the way back in, unconditionally, in every mode
+ * regardless of whether they were sent — the "enforce" half of
+ * strip-and-enforce was already built; this is the other half, applied only
+ * where the alternative is an outright rejected request. `format` is
+ * stripped entirely rather than allow-listing the subset OpenAI accepts,
+ * since which formats are accepted is model/version-specific and an
+ * over-permissive allow-list risks reintroducing the same class of
  * rejection; losing a format hint costs far less than a rejected request.
  *
  * Operates on the already-derived JSON Schema, not an OpenAPI `Schema`, so it
@@ -119,12 +126,17 @@ export function createOpenAiSource(options: OpenAiSourceOptions): ContentSource 
       ]
     }
     if (mode === 'json_schema') {
+      const strict = options.strict ?? false
       body.response_format = {
         type: 'json_schema',
         json_schema: {
           name: 'response_body',
-          schema: stripForStrictMode(request.jsonSchema),
-          strict: options.strict ?? false
+          // Stripping is only justified when strict mode is what would
+          // otherwise reject these keywords — see stripForStrictMode's doc
+          // comment. With strict false, the full schema (constraints and
+          // all) goes out as generation guidance instead.
+          schema: strict ? stripForStrictMode(request.jsonSchema) : request.jsonSchema,
+          strict
         }
       }
     } else if (mode === 'json_object') {
