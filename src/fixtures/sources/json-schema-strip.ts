@@ -112,6 +112,18 @@ const SCHEMA_LIST_KEYWORDS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
  * so the same input schema always produces byte-identical output across
  * processes — required because the rendered request must be byte-identical
  * for prompt caching and reproducible bake runs.
+ *
+ * The three keyword sets above are scoped to what this project's own
+ * `schema/compile.ts` plus `z.toJSONSchema` can actually emit — not to JSON
+ * Schema in general. Nothing in this codebase produces `if`/`then`/`else`,
+ * `contains`, `propertyNames`, `dependentSchemas`, `definitions` (the
+ * draft-07 name for `$defs`), or the tuple form `items: [schema, ...]`, so
+ * none of those are walked, and today that is not a defect — there is no
+ * caller that could hand this a schema shaped that way. It becomes one the
+ * moment `stripUnsupportedKeywords` is exported for use against a
+ * hand-written or externally-sourced schema: a future caller passing a
+ * general draft-07 document should not assume those positions are covered
+ * without checking this list first.
  */
 export function stripUnsupportedKeywords(node: unknown, options: StripOptions = {}): unknown {
   const strip = new Set(UNSUPPORTED_STRUCTURED_OUTPUT_KEYWORDS)

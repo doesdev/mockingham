@@ -273,8 +273,8 @@ test('above the threshold the batch path runs and results realign by custom_id',
           create: async () => ({ id: 'batch_1' }),
           retrieve: async () => ({ processing_status: 'ended' }),
           results: async function* () {
-            yield { custom_id: 'k2|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
-            yield { custom_id: 'k1|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'first' } } } }
+            yield { custom_id: 'k2-200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
+            yield { custom_id: 'k1-200', result: { type: 'succeeded', message: { parsed_output: { bio: 'first' } } } }
           }
         }
       }
@@ -304,8 +304,8 @@ test('same key, different statuses: each status realigns to its own body, not to
           results: async function* () {
             // Reverse order, same as the custom_id realignment test above —
             // the API makes no ordering promise.
-            yield { custom_id: 'k|404', result: { type: 'succeeded', message: { parsed_output: { bio: 'not-found body' } } } }
-            yield { custom_id: 'k|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'ok body' } } } }
+            yield { custom_id: 'k-404', result: { type: 'succeeded', message: { parsed_output: { bio: 'not-found body' } } } }
+            yield { custom_id: 'k-200', result: { type: 'succeeded', message: { parsed_output: { bio: 'ok body' } } } }
           }
         }
       }
@@ -343,7 +343,7 @@ test('the outbound custom_id is unique per status even when the key is shared', 
   const requests = sent.requests as Array<{ custom_id: string }>
   const ids = requests.map((r) => r.custom_id)
   assert.equal(new Set(ids).size, 2)
-  assert.deepEqual(ids.sort(), ['k|200', 'k|404'])
+  assert.deepEqual(ids.sort(), ['k-200', 'k-404'])
 })
 
 test('a batch entry with no result is a miss, not a shift', async () => {
@@ -356,7 +356,7 @@ test('a batch entry with no result is a miss, not a shift', async () => {
           create: async () => ({ id: 'batch_1' }),
           retrieve: async () => ({ processing_status: 'ended' }),
           results: async function* () {
-            yield { custom_id: 'k2|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
+            yield { custom_id: 'k2-200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
           }
         }
       }
@@ -377,8 +377,8 @@ test('an errored batch entry is a miss', async () => {
           create: async () => ({ id: 'batch_1' }),
           retrieve: async () => ({ processing_status: 'ended' }),
           results: async function* () {
-            yield { custom_id: 'k1|200', result: { type: 'errored', error: {} } }
-            yield { custom_id: 'k2|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
+            yield { custom_id: 'k1-200', result: { type: 'errored', error: {} } }
+            yield { custom_id: 'k2-200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
           }
         }
       }

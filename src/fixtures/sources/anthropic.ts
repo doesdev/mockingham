@@ -265,9 +265,13 @@ export function createAnthropicSource(options: AnthropicSourceOptions): ContentS
    * rejects a duplicate `custom_id` outright. Folding the status in makes
    * `custom_id` unique per request without touching `fixtureKey` itself,
    * whose status exclusion is load-bearing elsewhere (bake's wildcard-key
-   * fallback in resolve.ts).
+   * fallback in resolve.ts). The separator is `-`, not `|`: the Batches API
+   * constrains `custom_id` to `^[a-zA-Z0-9_-]{1,64}$` and rejects anything
+   * outside that set with a 400 — a `|` would make every batched bake fail
+   * against the real API even though the local fake client in this file's
+   * tests accepts any string and would never catch it.
    */
-  const customId = (request: FixtureRequest): string => `${request.key}|${request.status}`
+  const customId = (request: FixtureRequest): string => `${request.key}-${request.status}`
 
   const generateBatch = async (client: AnthropicLike, reqs: FixtureRequest[]): Promise<(FixtureResult | null)[]> => {
     const requests = reqs.map((request) => ({

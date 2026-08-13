@@ -153,6 +153,14 @@ test('generate consults the fixture before the media-type lookup', () => {
   // independent of what resolve() chooses to serve; an explicit status
   // argument bypasses selectResponse entirely, so `999` never needs to be a
   // status the operation could plausibly select on its own.
+  //
+  // Read plainly: after the body-less-response fix, no real caller can ever
+  // produce the shape this test exercises — a wired-up `fixture` hook never
+  // returns a value for a status `mediaFor` also can't find, since both now
+  // agree on "no JSON content means no fixture". The ordering this pins is
+  // therefore a short-circuit optimization inside `generate()`, not a
+  // reachable correctness case; do not read the synthetic status `999` below
+  // as a modeled real-world scenario.
   const responders = createResponders({
     operation: operation([spec(200)]),
     request: new Request('http://mock/x'),
