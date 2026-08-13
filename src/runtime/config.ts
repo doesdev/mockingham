@@ -1,15 +1,24 @@
 import type { Operation } from '../spec/types.ts'
 import { compileTarget, resolveTarget } from '../resolve/target.ts'
-import type { Ctx, OverrideNode } from './types.ts'
+import type { Ctx, EmitCtx, OverrideNode } from './types.ts'
 
 export interface StatusConfig {
   body?: OverrideNode
   headers?: Record<string, OverrideNode>
 }
 
+export interface EmitConfig {
+  webhook: string
+  /** Delay before delivery, awaited through the injected `sleep`. */
+  afterMs?: number | ((ctx: EmitCtx) => number)
+  /** Layered over the generated payload, exactly as a response body override is. */
+  body?: OverrideNode
+}
+
 export type OperationConfig = {
   status?: number
   respond?: (ctx: Ctx) => Response | Promise<Response>
+  emits?: EmitConfig[]
 } & { [status: number]: StatusConfig }
 
 export interface CompiledConfig {
@@ -34,6 +43,7 @@ export function compileConfigs(
 export interface ResolvedConfig {
   status?: number
   respond?: OperationConfig['respond']
+  emits: EmitConfig[]
   /** Every matching config's body override for a status, in declaration order. */
   bodies(status: number): OverrideNode[]
   headers(status: number): Record<string, OverrideNode>
@@ -55,14 +65,17 @@ export function resolveConfigs(
 
   let status: number | undefined
   let respond: OperationConfig['respond']
+  const emits: EmitConfig[] = []
   for (const entry of matching) {
     if (entry.status !== undefined) status = entry.status
     if (entry.respond !== undefined) respond = entry.respond
+    if (entry.emits !== undefined) emits.push(...entry.emits)
   }
 
   return {
     status,
     respond,
+    emits,
     bodies(forStatus) {
       const out: OverrideNode[] = []
       for (const entry of matching) {

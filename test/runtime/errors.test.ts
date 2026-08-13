@@ -33,7 +33,7 @@ import { createRng } from '../../src/generate/rng.ts'
 import type { Operation } from '../../src/spec/types.ts'
 
 const bare: Operation = {
-  method: 'get', path: '/x', parameters: [], responses: []
+  method: 'get', path: '/x', parameters: [], responses: [], callbacks: []
 }
 
 test('buildError uses the envelope when nothing is declared', async () => {

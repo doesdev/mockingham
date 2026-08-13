@@ -5,7 +5,7 @@ import { createRng } from '../../src/generate/rng.ts'
 import type { Operation } from '../../src/spec/types.ts'
 
 const operation: Operation = {
-  method: 'get', path: '/things/{id}', parameters: [], responses: []
+  method: 'get', path: '/things/{id}', parameters: [], responses: [], callbacks: []
 }
 
 function build(url: string, init?: RequestInit) {

@@ -4,7 +4,7 @@ import { compileTarget, resolveTarget } from '../../src/resolve/target.ts'
 import type { Operation } from '../../src/spec/types.ts'
 
 function op(method: Operation['method'], path: string, id: string): Operation {
-  return { method, path, operationId: id, parameters: [], responses: [] }
+  return { method, path, operationId: id, parameters: [], responses: [], callbacks: [] }
 }
 
 const operations = [

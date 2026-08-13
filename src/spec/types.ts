@@ -71,6 +71,31 @@ export interface ResponseSpec {
   content: Record<string, MediaType>
 }
 
+/**
+ * One outbound request the document says the API can make — a 3.1 top-level
+ * `webhooks` entry, or a per-operation `callbacks` entry contributing its
+ * payload schema under its own name.
+ */
+export interface WebhookSpec {
+  name: string
+  method: HttpMethod
+  body?: Record<string, MediaType>
+  /** Header parameters only; nothing else can travel on an outbound request. */
+  headers: Parameter[]
+}
+
+/**
+ * A per-operation `callbacks` entry. `expression` is the OpenAPI runtime
+ * expression exactly as written — it can only be resolved against a live
+ * request, so it stays text until then.
+ */
+export interface CallbackSpec {
+  name: string
+  expression: string
+  method: HttpMethod
+  body?: Record<string, MediaType>
+}
+
 export interface Operation {
   method: HttpMethod
   path: string
@@ -83,6 +108,7 @@ export interface Operation {
   responses: ResponseSpec[]
   defaultResponse?: ResponseSpec
   security?: SecurityRequirement[]
+  callbacks: CallbackSpec[]
 }
 
 export interface Api {
@@ -91,4 +117,5 @@ export interface Api {
   /** Maps a resolved component schema object to the name it was declared under. */
   schemaNames: Map<Schema, string>
   securitySchemes: Record<string, SecurityScheme>
+  webhooks: Record<string, WebhookSpec>
 }

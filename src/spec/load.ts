@@ -1,38 +1,11 @@
 import { resolveDocument } from './refs.ts'
 import { HTTP_METHODS } from './types.ts'
+import { asRecord, toContent, toParameter } from './raw.ts'
+import { toCallbacks, toWebhooks } from './webhooks.ts'
 import type {
-  Api, HttpMethod, MediaType, Operation, Parameter, ResponseSpec, Schema,
+  Api, HttpMethod, Operation, ResponseSpec, Schema,
   SecurityScheme, SecurityRequirement
 } from './types.ts'
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object'
-    ? (value as Record<string, unknown>)
-    : {}
-}
-
-function toParameter(raw: unknown): Parameter {
-  const record = asRecord(raw)
-  return {
-    name: String(record['name'] ?? ''),
-    location: (record['in'] ?? 'query') as Parameter['location'],
-    required: record['required'] === true,
-    schema: asRecord(record['schema']) as Schema
-  }
-}
-
-function toContent(raw: unknown): Record<string, MediaType> {
-  const out: Record<string, MediaType> = {}
-  for (const [mediaType, value] of Object.entries(asRecord(raw))) {
-    const record = asRecord(value)
-    out[mediaType] = {
-      schema: asRecord(record['schema']) as Schema,
-      example: record['example'],
-      examples: record['examples'] as MediaType['examples']
-    }
-  }
-  return out
-}
 
 function toResponseSpec(status: number, value: unknown): ResponseSpec {
   const record = asRecord(value)
@@ -159,10 +132,27 @@ export function loadApi(doc: Record<string, unknown>): Api {
         requestBodyRequired: asRecord(op['requestBody'])['required'] === true,
         responses,
         defaultResponse,
-        security: toSecurity(op['security']) ?? documentSecurity
+        security: toSecurity(op['security']) ?? documentSecurity,
+        callbacks: toCallbacks(op['callbacks'])
       })
     }
   }
 
-  return { version, operations, schemaNames, securitySchemes }
+  const webhooks = toWebhooks(resolved['webhooks'])
+  // A callback contributes its payload schema under its own name, so `emit()`
+  // has one place to look rather than two. A top-level `webhooks` entry wins a
+  // collision: it is the document's more explicit declaration of the same event.
+  for (const operation of operations) {
+    for (const callback of operation.callbacks) {
+      if (webhooks[callback.name] !== undefined) continue
+      webhooks[callback.name] = {
+        name: callback.name,
+        method: callback.method,
+        body: callback.body,
+        headers: []
+      }
+    }
+  }
+
+  return { version, operations, schemaNames, securitySchemes, webhooks }
 }

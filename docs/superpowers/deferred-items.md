@@ -8,9 +8,10 @@ live under `.superpowers/` inside per-plan worktrees, which is gitignored scratc
 one `git worktree remove` and the reasoning is gone. Anything here is meant to
 survive that.
 
-Status as of 2026-08-12: plan 5 implements the phases 7–9 design spec and is in
-its final fix wave on a worktree branch; it is not yet merged to `main`. 494
-tests passing before this wave.
+Status as of 2026-08-12: plan 5 (phases 7–9) is merged to `main`. Plan 6
+implements the phase 8 webhooks design (`2026-08-12-mockingham-webhooks-design.md`)
+on worktree branch `worktree-plan-6-webhooks`, not yet merged to `main`. 585
+tests passing, up from a 509-test baseline, typecheck clean.
 
 ---
 
@@ -60,8 +61,10 @@ tests passing before this wave.
    both specify it. Decide deliberately and record the outcome; it was never
    consciously dropped, it was simply never planned in.
    **Status: decided deferral, plan 5.** The scope question was put to the user
-   during plan 5 and they ruled it out of this plan's scope. It goes to plan 6 —
-   this is now a deliberate deferral, not an oversight.
+   during plan 5 and they ruled it out of this plan's scope — a deliberate
+   deferral, not an oversight. It was expected to land in plan 6, but plan 6
+   turned out to be webhooks alone; it is now unscheduled, to be picked up when
+   someone next opens the override surface.
 
 7. **Cookie parameters cannot validate.** `Parameter['location']` includes
    `'cookie'` and `src/runtime/validate.ts` handles only path/query/header.
@@ -82,8 +85,10 @@ tests passing before this wave.
     or a throw before the boundary catch releases the marker), not for a real
     race. A `Store` with no compare-and-set primitive cannot fix this properly.
     **Status: documented deferral, plan 5.** `Store.setIfAbsent` is the eventual
-    fix and is plan 6 scope — adding it mid-plan-5 was judged out of scope for a
-    fix wave. See phases 7-9 design §6 (known limitation 6) and master spec §11.
+    fix — adding it mid-plan-5 was judged out of scope for a fix wave. Expected
+    to land in plan 6, but plan 6 turned out to be webhooks alone; it is now
+    unscheduled, to be picked up when someone next opens the `Store` interface.
+    See phases 7-9 design §6 (known limitation 6) and master spec §11.
 
 16. **The response-always-returned guarantee has one remaining hole.**
     `handle()`'s first line (`const startedAt = now()`) and `internalError()`'s
@@ -109,6 +114,59 @@ tests passing before this wave.
     assertion is what gives the test teeth, and that was mutation-confirmed —
     but the name promises re-execution the assertions do not check.
     **Status: documented deferral, plan 5.**
+
+22. **The synchronous `EmitCtx` construction at the single exit is not wrapped
+    in a try/catch.** In `src/server/handler.ts`'s trigger-two block, building
+    `emitCtx` — `headersOf(response)` and `parseBodyText(captured, response)` —
+    happens directly inside the `if (trace.emits !== undefined && ...)` guard,
+    outside any `try`. The sibling callback-capture block immediately above it
+    (trigger one, destination tier 2) wraps its equivalent computation —
+    the same two helper calls, building `exprInput.result` — entirely inside
+    its own `try`/`catch`. Only the per-emit async body (the `sleep`, the
+    `runEmit` call) is guarded; the synchronous setup that precedes the `for`
+    loop is not. Unreachable today — neither `headersOf` nor `parseBodyText`
+    can throw for any `Response` this codebase produces — but it is asymmetric
+    with the established pattern at that exit, and "something at the single
+    exit outside the guard" is exactly the shape of plan 5's Critical defect
+    (see "A refactor can move code out of a safety net" below). Inherited from
+    the plan 6 brief's snippet, not introduced by the implementer; flagged for
+    the whole-branch review, not fixed, because tasks 9 and 10 do not touch
+    `handler.ts`.
+    **Status: DONE, plan 6 whole-branch fix wave.** Folded into the same edit
+    as finding C1 below — the `emitCtx` construction now sits inside the same
+    `try`/`catch` as the delivery loop that follows it.
+
+24. **I3's `clearTimeout` half has no assertion.** The whole-branch review's
+    fix for `close()` waiting out a real, uncancelled `afterMs` timer has two
+    halves: racing the wait against `closedSignal` (§2.3's "canceled by
+    `close()`"), and clearing the underlying `setTimeout` so the event loop is
+    not held open. The promptness test (`close() with a real (non-injected)
+    sleep and a large afterMs returns promptly`) covers the race half —
+    reverting `await Promise.race([emitSleep(delay), closedSignal])` to a bare
+    `await emitSleep(delay)` fails that test at ~5005ms. But deleting only the
+    `clearTimeout(entry.handle)` call inside `close()`, leaving
+    `entry.resolve()` in place, leaves the suite green: the race is still
+    unblocked by the resolved promise, and the only observable difference is a
+    longer real process lifetime that nothing in the suite measures. A
+    regression there — the real timer left running — would silently
+    reintroduce "a CLI shutdown hangs for up to `afterMs`", the exact bug I3
+    was raised to fix.
+    **Status: documented deferral, plan 6.**
+
+25. **`reset()` does not clear `pendingTimers`, while `close()` does.** Design
+    §2.3 treats `close()` canceling pending timers and `reset()` clearing them
+    as one sentence, implying parity. `close()`'s I3 fix (this wave) clears
+    every real timer tracked in `pendingTimers`; `reset()` still only bumps
+    `generation`. The emission itself is still correctly dropped — the
+    `at !== generation` check inside the delayed IIFE catches it — but the
+    underlying `setTimeout` is not cleared and keeps the event loop open until
+    it naturally fires. Measured: `settled()` called right after `reset()`
+    blocks for the full `afterMs` (3005ms observed for `afterMs: 3000`). This
+    is a promptness and shutdown-symmetry gap, not a correctness one — nothing
+    delivers late or twice — and it predates this wave (the timer was never
+    cancellable before I3's fix). It is only visible now that `close()` has a
+    `clearTimeout` for `reset()` to be asymmetric with.
+    **Status: documented deferral, plan 6.**
 
 ---
 
@@ -140,6 +198,23 @@ tests passing before this wave.
     so this is defense in depth rather than a gap.
 21. `templateFor` duplicates `allowedMethods`' loop body in the router.
     Extracting the shared walk would couple two small functions for little gain.
+23. In `test/server/webhooks-loopback.test.ts`'s `finally` blocks, both tests
+    run `await mock.close()` before `await hook.close()`. If `mock.close()`
+    threw, `hook.close()` would be skipped, leaking the throwaway `node:http`
+    receiver's listening socket. `mock.close()` has no plausible throwing
+    surface, so this is cosmetic; it mirrors the accepted single-resource
+    convention already in `test/server/node.test.ts`.
+26. Every `afterMs > 0` emission (I3's fix, plan 6) races its wait against the
+    module-scoped `closedSignal` promise via `Promise.race`, which attaches a
+    reaction that is only released when `close()` resolves `closedSignal`. On
+    a short-lived mock or a test process this is inert. On a long-lived
+    `listen()` server that accumulates traffic and is never closed, each such
+    emission's reaction sits on `closedSignal`'s subscriber list for the rest
+    of the process's life. Bounded by traffic rather than unbounded, and each
+    reaction is tiny with no reference cycle, so this is cosmetic rather than a
+    leak in the classic sense — worth a line if `closedSignal` ever gains a
+    reason to reset itself (for instance, if `reset()` is taught to be
+    symmetric with `close()`, per item 25).
 
 ---
 
@@ -190,3 +265,11 @@ that had covered every previous `Store` touch. Each per-task review saw
 correct code; the defect existed only where two tasks met, and only the
 whole-branch review could see it. When a refactor relocates work, ask what
 invariants were being enforced by its old location.
+
+**A test that derives its expectation by calling the function under test can
+verify plumbing but never pin a value.** Plan 6's retry test computed its
+expected delay sequence by calling `backoffFor`, the function it was testing —
+so mutating that function moved both sides of the assertion together, and the
+mutation looked observed while doing nothing. It is the first shape found that
+survives a naive mutation check. Hardcode the expected value, with a comment
+saying what would legitimately change it.

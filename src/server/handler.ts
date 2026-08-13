@@ -6,9 +6,11 @@ import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
-import type { Ctx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
+import type { Ctx, EmitCtx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
+import { isSupported, resolveExpression } from '../webhooks/expr.ts'
+import { callbackKey } from '../webhooks/emit.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
-import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+import type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
 import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
 import type { ErrorBodyMode } from '../runtime/errors.ts'
@@ -24,8 +26,19 @@ import { requestIdFor, emitLog, reportError } from '../runtime/logging.ts'
 import type { LogSink, ErrorSink } from '../runtime/logging.ts'
 import { createIdempotencyStage, resolveIdempotency } from '../runtime/idempotency.ts'
 import type { IdempotencyConfig } from '../runtime/idempotency.ts'
+import { emitWebhook, resolveWebhook, createDeliveryLog } from '../webhooks/emit.ts'
+import type { WebhookConfig, ResolvedWebhook } from '../webhooks/emit.ts'
+import type { Delivery } from '../webhooks/deliver.ts'
 
-export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
+
+/** Passed to `Handler.emit` — the imperative trigger. */
+export interface EmitOptions {
+  /** Destination tier 1: wins over a captured or configured url. */
+  to?: string
+  /** Layered over the generated payload, exactly as a response body override is. */
+  body?: OverrideNode
+}
 
 export interface Handler {
   fetch(request: Request): Promise<Response>
@@ -40,6 +53,34 @@ export interface Handler {
    * application's.
    */
   reset(): Promise<void>
+  /**
+   * The imperative trigger. Resolves with a `Delivery` in every case,
+   * including `unresolved` and an exhausted retry — §13's "an emit never
+   * hard-fails" is a property of the return type, not only of the
+   * implementation. An undeclared webhook name throws: that is a typo, and
+   * `compileTarget`/`resolveTarget` already throw on those rather than
+   * silently never firing. Calling `emit()` after `close()` rejects too, for
+   * the same reason — the handler has stopped accepting new emissions, and
+   * silently sending anyway would be surprising rather than useful. Tracked
+   * the same way an operation-linked emission is, so `settled()` and
+   * `close()` genuinely wait for it rather than racing ahead of it.
+   */
+  emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  /** Oldest first. */
+  deliveries(): Delivery[]
+  clearDeliveries(): void
+  /**
+   * Resolves once every pending emission — from either trigger — has settled.
+   * The response never waits for one (§13), so a test needs this to await what
+   * `fetch()` already let go of.
+   */
+  settled(): Promise<void>
+  /**
+   * Stops accepting new emissions and drains those already pending. An
+   * emission still waiting on its `afterMs` is dropped, not delivered late —
+   * §13's close() cancels rather than flushes.
+   */
+  close(): Promise<void>
 }
 
 export interface HandlerOptions {
@@ -68,6 +109,17 @@ export interface HandlerOptions {
   now?: () => number
   onLog?: LogSink
   onError?: ErrorSink
+  /**
+   * Where startup warnings go — an unsupported runtime expression, for one.
+   * Injectable so a test can assert on it without capturing the console, and
+   * so an embedding application can route it.
+   */
+  onWarn?: (message: string) => void
+  webhooks?: Record<string, WebhookConfig>
+  /** Capture every delivery without sending it. See the webhooks design §2.6. */
+  captureOnly?: boolean
+  /** Injectable so the suite never reaches the network. */
+  fetch?: typeof fetch
 }
 
 // Module scope: a per-request TextEncoder would be one more allocation on
@@ -112,6 +164,117 @@ export function createHandler(
   const requestOrdinals = new Map<string, number>()
 
   const mode: ErrorBodyMode = options.errorBody ?? 'contract'
+
+  const warn = options.onWarn ?? ((message: string) => console.warn(message))
+
+  // Compiled once. An expression outside the documented subset warns here
+  // rather than silently never firing — the same reasoning as `compileTarget`
+  // throwing on a target that matches nothing.
+  const callbacks = api.operations.map((operation) => ({
+    operation,
+    specs: operation.callbacks.filter((callback) => {
+      if (isSupported(callback.expression)) return true
+      warn(
+        `mockingham: callback "${callback.name}" on ` +
+          `${operation.method.toUpperCase()} ${operation.path} uses the runtime ` +
+          `expression ${callback.expression}, which is outside the supported ` +
+          'subset. It will not capture a destination.'
+      )
+      return false
+    })
+  }))
+
+  const webhookConfigs = new Map<string, ResolvedWebhook>()
+  for (const [name, config] of Object.entries(options.webhooks ?? {})) {
+    webhookConfigs.set(name, resolveWebhook(config))
+  }
+  const deliveryLog = createDeliveryLog()
+  const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
+
+  // Pending emissions. `settled()` drains them, `close()` stops accepting new
+  // ones, and `reset()` invalidates the ones already waiting. A generation
+  // counter rather than real timer handles: `sleep` is injected, so there is no
+  // timer object to cancel, and checking a generation after the wait is both
+  // simpler and testable.
+  const pending = new Set<Promise<void>>()
+  let generation = 0
+  let closed = false
+
+  function track(promise: Promise<void>): void {
+    pending.add(promise)
+    void promise.finally(() => pending.delete(promise))
+  }
+
+  // A promise `close()` resolves. Racing an `afterMs` wait against it is the
+  // only way to unblock an INJECTED `sleep` — there is no timer handle to
+  // cancel on one of those — so this is what makes `close()` return promptly
+  // regardless of which `sleep` implementation is in play. Finding I3.
+  let resolveClosedSignal: () => void = () => {}
+  const closedSignal = new Promise<void>((resolve) => { resolveClosedSignal = resolve })
+
+  // Real timers created by the emission path's OWN default sleep (used only
+  // when no `options.sleep` was injected), so `close()` can clear them.
+  // Racing against `closedSignal` above unblocks the `await`, but the
+  // underlying `setTimeout` keeps running and holds the event loop open until
+  // it is cleared too — that is what let a real shutdown hang for up to
+  // `afterMs` even though `close()` had already "returned" the wait.
+  const pendingTimers = new Set<{ handle: ReturnType<typeof setTimeout>; resolve: () => void }>()
+
+  function defaultEmitSleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const entry: { handle: ReturnType<typeof setTimeout>; resolve: () => void } = {
+        handle: setTimeout(() => {
+          pendingTimers.delete(entry)
+          resolve()
+        }, ms),
+        resolve
+      }
+      pendingTimers.add(entry)
+    })
+  }
+
+  // Only the emission path's `afterMs` wait uses this. The shared `sleep`
+  // above is also used by the failure stage's injected delay and by delivery
+  // retry backoff, neither of which this fix touches.
+  const emitSleep = options.sleep ?? defaultEmitSleep
+
+  async function settled(): Promise<void> {
+    while (pending.size > 0) await Promise.all([...pending])
+  }
+
+  /**
+   * One emission, from either trigger. Records into the delivery log whatever
+   * comes back — including `unresolved` — because §13 says an emit never
+   * hard-fails and the log is where an operator sees that it did not.
+   */
+  async function runEmit(
+    name: string,
+    opts: { to?: string; body?: OverrideNode; ctx?: unknown } = {}
+  ): Promise<Delivery> {
+    const delivery = await emitWebhook({
+      name,
+      api,
+      config: webhookConfigs.get(name) ?? resolveWebhook(),
+      store,
+      captureOnly: options.captureOnly === true,
+      seed,
+      rng: createRng(`${seed}|webhook|${name}|${counters.next(`webhook|${name}`)}`),
+      generateOptions: {
+        maxDepth: options.maxDepth,
+        preferExamples: options.preferExamples,
+        resolvers,
+        schemaNames: api.schemaNames
+      },
+      fetch: doFetch,
+      sleep,
+      now,
+      to: opts.to,
+      bodyOverride: opts.body,
+      ctx: opts.ctx
+    })
+    deliveryLog.record(delivery)
+    return delivery
+  }
 
   /**
    * The error builder, bound to one operation and one request key. Binding here
@@ -166,6 +329,8 @@ export function createHandler(
      * `Operation` was matched (the path matched, the method did not).
      */
     route?: string
+    /** Set from `config.emits` once `resolveConfigs` has run. Trigger two. */
+    emits?: EmitConfig[]
   }
 
   async function produce(request: Request, trace: Trace): Promise<Response> {
@@ -218,6 +383,7 @@ export function createHandler(
     trace.operation = operation
     trace.params = params
     trace.requestKey = key
+    trace.emits = config.emits
 
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
@@ -418,11 +584,28 @@ export function createHandler(
   }
 
   /**
+   * The response body as a value, for `$response.body#/…` and for `EmitCtx`.
+   * A non-JSON body stays a string rather than becoming `undefined`, so an
+   * expression pointing at a text body still resolves.
+   */
+  function parseBodyText(text: string | null, response: Response): unknown {
+    if (text === null || text === '') return undefined
+    const type = response.headers.get('content-type') ?? ''
+    if (!type.includes('json')) return text
+    try {
+      return JSON.parse(text)
+    } catch {
+      return text
+    }
+  }
+
+  /**
    * THE SINGLE EXIT. Every response leaves through here — a 404 built before any
    * operation was known, a body-parse 400, a stage short-circuit, a rendered
    * body, and the boundary 500 alike. Stage 11 (idempotency capture, then the
-   * log record) hangs off this one point; that is the whole reason `produce` was
-   * split out. See the phases 7-9 design §1.
+   * log record), callback capture (trigger one), and emission (trigger two)
+   * all hang off this one point; that is the whole reason `produce` was split
+   * out. See the phases 7-9 design §1.
    */
   async function handle(request: Request): Promise<Response> {
     const startedAt = now()
@@ -446,9 +629,17 @@ export function createHandler(
     // before this fix, a throw anywhere past `produce()` destroyed an
     // already-correct response instead of merely failing to log or store it.
     const claimed = trace.claimed
-    const needsBody = claimed !== undefined || options.onLog !== undefined
+    const hasCallbacks =
+      trace.operation !== undefined &&
+      callbacks.some(
+        (candidate) => candidate.operation === trace.operation && candidate.specs.length > 0
+      )
+    const hasEmits = trace.emits !== undefined && trace.emits.length > 0
+    const needsBody =
+      claimed !== undefined || options.onLog !== undefined || hasCallbacks || hasEmits
     // The body is read at most once, from a clone, and only when something
-    // needs it: an idempotency record to store, or a `bytesOut` to report.
+    // needs it: an idempotency record to store, a `bytesOut` to report, a
+    // callback expression that may point at it, or an emit's `ctx.result.body`.
     let captured: string | null = null
     if (needsBody) {
       try {
@@ -531,6 +722,102 @@ export function createHandler(
       }
     }
 
+    // Destination tier 2. Only for a response the operation actually accepted:
+    // a 401 has not subscribed to anything, and capturing from one would let an
+    // unauthenticated caller redirect another tenant's webhooks. Doing it here
+    // rather than mid-pipeline also means `$response.*` and `$statusCode`
+    // resolve, because the result exists.
+    if (trace.operation !== undefined && response.status < 400) {
+      try {
+        const entry = callbacks.find((candidate) => candidate.operation === trace.operation)
+        if (entry !== undefined && entry.specs.length > 0) {
+          const exprInput = {
+            request,
+            url: new URL(request.url),
+            method: request.method,
+            params: trace.params,
+            body: trace.ctx?.body,
+            result: {
+              status: response.status,
+              headers: headersOf(response),
+              body: parseBodyText(captured, response)
+            }
+          }
+          for (const callback of entry.specs) {
+            const resolved = resolveExpression(callback.expression, exprInput)
+            if (resolved.ok) await store.set(callbackKey(callback.name), resolved.value)
+          }
+        }
+      } catch (error) {
+        reportError(options.onError, error, trace.ctx)
+      }
+    }
+
+    // Trigger two. Fires only for a response the operation actually
+    // succeeded at producing — the same reasoning as the callback-capture
+    // block above, applied more strongly: capturing a redirected destination
+    // is a data-integrity risk, but sending a signed outbound request that
+    // announces a 401, a failed validation, an injected failure, or the
+    // boundary 500 announces something that never happened. The idempotency
+    // clause is finding I4: a replayed request must produce zero additional
+    // deliveries, since the whole point of the key is that a client retry has
+    // no further effect. Registered inside this same guard, so a throw in an
+    // emit override, in signing, or in delivery reaches `onError` and can
+    // never reach the response the caller already holds.
+    if (
+      trace.emits !== undefined &&
+      trace.emits.length > 0 &&
+      !closed &&
+      trace.error === undefined &&
+      response.status < 400 &&
+      trace.ctx?.decisions.failure !== 'injected' &&
+      trace.ctx?.decisions.idempotency !== 'replayed'
+    ) {
+      try {
+        const ctx = trace.ctx
+        if (ctx !== undefined) {
+          // `createContext` returns a plain object whose methods are own
+          // properties, so a spread carries `respond`, `deny`, and `seq` across
+          // intact. `result` is added rather than assigned into `ctx`, so the
+          // request context every other consumer holds is left untouched.
+          //
+          // This synchronous construction is now inside the same try/catch as
+          // the delivery loop below it, matching the callback-capture block
+          // above. It is unreachable today — nothing here throws — but it was
+          // the one seam at this exit left asymmetric with its sibling.
+          const emitCtx: EmitCtx = {
+            ...ctx,
+            result: {
+              status: response.status,
+              headers: headersOf(response),
+              body: parseBodyText(captured, response)
+            }
+          }
+          const at = generation
+          for (const emit of trace.emits) {
+            track((async () => {
+              try {
+                const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
+                if (delay !== undefined && delay > 0) {
+                  // Raced rather than plainly awaited: whichever `sleep` is in
+                  // play, `close()` resolving `closedSignal` unblocks this
+                  // promptly instead of waiting out the real delay.
+                  await Promise.race([emitSleep(delay), closedSignal])
+                }
+                // A reset or a close while this was waiting invalidates it.
+                if (closed || at !== generation) return
+                await runEmit(emit.webhook, { body: emit.body, ctx: emitCtx })
+              } catch (error) {
+                reportError(options.onError, markCallback(error), emitCtx)
+              }
+            })())
+          }
+        }
+      } catch (error) {
+        reportError(options.onError, error, trace.ctx)
+      }
+    }
+
     return response
   }
 
@@ -545,7 +832,44 @@ export function createHandler(
       counters.reset()
       chaosCounts.clear()
       requestOrdinals.clear()
+      generation += 1
+      deliveryLog.clear()
       await store.clear()
+    },
+    emit: (name, opts = {}) => {
+      // Finding I2. The imperative trigger used to call `runEmit` directly,
+      // untracked — `settled()` and `close()` genuinely waited only for the
+      // operation-linked path, contradicting both docstrings and design §2.3.
+      if (closed) {
+        return Promise.reject(new Error(
+          'mockingham: emit() was called after close(). The handler has ' +
+            'stopped accepting new emissions.'
+        ))
+      }
+      const delivery = runEmit(name, opts)
+      // The tracked promise never itself rejects — track()/settled() only
+      // need to know when the emission has settled, not how. The caller's own
+      // `delivery` promise is unaffected and still rejects on, e.g., an
+      // undeclared webhook name.
+      track(delivery.then(() => undefined, () => undefined))
+      return delivery
+    },
+    deliveries: () => deliveryLog.all(),
+    clearDeliveries: () => deliveryLog.clear(),
+    settled,
+    async close() {
+      closed = true
+      resolveClosedSignal()
+      // Clearing without resolving would leave each timer's own promise
+      // pending forever; resolving it is what lets the event loop close
+      // rather than merely letting `close()`'s own await resolve via the
+      // race above.
+      for (const entry of pendingTimers) {
+        clearTimeout(entry.handle)
+        entry.resolve()
+      }
+      pendingTimers.clear()
+      await settled()
     }
   }
 }

@@ -1,11 +1,12 @@
 import { loadApi } from './spec/load.ts'
 import type { Api } from './spec/types.ts'
 import { createHandler } from './server/handler.ts'
-import type { HandlerOptions } from './server/handler.ts'
+import type { HandlerOptions, EmitOptions } from './server/handler.ts'
 import { createNodeServer } from './server/node.ts'
 import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
 import { targetKey, failNextKey, outageKey } from './runtime/failure.ts'
+import type { Delivery } from './webhooks/deliver.ts'
 
 export type MockOptions = HandlerOptions
 
@@ -29,6 +30,10 @@ export interface Mock {
   reset(): Promise<void>
   store: Store
   api: Api
+  emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  deliveries(): Delivery[]
+  clearDeliveries(): void
+  settled(): Promise<void>
 }
 
 export function createMock(
@@ -49,7 +54,12 @@ export function createMock(
   return {
     fetch: handler.fetch,
     listen: (port) => server.listen(port),
-    close: () => server.close(),
+    async close() {
+      // Emissions in flight are dropped rather than delivered after the server
+      // is gone; §13 says close() cancels them.
+      await handler.close()
+      await server.close()
+    },
 
     async failNext(target, opts = {}) {
       for (const key of keysFor(target)) {
@@ -81,10 +91,17 @@ export function createMock(
     },
 
     store: handler.store,
-    api
+    api,
+
+    emit: (name, opts) => handler.emit(name, opts),
+    deliveries: () => handler.deliveries(),
+    clearDeliveries: () => handler.clearDeliveries(),
+    settled: () => handler.settled()
   }
 }
 
 export { loadApi } from './spec/load.ts'
 export type { Api, Operation, Schema } from './spec/types.ts'
 export type { HandlerOptions } from './server/handler.ts'
+export type { Delivery } from './webhooks/deliver.ts'
+export type { WebhookConfig } from './webhooks/emit.ts'
