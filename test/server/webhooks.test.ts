@@ -81,7 +81,20 @@ const doc = {
         requestBody: {
           content: { 'application/json': { schema: { type: 'object' } } }
         },
-        responses: { '201': { description: 'created' } }
+        responses: {
+          '201': {
+            description: 'created',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['id'],
+                  properties: { id: { type: 'string' } }
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -375,6 +388,45 @@ test('an emit body override sees the finished response through ctx.result', asyn
 
   const body = JSON.parse(handler.deliveries()[0]!.body) as { orderId: string }
   assert.equal(body.orderId, 'from-201')
+})
+
+test('an emit override receives the response body', async () => {
+  // `emits` with no idempotency, no onLog, and no callbacks is the only
+  // configuration in which `hasEmits` decides whether the body is captured at
+  // all. `/plain` (unlike `/subscriptions`, which declares `callbacks`) has
+  // none of the other three, so this is the fixture operation that isolates
+  // the term: with any of the others present, `needsBody` is already true for
+  // a different reason and this test would pass even with the `hasEmits`
+  // term reverted.
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: {
+      plain: {
+        emits: [{
+          webhook: 'onOrderShipped',
+          body: {
+            orderId: (ctx: EmitCtx) =>
+              ctx.result.body === undefined ? 'MISSING' : JSON.stringify(ctx.result.body)
+          }
+        }]
+      }
+    }
+  })
+
+  const response = await handler.fetch(
+    new Request('http://mock/plain', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({})
+    })
+  )
+  const responseBody: unknown = await response.clone().json()
+  await handler.settled()
+
+  const emitted = JSON.parse(handler.deliveries()[0]!.body) as { orderId: string }
+  assert.notEqual(emitted.orderId, 'MISSING')
+  assert.deepEqual(JSON.parse(emitted.orderId), responseBody)
 })
 
 test('afterMs may be a function of the emit context', async () => {
