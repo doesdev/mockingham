@@ -1,5 +1,6 @@
 import type { McpTool } from '../context.ts'
 import { READ_TOOLS } from './read.ts'
+import { WRITE_TOOLS } from './write.ts'
 
 export interface McpToolOptions {
   /** Expose the write tools. Default false — design §3.7. */
@@ -13,6 +14,5 @@ export interface McpToolOptions {
  * be a gate.
  */
 export function mcpTools(options: McpToolOptions = {}): McpTool[] {
-  // The write half arrives in task 7; until then there is nothing to gate.
-  return [...READ_TOOLS]
+  return options.write === true ? [...READ_TOOLS, ...WRITE_TOOLS] : [...READ_TOOLS]
 }

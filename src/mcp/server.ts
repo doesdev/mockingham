@@ -1,5 +1,6 @@
 import type { McpContext, McpTool } from './context.ts'
 import { mcpTools } from './tools/index.ts'
+import { WRITE_TOOLS } from './tools/write.ts'
 
 export interface McpOptions {
   /**
@@ -103,6 +104,31 @@ function register(server: McpServerLike, context: McpContext, tools: McpTool[]):
         // exactly what a mistyped control-plane target should produce.
         const result = await tool.handler(context, args ?? {})
         return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+      }
+    )
+  }
+
+  // With the gate closed, a caller who knows a write tool's name gets a
+  // refusal that says how to enable it, rather than the SDK's bare "not
+  // found" — which reads like the feature does not exist.
+  //
+  // The names come from WRITE_TOOLS rather than a literal list: a sixth write
+  // tool added later must not silently lose its refusal message.
+  const exposed = new Set(tools.map((tool) => tool.name))
+  for (const disabled of WRITE_TOOLS.filter((tool) => !exposed.has(tool.name))) {
+    server.registerTool(
+      disabled.name,
+      {
+        description:
+          `Disabled. ${disabled.name} changes the mock's runtime state, so it ` +
+          'is off by default. Enable the write tools with mcp({ write: true }) ' +
+          'or the --write flag.'
+      },
+      async () => {
+        throw new Error(
+          `mockingham: ${disabled.name} is a write tool and write tools are ` +
+            'disabled. Enable them with mcp({ write: true }) or --write.'
+        )
       }
     )
   }
