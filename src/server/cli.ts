@@ -6,6 +6,12 @@ import { loadApi } from '../spec/load.ts'
 import { createHandler } from './handler.ts'
 import type { Handler } from './handler.ts'
 import { createNodeServer } from './node.ts'
+import { bake } from '../fixtures/bake.ts'
+import type { BakeSummary } from '../fixtures/bake.ts'
+import { resolveLlm } from '../fixtures/config.ts'
+import { createDiskFixtureStore } from '../fixtures/persist.ts'
+import type { FixtureStore } from '../fixtures/store.ts'
+import { createCompiler } from '../schema/compile.ts'
 
 export const USAGE = `mockingham — OpenAPI driven HTTP mock server
 
@@ -15,6 +21,9 @@ export const USAGE = `mockingham — OpenAPI driven HTTP mock server
   --seed <s>    Generation seed (default: mockingham)
   --watch       Reload the document when it changes on disk
   --help, -h    Show this message
+
+  mockingham bake <document.json> [options]   Generate fixture files
+                                               (see: mockingham bake --help)
 
 YAML is not parsed. Convert the document to JSON first, or use createMock()
 from a script and pass the parsed object in.
@@ -170,6 +179,219 @@ export async function startCli(
   return handle
 }
 
+export const BAKE_USAGE = `mockingham bake — generate fixture files from an OpenAPI document
+
+  mockingham bake <document.json> [options]
+
+  --base-url <url>   OpenAI-compatible endpoint
+                      (default: $MOCKINGHAM_LLM_BASE_URL, $OPENAI_BASE_URL,
+                      or http://localhost:11434/v1 for a local Ollama)
+  --model <name>      Model to request
+                      (default: $MOCKINGHAM_LLM_MODEL or $OPENAI_MODEL; required)
+  --api-key <key>     Bearer token sent with each request
+                      (default: $MOCKINGHAM_LLM_API_KEY or $OPENAI_API_KEY)
+  --fixtures <dir>    Where to write fixture files (default: .mockingham/fixtures)
+  --persona <text>    Domain hint included in every prompt
+  --help, -h          Show this message
+
+YAML is not parsed. Convert the document to JSON first.
+`
+
+export interface BakeArgs {
+  document?: string
+  baseUrl?: string
+  model?: string
+  apiKey?: string
+  fixtures?: string
+  persona?: string
+  help: boolean
+}
+
+const BAKE_NEEDS_VALUE = new Set([
+  '--base-url',
+  '--model',
+  '--api-key',
+  '--fixtures',
+  '--persona'
+])
+
+export function parseBakeArgs(argv: string[]): BakeArgs {
+  const args: BakeArgs = {
+    document: undefined,
+    baseUrl: undefined,
+    model: undefined,
+    apiKey: undefined,
+    fixtures: undefined,
+    persona: undefined,
+    help: false
+  }
+
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i] as string
+
+    if (token === '--help' || token === '-h') {
+      args.help = true
+      continue
+    }
+
+    if (token.startsWith('--')) {
+      // `--flag=value` and `--flag value` are both common enough that supporting
+      // only one guarantees someone hits the other first — matches parseArgs.
+      const split = token.indexOf('=')
+      const name = split === -1 ? token : token.slice(0, split)
+      if (!BAKE_NEEDS_VALUE.has(name)) {
+        throw new Error(`mockingham: unknown option ${name}\n\n${BAKE_USAGE}`)
+      }
+      const value = split === -1 ? argv[++i] : token.slice(split + 1)
+      if (value === undefined) {
+        throw new Error(`mockingham: ${name} needs a value`)
+      }
+      if (name === '--base-url') args.baseUrl = value
+      else if (name === '--model') args.model = value
+      else if (name === '--api-key') args.apiKey = value
+      else if (name === '--fixtures') args.fixtures = value
+      else args.persona = value
+      continue
+    }
+
+    if (args.document !== undefined) {
+      throw new Error(`mockingham: unexpected argument "${token}"`)
+    }
+    args.document = token
+  }
+
+  return args
+}
+
+/**
+ * Environment reads live here and nowhere else — the pure core takes an
+ * explicit baseUrl. The Ollama default is what makes `mockingham bake doc.json`
+ * work with no configuration at all.
+ */
+export function resolveBakeTarget(
+  flags: { baseUrl?: string },
+  env: Record<string, string | undefined>
+): string {
+  return (
+    flags.baseUrl ??
+    env.MOCKINGHAM_LLM_BASE_URL ??
+    env.OPENAI_BASE_URL ??
+    'http://localhost:11434/v1'
+  )
+}
+
+/**
+ * Unlike baseUrl there is no sensible default model — serving a request with
+ * the wrong model silently is worse than refusing to start. So this throws,
+ * naming every way to supply one, rather than falling back to something a
+ * user did not choose.
+ */
+export function resolveBakeModel(
+  flags: { model?: string },
+  env: Record<string, string | undefined>
+): string {
+  const model = flags.model ?? env.MOCKINGHAM_LLM_MODEL ?? env.OPENAI_MODEL
+  if (!model) {
+    throw new Error(
+      'mockingham: a model is required for bake — pass --model, or set ' +
+        'MOCKINGHAM_LLM_MODEL or OPENAI_MODEL'
+    )
+  }
+  return model
+}
+
+export function resolveBakeApiKey(
+  flags: { apiKey?: string },
+  env: Record<string, string | undefined>
+): string | undefined {
+  return flags.apiKey ?? env.MOCKINGHAM_LLM_API_KEY ?? env.OPENAI_API_KEY
+}
+
+export interface BakeDeps {
+  readFile: (path: string) => Promise<string>
+  log: (message: string) => void
+  fetch?: typeof fetch
+  now: () => number
+  env: Record<string, string | undefined>
+  /** Overridable so a test can prove flush() runs without touching disk. */
+  createStore: (dir: string) => Promise<FixtureStore & { flush(): Promise<void> }>
+}
+
+export async function startBake(
+  argv: string[],
+  deps: Partial<BakeDeps> = {}
+): Promise<BakeSummary> {
+  const readFile = deps.readFile ?? ((path: string) => readFileFromDisk(path, 'utf8'))
+  const log = deps.log ?? ((message: string) => console.log(message))
+  const now = deps.now ?? Date.now
+  const env = deps.env ?? process.env
+  const createStore =
+    deps.createStore ?? ((dir: string) => createDiskFixtureStore({ dir, onWarn: log }))
+
+  const args = parseBakeArgs(argv)
+  if (args.help) {
+    log(BAKE_USAGE)
+    throw new Error('mockingham: nothing to bake')
+  }
+  if (args.document === undefined) {
+    throw new Error(`mockingham: a document path is required\n\n${BAKE_USAGE}`)
+  }
+  if (args.document.endsWith('.yaml') || args.document.endsWith('.yml')) {
+    throw new Error(
+      'mockingham: YAML documents are not parsed. Convert to JSON, or call ' +
+        'createMock() from a script with the document already parsed.'
+    )
+  }
+
+  const model = resolveBakeModel(args, env)
+  const baseUrl = resolveBakeTarget(args, env)
+  const apiKey = resolveBakeApiKey(args, env)
+  const fixturesDir = args.fixtures ?? '.mockingham/fixtures'
+
+  const text = await readFile(args.document)
+  const api = loadApi(JSON.parse(text) as Record<string, unknown>)
+  const compiler = createCompiler()
+
+  const resolved = resolveLlm(
+    { mode: 'bake', persona: args.persona, openai: { baseUrl, model, apiKey } },
+    { fetch: deps.fetch }
+  )
+  if (!resolved || !resolved.source) {
+    // Unreachable in practice — mode 'bake' with the openai-compatible
+    // provider and a baseUrl always yields a source — but narrows the type
+    // and fails loudly rather than crashing on `resolved.source` below if
+    // that ever stops being true.
+    throw new Error('mockingham: could not construct an LLM content source')
+  }
+
+  const store = await createStore(fixturesDir)
+  try {
+    const summary = await bake({
+      api,
+      store,
+      source: resolved.source,
+      compiler,
+      persona: args.persona,
+      now,
+      onWarn: log,
+      onError: (error) => {
+        log(`mockingham: bake error — ${error instanceof Error ? error.message : String(error)}`)
+      }
+    })
+
+    log(
+      `mockingham: baked ${summary.generated} fixture(s) to ${fixturesDir} ` +
+        `(skipped ${summary.skipped}, failed ${summary.failed})`
+    )
+
+    return summary
+  } finally {
+    // Invariant: a debounced write left pending when the process exits is a
+    // silent total loss of the bake. This must run even when bake() throws.
+    await store.flush()
+  }
+}
+
 if (import.meta.main) {
   try {
     // `--help` is not misuse — `mockingham --help` must exit 0, and this is
@@ -180,10 +402,18 @@ if (import.meta.main) {
     // unknown flag, a bad `--port`), and before this wrapping that throw hit
     // top-level module evaluation instead of this catch — a stack trace
     // instead of the same one clean line every other CLI misuse gets.
-    if (parseArgs(process.argv.slice(2)).help) {
+    const argv = process.argv.slice(2)
+    if (argv[0] === 'bake') {
+      const bakeArgv = argv.slice(1)
+      if (parseBakeArgs(bakeArgv).help) {
+        console.log(BAKE_USAGE)
+      } else {
+        await startBake(bakeArgv)
+      }
+    } else if (parseArgs(argv).help) {
       console.log(USAGE)
     } else {
-      await startCli(process.argv.slice(2))
+      await startCli(argv)
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
