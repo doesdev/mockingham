@@ -48,7 +48,28 @@ export function isNullable(schema: Schema): boolean {
  * silently ignore it.
  */
 export function mergeAllOf(schema: Schema): Schema {
+  return merge(schema, new Set())
+}
+
+/**
+ * `seen` carries the schemas being merged on the CURRENT path, and is copied
+ * rather than shared so a cycle is skipped while a diamond is not.
+ *
+ * A member already on the path is a tautology — `A: { allOf: [A] }` says A must
+ * satisfy A — so skipping it loses nothing and the merged result is exactly
+ * what the document means. Ref resolution makes every reference to a component
+ * the same object, so such a schema really does contain itself, and merging it
+ * used to recurse until the stack ran out.
+ *
+ * Sharing one set across sibling members instead of copying would be wrong in
+ * the other direction: a schema reached through two siblings is a diamond, not
+ * a cycle, and skipping its second visit would silently drop its contribution.
+ */
+function merge(schema: Schema, seen: Set<Schema>): Schema {
   if (!schema.allOf || schema.allOf.length === 0) return schema
+
+  const nested = new Set(seen)
+  nested.add(schema)
 
   const own: Record<string, unknown> = { ...schema }
   delete own['allOf']
@@ -74,7 +95,8 @@ export function mergeAllOf(schema: Schema): Schema {
   }
 
   for (const part of schema.allOf) {
-    absorb(mergeAllOf(part) as unknown as Record<string, unknown>)
+    if (nested.has(part)) continue
+    absorb(merge(part, nested) as unknown as Record<string, unknown>)
   }
   absorb(own)
 

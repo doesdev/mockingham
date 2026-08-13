@@ -1,6 +1,84 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { classify, isNullable, mergeAllOf } from '../../src/schema/walk.ts'
+import type { Schema } from '../../src/spec/types.ts'
+
+test('a self-referential allOf merges instead of overflowing the stack', () => {
+  // `A: { allOf: [A] }` says A must satisfy A — a tautology that constrains
+  // nothing. Ref resolution makes both references the same object, so merging
+  // used to recurse forever. Skipping the member is correct, not lossy.
+  const node: Schema = { type: 'object', properties: { id: { type: 'string' } } }
+  node.allOf = [node]
+
+  const merged = mergeAllOf(node)
+
+  assert.equal(merged.type, 'object')
+  assert.deepEqual(Object.keys(merged.properties ?? {}), ['id'])
+})
+
+test('mutual allOf composition keeps both members contributions', () => {
+  // A composes B, B composes A. The skip must be scoped to the cycle: B's own
+  // properties still have to reach A, or the guard has thrown away real data.
+  const a: Schema = { type: 'object', properties: { a: { type: 'string' } } }
+  const b: Schema = { type: 'object', properties: { b: { type: 'string' } } }
+  a.allOf = [b]
+  b.allOf = [a]
+
+  const merged = mergeAllOf(a)
+
+  assert.deepEqual(Object.keys(merged.properties ?? {}).sort(), ['a', 'b'])
+})
+
+test('a diamond keeps every branch properties', () => {
+  // A schema reached through two SIBLING members is a diamond, not a cycle.
+  //
+  // Deliberately NOT a guard on the copy-vs-share choice below: `absorb` unions
+  // properties into one map at every level, so a branch that skipped `shared`
+  // still ends up with its properties via the other branch. This asserts the
+  // union, which is a real behavior — it just cannot discriminate the two
+  // implementations. The next test does that.
+  const shared: Schema = { type: 'object', properties: { shared: { type: 'string' } } }
+  const left: Schema = { type: 'object', properties: { left: { type: 'string' } }, allOf: [shared] }
+  const right: Schema = { type: 'object', properties: { right: { type: 'string' } }, allOf: [shared] }
+
+  const merged = mergeAllOf({ type: 'object', allOf: [left, right] })
+
+  assert.deepEqual(
+    Object.keys(merged.properties ?? {}).sort(),
+    ['left', 'right', 'shared']
+  )
+})
+
+test('a keyword from a shared member reaches a branch that does not override it', () => {
+  // THE over-correction guard: it fails if `seen` is shared across siblings
+  // instead of copied per path.
+  //
+  // Two details make it discriminating, and both were found by mutation after
+  // a first attempt passed under either implementation. `shared` needs its OWN
+  // allOf, or it returns before ever entering the set. And the assertion has to
+  // be on a scalar keyword rather than properties, because property unions
+  // recover a skipped branch while precedence does not: `right` inherits the
+  // description from `shared` and, absorbed last, wins. Skip `shared` in
+  // `right` and `left`'s value survives instead.
+  const base: Schema = { type: 'object', properties: { base: { type: 'string' } } }
+  const shared: Schema = { type: 'object', description: 'from shared', allOf: [base] }
+  const left: Schema = { type: 'object', description: 'from left', allOf: [shared] }
+  const right: Schema = { type: 'object', allOf: [shared] }
+
+  const merged = mergeAllOf({ type: 'object', allOf: [left, right] })
+
+  assert.equal(merged.description, 'from shared')
+})
+
+test('classify survives a self-referential allOf', () => {
+  const node: Schema = { type: 'object', properties: { id: { type: 'string' } } }
+  node.allOf = [node]
+
+  const kind = classify(node)
+
+  assert.equal(kind.kind, 'object')
+  if (kind.kind === 'object') assert.ok('id' in kind.properties)
+})
 
 test('classifies primitives', () => {
   assert.equal(classify({ type: 'string' }).kind, 'string')
