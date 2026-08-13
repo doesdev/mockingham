@@ -175,7 +175,11 @@ test('a mixed-template expression with one unresolvable token captures nothing',
 })
 
 test('emit generates a conforming payload and records the delivery', async () => {
-  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    webhooks: { onOrderShipped: { url: 'http://hooks.test/x' } }
+  })
 
   const delivery = await handler.emit('onOrderShipped')
 
@@ -207,6 +211,16 @@ test('emit uses a url captured from an earlier subscription', async () => {
 
 test('emit resolves rather than rejecting when nothing addresses it', async () => {
   const handler = createHandler(api, { seed: 'hooks' })
+  const delivery = await handler.emit('onOrderShipped')
+  assert.equal(delivery.outcome, 'unresolved')
+})
+
+test('captureOnly does not mask a missing destination', async () => {
+  // `unresolved` is diagnostic and outranks `captured`: the mode governs
+  // whether we send, not whether anything addressed the webhook. If this
+  // flipped, a webhook with no destination would look healthy in every
+  // captureOnly test run and deliver nowhere in production.
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
   const delivery = await handler.emit('onOrderShipped')
   assert.equal(delivery.outcome, 'unresolved')
 })

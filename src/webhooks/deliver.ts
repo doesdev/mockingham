@@ -96,12 +96,8 @@ export async function deliver(input: DeliverInput): Promise<Delivery> {
     attempts: 0
   }
 
-  // captureOnly wins over an unresolved destination: nothing is ever sent in
-  // capture mode regardless of whether a url was found, so recording it as
-  // 'captured' rather than 'unresolved' is what makes capture mode fully
-  // testable with no receiver AND no subscription/config wired up yet.
-  if (input.captureOnly) return { ...record, outcome: 'captured' }
   if (input.url === undefined) return record
+  if (input.captureOnly) return { ...record, outcome: 'captured' }
 
   let lastError: string | undefined
   let lastStatus: number | undefined
