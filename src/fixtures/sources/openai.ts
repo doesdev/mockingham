@@ -1,4 +1,5 @@
 import type { ContentSource, FixtureRequest, FixtureResult } from '../source.ts'
+import { stripUnsupportedKeywords } from './json-schema-strip.ts'
 
 export interface OpenAiSourceOptions {
   /** For example `http://localhost:11434/v1` for Ollama. */
@@ -42,41 +43,22 @@ export interface OpenAiSourceOptions {
  * regardless of whether they were sent — the "enforce" half of
  * strip-and-enforce was already built; this is the other half, applied only
  * where the alternative is an outright rejected request. `format` is
- * stripped entirely rather than allow-listing the subset OpenAI accepts,
- * since which formats are accepted is model/version-specific and an
- * over-permissive allow-list risks reintroducing the same class of
- * rejection; losing a format hint costs far less than a rejected request.
+ * stripped in addition to the shared keyword set (not folded into it —
+ * see json-schema-strip.ts's doc comment) rather than allow-listing the
+ * subset OpenAI accepts, since which formats are accepted is
+ * model/version-specific and an over-permissive allow-list risks
+ * reintroducing the same class of rejection; losing a format hint costs far
+ * less than a rejected request. Stripped keywords are folded into
+ * `description` rather than discarded outright, so the constraint still
+ * reaches the model as generation guidance even though the schema itself
+ * can no longer state it structurally.
  *
  * Operates on the already-derived JSON Schema, not an OpenAPI `Schema`, so it
  * does not implicate the single-schema-interpretation invariant and is not
- * routed through `classify()`. Recurses into every nested value generically
- * (object properties, array `items`, and the `anyOf`/`oneOf`/`allOf` arrays)
- * rather than special-casing each — anything reachable is walked. Never
- * mutates its input; every level is rebuilt fresh, so `request.jsonSchema`
- * itself is untouched and other consumers keep seeing the original.
+ * routed through `classify()`.
  */
-const STRIP_FOR_STRICT_MODE = new Set([
-  'minLength',
-  'maxLength',
-  'minimum',
-  'maximum',
-  'exclusiveMinimum',
-  'exclusiveMaximum',
-  'multipleOf',
-  'pattern',
-  'format'
-])
-
 function stripForStrictMode(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(stripForStrictMode)
-  if (node === null || typeof node !== 'object') return node
-  const input = node as Record<string, unknown>
-  const out: Record<string, unknown> = {}
-  for (const key of Object.keys(input).sort()) {
-    if (STRIP_FOR_STRICT_MODE.has(key)) continue
-    out[key] = stripForStrictMode(input[key])
-  }
-  return out
+  return stripUnsupportedKeywords(node, { extraKeywords: ['format'] })
 }
 
 const SYSTEM = [

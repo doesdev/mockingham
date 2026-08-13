@@ -12,6 +12,14 @@ function request(key: string): FixtureRequest {
   }
 }
 
+function requestWithSchema(key: string, jsonSchema: Record<string, unknown>): FixtureRequest {
+  return {
+    operationId: 'getUser', method: 'get', path: '/users/{id}', status: 200,
+    key, params: {}, jsonSchema,
+    zodSchema: z.object({ bio: z.string() })
+  }
+}
+
 test('a parsed response becomes a result', async () => {
   const source = createAnthropicSource({
     client: {
@@ -173,4 +181,71 @@ test('constructing the source does not import the SDK — only generate() does',
   } finally {
     process.off('unhandledRejection', onUnhandledRejection)
   }
+})
+
+// --- Fix round 1: output_config.format.schema must be strippable ----------
+// Anthropic validates output_config.format.schema strictly and returns a 400
+// on minLength/minimum/pattern/etc — sending them unstripped would be a
+// deterministic, permanent miss for any document using them.
+
+test('output_config.format.schema carries no stripped keywords, and the stripped constraints reach description', async () => {
+  let sent: Record<string, unknown> = {}
+  const source = createAnthropicSource({
+    client: {
+      messages: {
+        parse: async (params: Record<string, unknown>) => {
+          sent = params
+          return { stop_reason: 'end_turn', parsed_output: { bio: 'ok' } }
+        },
+        batches: { create: async () => ({ id: 'b' }), retrieve: async () => ({}), results: async function* () {} }
+      }
+    }
+  })
+  const req = requestWithSchema('k', {
+    type: 'object',
+    properties: { bio: { type: 'string', minLength: 1, maxLength: 500 } }
+  })
+  await source.generate([req])
+  const output = sent.output_config as { format: { schema: { properties: Record<string, unknown> } } }
+  const bio = output.format.schema.properties.bio as Record<string, unknown>
+  assert.equal(bio.minLength, undefined)
+  assert.equal(bio.maxLength, undefined)
+  assert.equal(bio.description, 'Maximum length: 500. Minimum length: 1.')
+})
+
+test('request.jsonSchema itself is not mutated by building output_config.format', async () => {
+  const req = requestWithSchema('k', {
+    type: 'object',
+    properties: { bio: { type: 'string', minLength: 1 } }
+  })
+  const before = JSON.stringify(req.jsonSchema)
+  const source = createAnthropicSource({
+    client: {
+      messages: {
+        parse: async () => ({ stop_reason: 'end_turn', parsed_output: { bio: 'ok' } }),
+        batches: { create: async () => ({ id: 'b' }), retrieve: async () => ({}), results: async function* () {} }
+      }
+    }
+  })
+  await source.generate([req])
+  assert.equal(JSON.stringify(req.jsonSchema), before)
+})
+
+test('a schema with no constraints reaches output_config.format.schema unchanged', async () => {
+  let sent: Record<string, unknown> = {}
+  const source = createAnthropicSource({
+    client: {
+      messages: {
+        parse: async (params: Record<string, unknown>) => {
+          sent = params
+          return { stop_reason: 'end_turn', parsed_output: { bio: 'ok' } }
+        },
+        batches: { create: async () => ({ id: 'b' }), retrieve: async () => ({}), results: async function* () {} }
+      }
+    }
+  })
+  const jsonSchema = { type: 'object', properties: { bio: { type: 'string' } } }
+  await source.generate([requestWithSchema('k', jsonSchema)])
+  const output = sent.output_config as { format: { schema: unknown } }
+  assert.deepEqual(output.format.schema, jsonSchema)
 })

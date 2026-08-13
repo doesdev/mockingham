@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveLlm } from '../../src/fixtures/config.ts'
+import { resolveLlm, anthropicOptionsFrom } from '../../src/fixtures/config.ts'
 import { createMock } from '../../src/index.ts'
 
 test('no config resolves to undefined', () => {
@@ -61,6 +61,79 @@ test('an explicit source bypasses the provider branch entirely, even a provider 
   const source = { generate: async () => [] }
   const resolved = resolveLlm({ mode: 'bake', provider: 'anthropic', source }, {})
   assert.equal(resolved?.source, source)
+})
+
+// --- Fix round 1: the anthropic branch itself had zero coverage ----------
+// Every anthropic-flavored test above returns before reaching
+// resolveLlm's `provider === 'anthropic'` branch (mode: 'off' short-circuits;
+// an explicit `source` short-circuits). Nothing proved the branch actually
+// gets reached, or that model/apiKey/batchThreshold/timeoutMs are threaded
+// through to createAnthropicSource correctly.
+
+test('anthropicOptionsFrom threads model, apiKey, batchThreshold, and the shared budgets timeoutMs through', () => {
+  // The precise, SDK-free check: resolveLlm's anthropic branch cannot be
+  // proven to thread fields correctly by calling it and inspecting the
+  // returned source — createAnthropicSource's closure exposes only
+  // `generate`, and LlmConfig has no `client` field to inject a spy through.
+  // This pure mapping function is what makes the threading observable.
+  const options = anthropicOptionsFrom(
+    { anthropic: { model: 'claude-haiku-4-5', apiKey: 'sk-test-key', batchThreshold: 25 } },
+    { timeoutMs: 12_345 }
+  )
+  assert.deepEqual(options, {
+    model: 'claude-haiku-4-5',
+    apiKey: 'sk-test-key',
+    batchThreshold: 25,
+    timeoutMs: 12_345
+  })
+})
+
+test('anthropicOptionsFrom passes undefined through for an absent anthropic block, rather than defaulting silently', () => {
+  const options = anthropicOptionsFrom({}, { timeoutMs: 30_000 })
+  assert.deepEqual(options, {
+    model: undefined,
+    apiKey: undefined,
+    batchThreshold: undefined,
+    timeoutMs: 30_000
+  })
+})
+
+test('provider: anthropic actually reaches the branch and constructs a working ContentSource', () => {
+  // resolveLlm must not throw (the old behavior, before this task) and must
+  // return a genuine ContentSource, not a stub — proven by checking it
+  // exposes exactly the ContentSource surface (a `generate` function),
+  // built via the real createAnthropicSource call, not merely truthy.
+  const resolved = resolveLlm(
+    {
+      mode: 'bake',
+      provider: 'anthropic',
+      anthropic: { model: 'claude-haiku-4-5', apiKey: 'sk-test-key', batchThreshold: 25 },
+      budget: { timeoutMs: 12_345 }
+    },
+    {}
+  )
+  assert.equal(typeof resolved?.source?.generate, 'function')
+})
+
+test('provider: anthropic wires into Mock.bake(): with the SDK genuinely absent, every attempt is a reported miss, not a crash', async () => {
+  // End-to-end proof through the public surface (createMock/bake()), the
+  // same posture as the "Mock.bake() fills the store" test below. There is
+  // no way to inject a client through the declarative config surface — by
+  // design, LlmConfig has no `client` field — so this exercises the real
+  // lazy-import path with the package genuinely not installed in this repo,
+  // and confirms invariant 4 holds through the full pipeline: a miss, not a
+  // thrown error that would abort the whole bake run.
+  const instance = createMock(bakeDoc, {
+    llm: {
+      mode: 'bake',
+      provider: 'anthropic',
+      anthropic: { model: 'claude-haiku-4-5' },
+      budget: { timeoutMs: 5_000 }
+    }
+  })
+  const summary = await instance.bake()
+  assert.equal(summary.generated, 0)
+  assert.equal(summary.failed, 1)
 })
 
 test('an unknown key fails validation', () => {

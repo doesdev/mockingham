@@ -105,8 +105,29 @@ test('json_schema mode with strict:true strips constraints real OpenAI strict mo
   ])
   const bioProps = (schema.properties as Record<string, unknown>).bio as Record<string, unknown>
   const countProps = (schema.properties as Record<string, unknown>).count as Record<string, unknown>
-  assert.deepEqual(bioProps, { type: 'string' })
-  assert.deepEqual(countProps, { type: 'integer' })
+  // None of the stripped keywords survive on the schema itself...
+  assert.equal(bioProps.type, 'string')
+  assert.equal(bioProps.minLength, undefined)
+  assert.equal(bioProps.maxLength, undefined)
+  assert.equal(bioProps.format, undefined)
+  assert.equal(bioProps.pattern, undefined)
+  assert.equal(countProps.type, 'integer')
+  assert.equal(countProps.minimum, undefined)
+  assert.equal(countProps.maximum, undefined)
+  assert.equal(countProps.multipleOf, undefined)
+  assert.equal(countProps.exclusiveMinimum, undefined)
+  // ...but each stripped constraint is folded into description as prose
+  // guidance instead of being discarded outright (json-schema-strip.ts),
+  // in sorted-keyword order so the request stays byte-identical across
+  // processes.
+  assert.equal(
+    bioProps.description,
+    'Format: email. Maximum length: 500. Minimum length: 1. Must match the pattern: ^a.'
+  )
+  assert.equal(
+    countProps.description,
+    'Value must be strictly greater than -1. Maximum value: 100. Minimum value: 0. Must be a multiple of 1.'
+  )
 })
 
 test('json_schema mode with the default strict:false sends constraints intact', async () => {

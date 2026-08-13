@@ -1,4 +1,5 @@
 import type { ContentSource, FixtureRequest, FixtureResult } from '../source.ts'
+import { stripUnsupportedKeywords } from './json-schema-strip.ts'
 
 /**
  * The narrow slice of `@anthropic-ai/sdk`'s surface this source actually
@@ -99,9 +100,21 @@ function promptFor(request: FixtureRequest): string {
  * derived, zod-compiled JSON Schema every other source uses (source.ts's
  * `buildRequest`, per the single-schema-interpretation invariant), so this
  * reuses it rather than re-deriving an equivalent schema through the SDK.
+ *
+ * `stripUnsupportedKeywords` runs UNCONDITIONALLY here, unlike the OpenAI
+ * source where it is gated on `strict`. Anthropic's `output_config.format`
+ * has no non-strict mode to gate on — `messages.parse` always validates the
+ * schema and returns a 400 on `minLength`/`minimum`/`pattern`/etc, so an
+ * unstripped schema is a deterministic, permanent miss for any document
+ * carrying one of these keywords (the rejection depends only on schema
+ * shape, never on model behavior — no retry recovers it). No `extraKeywords`
+ * are added: Anthropic documents `format` as a supported keyword, so it is
+ * left in place rather than stripped away for no reason (see
+ * json-schema-strip.ts's doc comment on why `format` is not in the shared
+ * set). `request.jsonSchema` itself is never mutated by this call.
  */
 function outputFormatFor(request: FixtureRequest): Record<string, unknown> {
-  return { type: 'json_schema', schema: request.jsonSchema }
+  return { type: 'json_schema', schema: stripUnsupportedKeywords(request.jsonSchema) }
 }
 
 function bodyFor(model: string, request: FixtureRequest): Record<string, unknown> {
@@ -134,6 +147,15 @@ async function loadClient(options: AnthropicSourceOptions): Promise<AnthropicLik
   if (options.client) return options.client
   const specifier = '@anthropic-ai/sdk'
   try {
+    // A non-literal specifier types this import Promise<any> (see the doc
+    // comment above) — that is precisely what keeps `tsc --noEmit` clean
+    // with the package absent, but it also means the cast below is NEVER
+    // checked by the compiler, even once @anthropic-ai/sdk IS installed. If
+    // the real package renames its default export or changes the
+    // constructor signature, `tsc` will not catch it — only a runtime
+    // failure here would, and that failure is caught below and silently
+    // becomes a miss (invariant 4). Review this cast by hand whenever
+    // @anthropic-ai/sdk is bumped.
     const mod = (await import(specifier)) as {
       default: new (opts: { apiKey?: string }) => AnthropicLike
     }

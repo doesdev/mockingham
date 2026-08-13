@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { createOpenAiSource } from './sources/openai.ts'
 import { createAnthropicSource } from './sources/anthropic.ts'
+import type { AnthropicSourceOptions } from './sources/anthropic.ts'
 import type { ContentSource } from './source.ts'
 import type { ResolvedLlm } from './resolve.ts'
 
@@ -53,6 +54,27 @@ const configSchema = z
 
 export type LlmConfig = z.input<typeof configSchema>
 
+/**
+ * Pulled out of `resolveLlm` so the mapping from parsed config to
+ * `AnthropicSourceOptions` is independently testable. `createAnthropicSource`
+ * never imports the real SDK until `generate()` runs (and `LlmConfig` has no
+ * `client` field to inject one through), so calling it and inspecting the
+ * returned `ContentSource` cannot prove `model`/`apiKey`/`batchThreshold`
+ * reached it — this function is what makes that threading observable
+ * without touching the SDK at all.
+ */
+export function anthropicOptionsFrom(
+  parsed: { anthropic?: { model?: string; apiKey?: string; batchThreshold?: number } },
+  budget: { timeoutMs: number }
+): AnthropicSourceOptions {
+  return {
+    model: parsed.anthropic?.model,
+    apiKey: parsed.anthropic?.apiKey,
+    batchThreshold: parsed.anthropic?.batchThreshold,
+    timeoutMs: budget.timeoutMs
+  }
+}
+
 export function resolveLlm(
   config: LlmConfig | undefined,
   deps: { fetch?: typeof fetch }
@@ -96,11 +118,6 @@ export function resolveLlm(
 
   return {
     ...base,
-    source: createAnthropicSource({
-      model: parsed.anthropic?.model,
-      apiKey: parsed.anthropic?.apiKey,
-      batchThreshold: parsed.anthropic?.batchThreshold,
-      timeoutMs: budget.timeoutMs
-    })
+    source: createAnthropicSource(anthropicOptionsFrom(parsed, budget))
   }
 }
