@@ -1,6 +1,6 @@
 # mockingham Phase 8 Design — Webhooks and Callbacks
 
-**Status:** draft, awaiting approval.
+**Status:** approved; implemented by plan 6 (2026-08-12-mockingham-webhooks.md).
 **Covers:** §18 phase 8 of `2026-08-11-mockingham-design.md`, which remains the
 master contract. Where the two disagree for phase 8, this document wins.
 
@@ -220,7 +220,7 @@ interface Delivery {
   body: string                 // the serialized payload, as sent and as signed
   headers: Record<string, string>
   outcome: 'delivered' | 'failed' | 'captured' | 'unresolved'
-  status?: number              // absent for 'unresolved', and for a network error
+  status?: number              // absent for 'unresolved', 'captured', and a network-level failure
   attempts: number
   error?: string
 }
@@ -313,6 +313,33 @@ is a test that passes against a broken implementation.
 5. **Emission is not transactional with the response.** A response is returned
    before its emissions complete, by design (§13). A process killed between the
    two loses the emission.
+6. **`unresolved` outranks `captured`.** `deliver()` (`src/webhooks/deliver.ts`)
+   checks `url === undefined` before it checks `captureOnly`, so an emit with
+   `captureOnly` set and no destination records `unresolved`, not `captured`.
+   The send mode must not mask a missing destination — otherwise a webhook
+   configured with nowhere to go would look healthy in every capture-mode test
+   run and silently deliver nowhere in production.
+7. **Declared webhook header parameters are generated.** `emitWebhook`
+   (`src/webhooks/emit.ts`) generates a value for each header the webhook
+   declares, the same way `renderResponse` generates spec-declared response
+   headers, before layering the configured `headers` over them. Both sides
+   normalize the header name to lowercase, so a configured header always wins
+   over its generated counterpart regardless of casing.
+8. **`onWarn` is a new option.** An unsupported runtime expression has to be
+   reported at construction, and neither `onError` (internal faults) nor a bare
+   `console.warn` (untestable without monkey-patching, and impolite in a
+   library) fit. It defaults to `console.warn`.
+9. **A callback URL is captured only from a response under 400.** A rejected
+   request has not subscribed to anything, and capturing from one would let an
+   unauthenticated caller redirect another tenant's webhooks.
+10. **A pending emission is dropped by `reset()` and by `close()`**, not
+    delivered. §13 requires both to cancel; a generation counter invalidates
+    emissions already waiting on their `afterMs`.
+11. **`EmitCtx.result.body` requires the response body to be captured.** The
+    single exit's `needsBody` condition (`src/server/handler.ts`) includes
+    whether the matched operation has emits; without that term, the body would
+    silently stay `undefined` for any operation that emits but has no
+    idempotency key, `onLog`, or callbacks to otherwise need it.
 
 ---
 

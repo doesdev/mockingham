@@ -32,6 +32,10 @@ Breaking any of these is a defect even if tests pass.
    generation. The mock must keep serving when the LLM is slow, absent, or refuses.
 5. **Errors stay on-contract.** Emit the operation's declared error schema when
    one exists; only fall back to the built-in envelope when it does not.
+6. **Emission never affects the response.** Webhooks fire at the single exit,
+   after the response is final. A throw in an emit override, in signing, or in
+   delivery reaches `onError` — never the caller. An emit that resolves no
+   destination is captured as `unresolved`, not an error.
 
 ## Code conventions
 

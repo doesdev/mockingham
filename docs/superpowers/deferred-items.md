@@ -8,9 +8,10 @@ live under `.superpowers/` inside per-plan worktrees, which is gitignored scratc
 one `git worktree remove` and the reasoning is gone. Anything here is meant to
 survive that.
 
-Status as of 2026-08-12: plan 5 implements the phases 7–9 design spec and is in
-its final fix wave on a worktree branch; it is not yet merged to `main`. 494
-tests passing before this wave.
+Status as of 2026-08-12: plan 5 (phases 7–9) is merged to `main`. Plan 6
+implements the phase 8 webhooks design (`2026-08-12-mockingham-webhooks-design.md`)
+on worktree branch `worktree-plan-6-webhooks`, not yet merged to `main`. 585
+tests passing, up from a 509-test baseline, typecheck clean.
 
 ---
 
@@ -110,6 +111,25 @@ tests passing before this wave.
     but the name promises re-execution the assertions do not check.
     **Status: documented deferral, plan 5.**
 
+22. **The synchronous `EmitCtx` construction at the single exit is not wrapped
+    in a try/catch.** In `src/server/handler.ts`'s trigger-two block, building
+    `emitCtx` — `headersOf(response)` and `parseBodyText(captured, response)` —
+    happens directly inside the `if (trace.emits !== undefined && ...)` guard,
+    outside any `try`. The sibling callback-capture block immediately above it
+    (trigger one, destination tier 2) wraps its equivalent computation —
+    the same two helper calls, building `exprInput.result` — entirely inside
+    its own `try`/`catch`. Only the per-emit async body (the `sleep`, the
+    `runEmit` call) is guarded; the synchronous setup that precedes the `for`
+    loop is not. Unreachable today — neither `headersOf` nor `parseBodyText`
+    can throw for any `Response` this codebase produces — but it is asymmetric
+    with the established pattern at that exit, and "something at the single
+    exit outside the guard" is exactly the shape of plan 5's Critical defect
+    (see "A refactor can move code out of a safety net" below). Inherited from
+    the plan 6 brief's snippet, not introduced by the implementer; flagged for
+    the whole-branch review, not fixed, because tasks 9 and 10 do not touch
+    `handler.ts`.
+    **Status: documented deferral, plan 6.**
+
 ---
 
 ## Polish
@@ -140,6 +160,12 @@ tests passing before this wave.
     so this is defense in depth rather than a gap.
 21. `templateFor` duplicates `allowedMethods`' loop body in the router.
     Extracting the shared walk would couple two small functions for little gain.
+23. In `test/server/webhooks-loopback.test.ts`'s `finally` blocks, both tests
+    run `await mock.close()` before `await hook.close()`. If `mock.close()`
+    threw, `hook.close()` would be skipped, leaking the throwaway `node:http`
+    receiver's listening socket. `mock.close()` has no plausible throwing
+    surface, so this is cosmetic; it mirrors the accepted single-resource
+    convention already in `test/server/node.test.ts`.
 
 ---
 
@@ -190,3 +216,11 @@ that had covered every previous `Store` touch. Each per-task review saw
 correct code; the defect existed only where two tasks met, and only the
 whole-branch review could see it. When a refactor relocates work, ask what
 invariants were being enforced by its old location.
+
+**A test that derives its expectation by calling the function under test can
+verify plumbing but never pin a value.** Plan 6's retry test computed its
+expected delay sequence by calling `backoffFor`, the function it was testing —
+so mutating that function moved both sides of the assertion together, and the
+mutation looked observed while doing nothing. It is the first shape found that
+survives a naive mutation check. Hardcode the expected value, with a comment
+saying what would legitimately change it.
