@@ -132,6 +132,40 @@ tests passing, up from a 509-test baseline, typecheck clean.
     the plan 6 brief's snippet, not introduced by the implementer; flagged for
     the whole-branch review, not fixed, because tasks 9 and 10 do not touch
     `handler.ts`.
+    **Status: DONE, plan 6 whole-branch fix wave.** Folded into the same edit
+    as finding C1 below — the `emitCtx` construction now sits inside the same
+    `try`/`catch` as the delivery loop that follows it.
+
+24. **I3's `clearTimeout` half has no assertion.** The whole-branch review's
+    fix for `close()` waiting out a real, uncancelled `afterMs` timer has two
+    halves: racing the wait against `closedSignal` (§2.3's "canceled by
+    `close()`"), and clearing the underlying `setTimeout` so the event loop is
+    not held open. The promptness test (`close() with a real (non-injected)
+    sleep and a large afterMs returns promptly`) covers the race half —
+    reverting `await Promise.race([emitSleep(delay), closedSignal])` to a bare
+    `await emitSleep(delay)` fails that test at ~5005ms. But deleting only the
+    `clearTimeout(entry.handle)` call inside `close()`, leaving
+    `entry.resolve()` in place, leaves the suite green: the race is still
+    unblocked by the resolved promise, and the only observable difference is a
+    longer real process lifetime that nothing in the suite measures. A
+    regression there — the real timer left running — would silently
+    reintroduce "a CLI shutdown hangs for up to `afterMs`", the exact bug I3
+    was raised to fix.
+    **Status: documented deferral, plan 6.**
+
+25. **`reset()` does not clear `pendingTimers`, while `close()` does.** Design
+    §2.3 treats `close()` canceling pending timers and `reset()` clearing them
+    as one sentence, implying parity. `close()`'s I3 fix (this wave) clears
+    every real timer tracked in `pendingTimers`; `reset()` still only bumps
+    `generation`. The emission itself is still correctly dropped — the
+    `at !== generation` check inside the delayed IIFE catches it — but the
+    underlying `setTimeout` is not cleared and keeps the event loop open until
+    it naturally fires. Measured: `settled()` called right after `reset()`
+    blocks for the full `afterMs` (3005ms observed for `afterMs: 3000`). This
+    is a promptness and shutdown-symmetry gap, not a correctness one — nothing
+    delivers late or twice — and it predates this wave (the timer was never
+    cancellable before I3's fix). It is only visible now that `close()` has a
+    `clearTimeout` for `reset()` to be asymmetric with.
     **Status: documented deferral, plan 6.**
 
 ---
@@ -170,6 +204,17 @@ tests passing, up from a 509-test baseline, typecheck clean.
     receiver's listening socket. `mock.close()` has no plausible throwing
     surface, so this is cosmetic; it mirrors the accepted single-resource
     convention already in `test/server/node.test.ts`.
+26. Every `afterMs > 0` emission (I3's fix, plan 6) races its wait against the
+    module-scoped `closedSignal` promise via `Promise.race`, which attaches a
+    reaction that is only released when `close()` resolves `closedSignal`. On
+    a short-lived mock or a test process this is inert. On a long-lived
+    `listen()` server that accumulates traffic and is never closed, each such
+    emission's reaction sits on `closedSignal`'s subscriber list for the rest
+    of the process's life. Bounded by traffic rather than unbounded, and each
+    reaction is tiny with no reference cycle, so this is cosmetic rather than a
+    leak in the classic sense — worth a line if `closedSignal` ever gains a
+    reason to reset itself (for instance, if `reset()` is taught to be
+    symmetric with `close()`, per item 25).
 
 ---
 
