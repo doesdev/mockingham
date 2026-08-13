@@ -23,11 +23,10 @@ export function operationSlug(operation: Operation): string {
   return `${operation.method}_${path}`
 }
 
-function ordered(values: Record<string, string>): string {
+function pairs(values: Record<string, string>): Array<[string, string]> {
   return Object.keys(values)
     .sort()
-    .map((name) => `${name}=${values[name]}`)
-    .join('&')
+    .map((name) => [name, values[name] as string])
 }
 
 /**
@@ -41,11 +40,11 @@ function ordered(values: Record<string, string>): string {
  * the store is a reviewed artifact where a collision shows up in the diff.
  */
 export function fixtureKey(input: KeyInput): string {
-  const canonical = [
+  const canonical = JSON.stringify([
     input.method.toLowerCase(),
     input.path,
-    ordered(input.params),
-    ordered(input.contributors ?? {})
-  ].join('|')
+    pairs(input.params),
+    pairs(input.contributors ?? {})
+  ])
   return fnv1a(canonical).toString(16).padStart(8, '0')
 }
