@@ -4,7 +4,7 @@ import { loadApi } from '../../src/spec/load.ts'
 import { createMemoryStore } from '../../src/runtime/store.ts'
 import { createRng } from '../../src/generate/rng.ts'
 import {
-  callbackKey, createDeliveryLog, emitWebhook, resolveWebhook
+  callbackKey, createDeliveryLog, emitWebhook, MAX_DELIVERIES, resolveWebhook
 } from '../../src/webhooks/emit.ts'
 
 const api = loadApi({
@@ -254,4 +254,41 @@ test('the delivery log is bounded and drops oldest first', () => {
   assert.deepEqual(log.all().map((d) => d.webhook), ['b', 'c'])
   log.clear()
   assert.deepEqual(log.all(), [])
+})
+
+test('MAX_DELIVERIES matches the documented bound (design §2.6)', () => {
+  // Pins the constant itself: `createDeliveryLog`'s default argument means
+  // nothing else in the suite exercises 1000 specifically, so a change to the
+  // constant alone would leave every other test green.
+  assert.equal(MAX_DELIVERIES, 1000)
+})
+
+test('a webhook declared with a non-POST method is delivered with that method (I5)', async () => {
+  const withMethod = loadApi({
+    openapi: '3.1.0',
+    webhooks: {
+      onInventorySync: {
+        put: { responses: { '200': { description: 'ok' } } }
+      }
+    },
+    paths: {}
+  })
+  const sent: Array<{ method: string }> = []
+  const fetchStub = (async (_url: string, init: RequestInit) => {
+    sent.push({ method: String(init.method) })
+    return new Response('', { status: 200 })
+  }) as unknown as typeof fetch
+
+  await emitWebhook({
+    ...baseInput,
+    api: withMethod,
+    name: 'onInventorySync',
+    config: resolveWebhook({ url: 'http://hooks.test/x' }),
+    store: createMemoryStore(),
+    rng: createRng('t'),
+    fetch: fetchStub,
+    sleep: async () => {}
+  })
+
+  assert.deepEqual(sent, [{ method: 'PUT' }])
 })

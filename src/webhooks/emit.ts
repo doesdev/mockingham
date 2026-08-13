@@ -143,6 +143,7 @@ export async function emitWebhook(input: EmitInput): Promise<Delivery> {
   return await deliver({
     webhook: input.name,
     url,
+    method: spec.method.toUpperCase(),
     body,
     headers,
     captureOnly: input.captureOnly,

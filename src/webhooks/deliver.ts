@@ -77,6 +77,8 @@ export function backoffFor(input: {
 export interface DeliverInput {
   webhook: string
   url?: string
+  /** The declared webhook method, uppercased. Defaults to `'POST'` when absent. */
+  method?: string
   body: string
   headers: Record<string, string>
   captureOnly: boolean
@@ -107,7 +109,7 @@ export async function deliver(input: DeliverInput): Promise<Delivery> {
     let status: number | undefined
     try {
       const response = await input.fetch(input.url, {
-        method: 'POST',
+        method: input.method ?? 'POST',
         headers: input.headers,
         body: input.body
       })
