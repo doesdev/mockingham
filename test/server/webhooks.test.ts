@@ -3,11 +3,28 @@ import assert from 'node:assert/strict'
 import { createHandler } from '../../src/server/handler.ts'
 import { loadApi } from '../../src/spec/load.ts'
 import { callbackKey } from '../../src/webhooks/emit.ts'
+import type { EmitCtx } from '../../src/runtime/types.ts'
 
 const doc = {
   openapi: '3.1.0',
   webhooks: {
     onOrderShipped: {
+      post: {
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['orderId'],
+                properties: { orderId: { type: 'string' } }
+              }
+            }
+          }
+        },
+        responses: { '200': { description: 'ok' } }
+      }
+    },
+    onOrderCanceled: {
       post: {
         requestBody: {
           content: {
@@ -57,6 +74,15 @@ const doc = {
           }
         }
       }
+    },
+    '/plain': {
+      post: {
+        operationId: 'plain',
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object' } } }
+        },
+        responses: { '201': { description: 'created' } }
+      }
     }
   },
   components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } }
@@ -90,8 +116,18 @@ test('a rejected request captures nothing', async () => {
 })
 
 test('an operation declaring no callbacks captures nothing', async () => {
+  // Must exercise a request that MATCHES an operation with no callbacks —
+  // not an unmatched route, which never reaches the `entry.specs.length > 0`
+  // check this test's name implies it covers.
   const handler = createHandler(api, { seed: 'hooks' })
-  await handler.fetch(new Request('http://mock/subscriptions', { method: 'GET' }))
+  const response = await handler.fetch(
+    new Request('http://mock/plain', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({})
+    })
+  )
+  assert.equal(response.status, 201)
   assert.equal(await handler.store.get(callbackKey('onOrderShipped')), undefined)
 })
 
@@ -258,4 +294,165 @@ test('two emissions of one webhook get different payloads, and a replay reproduc
   const replay = [await handler.emit('onOrderShipped'), await handler.emit('onOrderShipped')]
   assert.equal(replay[0]!.body, first.body)
   assert.equal(replay[1]!.body, second.body)
+})
+
+test('two different webhooks each advance their own delivery counter', async () => {
+  // The payload rng is keyed by `webhook|${name}` plus a per-name counter. A
+  // regression to one shared counter across every webhook name would leave
+  // every other test in this file green — none of them emits two DIFFERENT
+  // webhooks from the same handler — so this compares a webhook's first
+  // delivery in isolation against its first delivery after another webhook
+  // has already advanced a (hypothetically) shared counter.
+  const solo = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    webhooks: { onOrderCanceled: { url: 'http://hooks.test/b' } }
+  })
+  const soloDelivery = await solo.emit('onOrderCanceled')
+
+  const both = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    webhooks: {
+      onOrderShipped: { url: 'http://hooks.test/a' },
+      onOrderCanceled: { url: 'http://hooks.test/b' }
+    }
+  })
+  await both.emit('onOrderShipped')
+  const bothDelivery = await both.emit('onOrderCanceled')
+
+  assert.equal(bothDelivery.body, soloDelivery.body)
+})
+
+test('an operation-linked emit fires after the response and is drained by settled', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped' }] } }
+  })
+
+  const response = await handler.fetch(subscribe())
+
+  // The response does not wait for the emission — §13.
+  assert.equal(response.status, 201)
+  assert.deepEqual(handler.deliveries(), [])
+
+  await handler.settled()
+  assert.equal(handler.deliveries().length, 1)
+})
+
+test('afterMs is awaited through the injected sleep, not the real clock', async () => {
+  const slept: number[] = []
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    sleep: async (ms) => { slept.push(ms) },
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 200 }] } }
+  })
+
+  await handler.fetch(subscribe())
+  await handler.settled()
+
+  assert.deepEqual(slept, [200])
+})
+
+test('an emit body override sees the finished response through ctx.result', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: {
+      subscribe: {
+        emits: [{
+          webhook: 'onOrderShipped',
+          body: { orderId: (ctx: EmitCtx) => `from-${ctx.result.status}` }
+        }]
+      }
+    }
+  })
+
+  await handler.fetch(subscribe())
+  await handler.settled()
+
+  const body = JSON.parse(handler.deliveries()[0]!.body) as { orderId: string }
+  assert.equal(body.orderId, 'from-201')
+})
+
+test('afterMs may be a function of the emit context', async () => {
+  const slept: number[] = []
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    sleep: async (ms) => { slept.push(ms) },
+    operations: {
+      subscribe: {
+        emits: [{ webhook: 'onOrderShipped', afterMs: (ctx: EmitCtx) => ctx.result.status }]
+      }
+    }
+  })
+
+  await handler.fetch(subscribe())
+  await handler.settled()
+
+  assert.deepEqual(slept, [201])
+})
+
+test('a throwing emit override never reaches the response', async () => {
+  const seen: unknown[] = []
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    onError: (error) => seen.push(error),
+    operations: {
+      subscribe: {
+        emits: [{ webhook: 'onOrderShipped', body: { orderId: () => { throw new Error('boom') } } }]
+      }
+    }
+  })
+
+  const response = await handler.fetch(subscribe())
+  await handler.settled()
+
+  assert.equal(response.status, 201)
+  assert.equal((seen[0] as Error).message, 'boom')
+})
+
+test('reset drops a pending emission', async () => {
+  let release: (() => void) | undefined
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    sleep: () => new Promise<void>((resolve) => { release = resolve }),
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 50 }] } }
+  })
+
+  await handler.fetch(subscribe())
+  await handler.reset()
+  release?.()
+  await handler.settled()
+
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('close drops a pending emission and settles', async () => {
+  let release: (() => void) | undefined
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    sleep: () => new Promise<void>((resolve) => { release = resolve }),
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 50 }] } }
+  })
+
+  await handler.fetch(subscribe())
+  const closing = handler.close()
+  release?.()
+  await closing
+
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('an operation with no emits config emits nothing', async () => {
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  await handler.fetch(subscribe())
+  await handler.settled()
+  assert.deepEqual(handler.deliveries(), [])
 })

@@ -6,11 +6,11 @@ import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
-import type { Ctx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
+import type { Ctx, EmitCtx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
 import { isSupported, resolveExpression } from '../webhooks/expr.ts'
 import { callbackKey } from '../webhooks/emit.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
-import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+import type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
 import { envelope, isCallbackError, markCallback, buildError } from '../runtime/errors.ts'
 import type { ErrorBodyMode } from '../runtime/errors.ts'
@@ -30,7 +30,7 @@ import { emitWebhook, resolveWebhook, createDeliveryLog } from '../webhooks/emit
 import type { WebhookConfig, ResolvedWebhook } from '../webhooks/emit.ts'
 import type { Delivery } from '../webhooks/deliver.ts'
 
-export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
 /** Passed to `Handler.emit` — the imperative trigger. */
 export interface EmitOptions {
@@ -65,6 +65,18 @@ export interface Handler {
   /** Oldest first. */
   deliveries(): Delivery[]
   clearDeliveries(): void
+  /**
+   * Resolves once every pending emission — from either trigger — has settled.
+   * The response never waits for one (§13), so a test needs this to await what
+   * `fetch()` already let go of.
+   */
+  settled(): Promise<void>
+  /**
+   * Stops accepting new emissions and drains those already pending. An
+   * emission still waiting on its `afterMs` is dropped, not delivered late —
+   * §13's close() cancels rather than flushes.
+   */
+  close(): Promise<void>
 }
 
 export interface HandlerOptions {
@@ -175,6 +187,24 @@ export function createHandler(
   const deliveryLog = createDeliveryLog()
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
 
+  // Pending emissions. `settled()` drains them, `close()` stops accepting new
+  // ones, and `reset()` invalidates the ones already waiting. A generation
+  // counter rather than real timer handles: `sleep` is injected, so there is no
+  // timer object to cancel, and checking a generation after the wait is both
+  // simpler and testable.
+  const pending = new Set<Promise<void>>()
+  let generation = 0
+  let closed = false
+
+  function track(promise: Promise<void>): void {
+    pending.add(promise)
+    void promise.finally(() => pending.delete(promise))
+  }
+
+  async function settled(): Promise<void> {
+    while (pending.size > 0) await Promise.all([...pending])
+  }
+
   /**
    * One emission, from either trigger. Records into the delivery log whatever
    * comes back — including `unresolved` — because §13 says an emit never
@@ -262,6 +292,8 @@ export function createHandler(
      * `Operation` was matched (the path matched, the method did not).
      */
     route?: string
+    /** Set from `config.emits` once `resolveConfigs` has run. Trigger two. */
+    emits?: EmitConfig[]
   }
 
   async function produce(request: Request, trace: Trace): Promise<Response> {
@@ -314,6 +346,7 @@ export function createHandler(
     trace.operation = operation
     trace.params = params
     trace.requestKey = key
+    trace.emits = config.emits
 
     // Stage 2 — body parse and content negotiation.
     const parsed = await parseBody(request, operation)
@@ -533,8 +566,9 @@ export function createHandler(
    * THE SINGLE EXIT. Every response leaves through here — a 404 built before any
    * operation was known, a body-parse 400, a stage short-circuit, a rendered
    * body, and the boundary 500 alike. Stage 11 (idempotency capture, then the
-   * log record) hangs off this one point; that is the whole reason `produce` was
-   * split out. See the phases 7-9 design §1.
+   * log record), callback capture (trigger one), and emission (trigger two)
+   * all hang off this one point; that is the whole reason `produce` was split
+   * out. See the phases 7-9 design §1.
    */
   async function handle(request: Request): Promise<Response> {
     const startedAt = now()
@@ -563,10 +597,12 @@ export function createHandler(
       callbacks.some(
         (candidate) => candidate.operation === trace.operation && candidate.specs.length > 0
       )
-    const needsBody = claimed !== undefined || options.onLog !== undefined || hasCallbacks
+    const hasEmits = trace.emits !== undefined && trace.emits.length > 0
+    const needsBody =
+      claimed !== undefined || options.onLog !== undefined || hasCallbacks || hasEmits
     // The body is read at most once, from a clone, and only when something
-    // needs it: an idempotency record to store, a `bytesOut` to report, or a
-    // callback expression that may point at it.
+    // needs it: an idempotency record to store, a `bytesOut` to report, a
+    // callback expression that may point at it, or an emit's `ctx.result.body`.
     let captured: string | null = null
     if (needsBody) {
       try {
@@ -680,6 +716,41 @@ export function createHandler(
       }
     }
 
+    // Trigger two. Registered inside the exit's guard, so a throw in an emit
+    // override, in signing, or in delivery reaches `onError` and can never
+    // reach the response the caller already holds.
+    if (trace.emits !== undefined && trace.emits.length > 0 && !closed) {
+      const ctx = trace.ctx
+      if (ctx !== undefined) {
+        // `createContext` returns a plain object whose methods are own
+        // properties, so a spread carries `respond`, `deny`, and `seq` across
+        // intact. `result` is added rather than assigned into `ctx`, so the
+        // request context every other consumer holds is left untouched.
+        const emitCtx: EmitCtx = {
+          ...ctx,
+          result: {
+            status: response.status,
+            headers: headersOf(response),
+            body: parseBodyText(captured, response)
+          }
+        }
+        const at = generation
+        for (const emit of trace.emits) {
+          track((async () => {
+            try {
+              const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
+              if (delay !== undefined && delay > 0) await sleep(delay)
+              // A reset or a close while this was waiting invalidates it.
+              if (closed || at !== generation) return
+              await runEmit(emit.webhook, { body: emit.body, ctx: emitCtx })
+            } catch (error) {
+              reportError(options.onError, markCallback(error), emitCtx)
+            }
+          })())
+        }
+      }
+    }
+
     return response
   }
 
@@ -694,11 +765,17 @@ export function createHandler(
       counters.reset()
       chaosCounts.clear()
       requestOrdinals.clear()
+      generation += 1
       deliveryLog.clear()
       await store.clear()
     },
     emit: (name, opts = {}) => runEmit(name, opts),
     deliveries: () => deliveryLog.all(),
-    clearDeliveries: () => deliveryLog.clear()
+    clearDeliveries: () => deliveryLog.clear(),
+    settled,
+    async close() {
+      closed = true
+      await settled()
+    }
   }
 }

@@ -33,6 +33,7 @@ export interface Mock {
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
   deliveries(): Delivery[]
   clearDeliveries(): void
+  settled(): Promise<void>
 }
 
 export function createMock(
@@ -53,7 +54,12 @@ export function createMock(
   return {
     fetch: handler.fetch,
     listen: (port) => server.listen(port),
-    close: () => server.close(),
+    async close() {
+      // Emissions in flight are dropped rather than delivered after the server
+      // is gone; §13 says close() cancels them.
+      await handler.close()
+      await server.close()
+    },
 
     async failNext(target, opts = {}) {
       for (const key of keysFor(target)) {
@@ -89,7 +95,8 @@ export function createMock(
 
     emit: (name, opts) => handler.emit(name, opts),
     deliveries: () => handler.deliveries(),
-    clearDeliveries: () => handler.clearDeliveries()
+    clearDeliveries: () => handler.clearDeliveries(),
+    settled: () => handler.settled()
   }
 }
 
