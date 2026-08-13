@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { createHandler } from '../../src/server/handler.ts'
 import { loadApi } from '../../src/spec/load.ts'
 import { callbackKey } from '../../src/webhooks/emit.ts'
+import { compileSchema } from '../../src/schema/compile.ts'
 import type { EmitCtx } from '../../src/runtime/types.ts'
 
 const doc = {
@@ -507,4 +508,22 @@ test('an operation with no emits config emits nothing', async () => {
   await handler.fetch(subscribe())
   await handler.settled()
   assert.deepEqual(handler.deliveries(), [])
+})
+
+test('the delivered payload validates against the declared webhook schema', async () => {
+  // `deliveries().length === 1` is true whether or not the payload conformed to
+  // anything, and conforming is the entire point of generating it from the
+  // document. Validate it with the same compiler the request path uses.
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped' }] } }
+  })
+
+  await handler.fetch(subscribe())
+  await handler.settled()
+
+  const schema = api.webhooks['onOrderShipped']!.body!['application/json']!.schema
+  const parsed = compileSchema(schema).safeParse(JSON.parse(handler.deliveries()[0]!.body))
+  assert.equal(parsed.success, true, JSON.stringify(parsed.error?.issues))
 })
