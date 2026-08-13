@@ -60,15 +60,18 @@ src/mcp/
   tools/read.ts     the seven read tools
   tools/write.ts    the five write tools
   tools/index.ts    assembles the tool list, applies the write gate
-  http.ts           Request/Response ↔ SDK Transport shim
-  server.ts         lazy SDK import, tool registration, transport wiring
+  server.ts         lazy SDK import, tool registration, per-request transport
 ```
 
 ### 2.1 The purity boundary
 
-`context.ts`, `tools/*.ts`, and `http.ts` import nothing from `node:` and
-nothing from `@modelcontextprotocol/sdk`. They are pure, they are the bulk of
-the code, and they are where every tool's behavior is decided and tested.
+`context.ts` and `tools/*.ts` import nothing from `node:` and nothing from
+`@modelcontextprotocol/sdk`. They are pure, they are the bulk of the code, and
+they are where every tool's behavior is decided and tested.
+
+An earlier draft listed an `http.ts` holding a hand-written transport. §3.4
+explains why it no longer exists: the SDK supplies a `Request`-in/`Response`-out
+transport, and what remains is a few lines inside `server.ts`.
 
 `server.ts` is the only file that touches the SDK, and it imports it lazily
 inside the function that starts a server — the same pattern
@@ -204,55 +207,68 @@ The tool returns the response as:
 `url` is the concrete URL that was fetched, so an agent can see which path
 parameters were synthesized and reproduce the call with `curl`.
 
-### 3.4 The SDK's HTTP transport cannot be used (Amendment 3.4)
+### 3.4 The HTTP transport is the SDK's, stateless and per request (Amendment 3.4)
 
-`StreamableHTTPServerTransport` operates on `node:http` `IncomingMessage` and
-`ServerResponse` objects. `server/node.ts` converts those into a `Request`
-before any handler sees them, and the mock's public in-process surface is
-`fetch(Request): Promise<Response>`. Handing the SDK transport raw Node
-objects would mean either bypassing the fetch surface — so `mock.fetch('/mcp')`
-would not work and the HTTP transport could not be tested without a port — or
-reconstructing Node objects from a `Request`, which is worse.
-
-**Amendment.** Implement the SDK's `Transport` interface directly. It is
-small and stable:
+An earlier draft of this section had us implementing the SDK's `Transport`
+interface by hand, on the reasoning that `StreamableHTTPServerTransport`
+operates on `node:http` objects while our surface is
+`fetch(Request): Promise<Response>`. That reasoning was correct about
+`StreamableHTTPServerTransport` and wrong about the SDK. Since 1.x the SDK also
+ships **`WebStandardStreamableHTTPServerTransport`**
+(`@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js`), whose entire
+public entry point is:
 
 ```ts
-interface Transport {
-  start(): Promise<void>
-  send(message: JSONRPCMessage): Promise<void>
-  close(): Promise<void>
-  onmessage?: (message: JSONRPCMessage) => void
-  onclose?: () => void
-  onerror?: (error: Error) => void
-}
+handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response>
 ```
 
-`src/mcp/http.ts` supplies one that is driven from a `Request`:
+That is exactly our surface. Writing our own transport would have been forty
+lines of owned code duplicating a supported one, and would have skipped
+protocol-version validation, session termination, and SSE — the parts hardest
+to get right and least interesting to own.
 
-1. `POST` with a JSON body is parsed into a JSON-RPC message.
-2. A pending-response `Map<id, resolve>` is populated for the message's `id`.
-3. `transport.onmessage(message)` hands it to the SDK `Server`.
-4. The `Server` replies through `transport.send(response)`, which looks up the
-   `id` and resolves the waiter.
-5. The resolved message is serialized as `application/json`.
+**Amendment.** Use the SDK transport, in **stateless mode with a fresh
+`McpServer` and transport per HTTP request**:
 
-One `Server` and one transport live for the life of the mock, so the
-`initialize` handshake and later `tools/call` requests share state across
-separate HTTP requests.
+```ts
+const transport = new WebStandardStreamableHTTPServerTransport({
+  sessionIdGenerator: undefined,   // stateless
+  enableJsonResponse: true         // JSON, not SSE
+})
+await buildMcpServer(context, { write }).connect(transport)
+return transport.handleRequest(request)
+```
 
-Notifications — JSON-RPC messages with no `id` — get `202 Accepted` with an
-empty body, since no response will ever arrive for them. A request that is
-still unanswered after a bounded interval rejects rather than leaking the
-`Map` entry.
+Per-request construction is not a workaround; the SDK requires it. In stateless
+mode `handleRequest` throws on a second call — *"Stateless transport cannot be
+reused across requests"* — because reuse causes message-id collisions between
+clients. The alternative is stateful mode with a `sessionIdGenerator`, which
+buys shared state we have no use for and costs every client an
+`Mcp-Session-Id` round trip.
 
-SSE is not implemented. Every tool here is request/response and the server
-initiates nothing, so there is no server-push to carry. A client sending
-`Accept: text/event-stream` alone gets `406`.
+Stateless is the better fit here for a reason beyond the SDK's constraint:
+**our tools hold no state.** Every one of them reads or writes the `Mock`,
+which lives independently of any MCP session. There is nothing for a session
+to remember.
 
-This keeps master §15's rationale intact — the protocol implementation, the
-handshake, tool schema marshalling, and error codes all remain the SDK's. What
-we own is byte plumbing, not JSON-RPC.
+Two behaviors were verified empirically against SDK 1.30.0 rather than assumed:
+
+- A fresh stateless transport answers `tools/list` and `tools/call`
+  **without a prior `initialize`**, returning `200` and
+  `content-type: application/json`. An agent can therefore call a tool with one
+  `curl` and no handshake, which for this audience is the whole point.
+- A handled request leaves **no dangling timers** — the keep-alive interval is
+  armed for SSE streams only, and `enableJsonResponse` takes a different path.
+  This matters more than it looks: a per-request timer would hang `node --test`
+  at the end of every run.
+
+Registering twelve tools per request is microseconds and buys an entire class
+of shared-state bug never existing.
+
+SSE is not served: `enableJsonResponse: true` makes every response plain JSON.
+Every tool here is request/response and the server initiates nothing, so there
+is no server-push to carry. `GET` and `DELETE` are passed to the transport,
+which answers them per the MCP specification.
 
 ### 3.5 `mcp()` must work before or after `listen()` (Amendment 3.5)
 
@@ -401,7 +417,7 @@ nowhere, and `@modelcontextprotocol/sdk` would have joined it.
 ```json
 "peerDependencies": {
   "@anthropic-ai/sdk": ">=0.30.0",
-  "@modelcontextprotocol/sdk": ">=1.0.0"
+  "@modelcontextprotocol/sdk": ">=1.30.0"
 },
 "peerDependenciesMeta": {
   "@anthropic-ai/sdk": { "optional": true },
@@ -412,6 +428,11 @@ nowhere, and `@modelcontextprotocol/sdk` would have joined it.
 This closes a plan 7 gap as well as plan 8's. `zod` remains the only entry in
 `dependencies`.
 
+The `>=1.30.0` floor is not conservatism: `WebStandardStreamableHTTPServerTransport`
+is what §3.4 mounts, and 1.30.0 is the version its behavior was verified
+against. `@modelcontextprotocol/sdk` appears in `devDependencies` as well, for
+the reason §4 gives.
+
 ---
 
 ## 4. The dev-dependency decision
@@ -420,15 +441,16 @@ Master §17 requires "one stdio round-trip smoke test." That needs the real
 `@modelcontextprotocol/sdk` present when the suite runs, which makes it the
 first package this test suite depends on to execute.
 
-**Decision: take the dev dependency.**
+**Decision: take the dev dependency.** It is installed at `1.30.0`, which is
+the version every empirical claim in §3.4 was verified against.
 
-Plan 7 avoided the equivalent by testing the Anthropic source against a stub,
-and that was right — the thing under test was our prompt construction and our
-response parsing, both of which a stub exercises fully. Here it is not right.
-The thing most likely to be wrong in phase 10 is the transport shim in §3.4,
-and a stub transport proves exactly nothing about whether a real MCP client
-can talk to it. A protocol implementation tested only against our own idea of
-the protocol is untested.
+Since §3.4 stopped owning a transport, this is no longer really a choice.
+The mount *calls* the SDK, so without it installed there is no HTTP transport
+to test at all — not a weaker test, none. The only remaining question is the
+stdio round trip, and the same answer applies: plan 7 could stub the Anthropic
+source because what was under test was our prompt construction and our response
+parsing, both of which a stub exercises fully. Here what is under test is
+whether a real MCP client can talk to us, and a stub client cannot answer that.
 
 `zod` remains the only runtime dependency; a `devDependency` does not weaken
 that. The cost is that `npm test` now requires an install, which it already
@@ -513,10 +535,18 @@ Per master §17, plus what plan 7 taught.
 - **`sample_response` equals `mock.fetch()`** for the same operation, asserted
   byte-for-byte on the body — §17's requirement, now guarding argument
   marshalling (§3.3).
-- **Transport shim driven through `mock.fetch()`** with real JSON-RPC frames:
-  `initialize`, then `tools/list`, then `tools/call`, as three separate
-  `Request`s against the same mount, proving the handshake state survives
-  across HTTP requests. **This test gets built early, not last** — see below.
+- **The mount driven through `mock.fetch()`** with real JSON-RPC frames:
+  `tools/list` and `tools/call` as separate `Request`s against the same mount,
+  each asserted to succeed **without a preceding `initialize`** — that is the
+  stateless property §3.4 depends on, and the one that would break silently if
+  someone later switched the transport to stateful mode. Plus one `initialize`
+  frame asserted to return a protocol version, since a client that does
+  handshake must still work. **This test gets built early, not last** — see
+  below.
+- **No dangling handles.** The suite itself is the assertion: if a per-request
+  transport ever armed a timer, `node --test` would stop exiting. Worth naming
+  so that a future switch to SSE or stateful mode is understood to put this at
+  risk.
 - **One stdio round trip** through the CLI subcommand with a real MCP client
   from the SDK.
 - **Write gate**, both halves: `tools/list` omits the five write tools when
@@ -544,11 +574,14 @@ lands as soon as one read tool and the transport exist.
 - **No SSE, no streaming, no server-initiated notifications.** Every tool is
   request/response. A future tool that wants to push (a delivery stream, say)
   needs the transport extended.
-- **No session isolation over HTTP.** One `Server` per mock, shared by every
-  HTTP client hitting the mount. Two agents pointed at the same mock share
-  runtime state — which is also true of the mock itself, and is the point of
-  a shared mock, but it means `set_seed` from one agent changes what the other
-  sees.
+- **No MCP sessions over HTTP.** The transport runs stateless (§3.4), so
+  `Mcp-Session-Id` is neither issued nor honored and nothing carries between
+  requests at the protocol layer. The *mock's* runtime state is still shared —
+  two agents pointed at one mock both see the effect of a `set_seed` — which is
+  the point of a shared mock, but is worth stating because "stateless" describes
+  the transport, not the thing it controls.
+- **Resumability and `Last-Event-ID` are unavailable.** They require an
+  `EventStore` and SSE, and §3.4 serves JSON.
 - **`sample_response` cannot express every request.** No multipart bodies, no
   binary bodies, no cookie parameters. JSON, form-encoded, and text bodies
   only, matching what master §2's body parsing supports.
