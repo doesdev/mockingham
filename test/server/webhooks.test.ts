@@ -97,6 +97,18 @@ const doc = {
           }
         }
       }
+    },
+    '/idempotent-orders': {
+      post: {
+        operationId: 'idempotentOrder',
+        parameters: [
+          { name: 'Idempotency-Key', in: 'header', required: false, schema: { type: 'string' } }
+        ],
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object' } } }
+        },
+        responses: { '201': { description: 'created' } }
+      }
     }
   },
   components: { securitySchemes: { bearer: { type: 'http', scheme: 'bearer' } } }
@@ -526,4 +538,221 @@ test('the delivered payload validates against the declared webhook schema', asyn
   const schema = api.webhooks['onOrderShipped']!.body!['application/json']!.schema
   const parsed = compileSchema(schema).safeParse(JSON.parse(handler.deliveries()[0]!.body))
   assert.equal(parsed.success, true, JSON.stringify(parsed.error?.issues))
+})
+
+// ── C1: emission is guarded on the response actually succeeding ──
+
+test('a 401 blocks emission', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: { guarded: { emits: [{ webhook: 'onOrderShipped' }] } }
+  })
+
+  const response = await handler.fetch(subscribe('/guarded'))
+  assert.equal(response.status, 401)
+
+  await handler.settled()
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('a 400 (failed validation) blocks emission', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped' }] } }
+  })
+
+  // `/subscriptions` declares a `type: object` body; an array fails that.
+  const response = await handler.fetch(
+    new Request('http://mock/subscriptions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify([1, 2, 3])
+    })
+  )
+  assert.equal(response.status, 400)
+
+  await handler.settled()
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('an injected failure blocks emission', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    decide: () => ({ status: 503 }),
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped' }] } }
+  })
+
+  const response = await handler.fetch(subscribe())
+  assert.equal(response.status, 503)
+
+  await handler.settled()
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('a thrown response callback (the boundary 500) blocks emission', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    onError: () => {},
+    operations: {
+      subscribe: {
+        respond: () => { throw new Error('boom') },
+        emits: [{ webhook: 'onOrderShipped' }]
+      }
+    }
+  })
+
+  const response = await handler.fetch(subscribe())
+  assert.equal(response.status, 500)
+
+  await handler.settled()
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('a 2xx still fires the configured emit', async () => {
+  // The positive control for the four blocked-path tests above: the guard
+  // must not have swallowed the success case along with the failure ones.
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped' }] } }
+  })
+
+  const response = await handler.fetch(subscribe())
+  assert.equal(response.status, 201)
+
+  await handler.settled()
+  assert.equal(handler.deliveries().length, 1)
+})
+
+// ── I4: an idempotent replay must not re-emit ──
+
+test('an idempotent replay produces exactly one delivery, not two', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: { idempotentOrder: { emits: [{ webhook: 'onOrderShipped' }] } }
+  })
+  const request = () =>
+    new Request('http://mock/idempotent-orders', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': 'k1' },
+      body: JSON.stringify({})
+    })
+
+  const first = await handler.fetch(request())
+  await handler.settled()
+  const second = await handler.fetch(request())
+  await handler.settled()
+
+  assert.equal(first.status, 201)
+  assert.equal(second.status, 201)
+  // Confirms the second request genuinely replayed rather than re-executing
+  // and coincidentally emitting the same number of times.
+  assert.equal(second.headers.get('idempotent-replay'), 'true')
+  assert.equal(handler.deliveries().length, 1)
+})
+
+// ── I2: settled() and close() cover the imperative trigger too ──
+
+test('settled() waits for an in-flight imperative emit', async () => {
+  let releaseFetch: (() => void) | undefined
+  let markCalled: (() => void) | undefined
+  const fetchCalled = new Promise<void>((resolve) => { markCalled = resolve })
+  const fetchStub = (async () => {
+    markCalled?.()
+    await new Promise<void>((resolve) => { releaseFetch = resolve })
+    return new Response('', { status: 200 })
+  }) as unknown as typeof fetch
+
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    webhooks: { onOrderShipped: { url: 'http://hooks.test/x' } },
+    fetch: fetchStub
+  })
+
+  const emitting = handler.emit('onOrderShipped')
+  await fetchCalled
+  assert.deepEqual(handler.deliveries(), [])
+
+  const settling = handler.settled()
+  releaseFetch?.()
+  await settling
+  await emitting
+
+  assert.equal(handler.deliveries().length, 1)
+})
+
+test('close() drains an in-flight imperative emit before returning', async () => {
+  let releaseFetch: (() => void) | undefined
+  let markCalled: (() => void) | undefined
+  const fetchCalled = new Promise<void>((resolve) => { markCalled = resolve })
+  const fetchStub = (async () => {
+    markCalled?.()
+    await new Promise<void>((resolve) => { releaseFetch = resolve })
+    return new Response('', { status: 200 })
+  }) as unknown as typeof fetch
+
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    webhooks: { onOrderShipped: { url: 'http://hooks.test/x' } },
+    fetch: fetchStub
+  })
+
+  const emitting = handler.emit('onOrderShipped')
+  await fetchCalled
+
+  const closing = handler.close()
+  releaseFetch?.()
+  await closing
+  await emitting
+
+  // close() only returned once the in-flight delivery had actually landed —
+  // draining, not dropping, an emission that is already in flight.
+  assert.equal(handler.deliveries().length, 1)
+})
+
+test('emit() after close() rejects rather than silently sending', async () => {
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  await handler.close()
+  await assert.rejects(handler.emit('onOrderShipped'), /close/)
+})
+
+// ── I3: close() races a real timer instead of waiting it out ──
+
+test('close() with a real (non-injected) sleep and a large afterMs returns promptly', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    // No `sleep` injected — this is the real `setTimeout` path.
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 5_000 }] } }
+  })
+
+  await handler.fetch(subscribe())
+  const startedAt = Date.now()
+  await handler.close()
+  const elapsedMs = Date.now() - startedAt
+
+  // Generous bound so this is not flaky, but tight enough to catch "waited
+  // out the real 5s timer" outright.
+  assert.ok(elapsedMs < 500, `close() took ${elapsedMs}ms`)
+  // The pending emission was dropped, not delivered late.
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('settled() resolves rather than hanging after close() cancels a real timer', async () => {
+  const handler = createHandler(api, {
+    seed: 'hooks',
+    captureOnly: true,
+    operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 5_000 }] } }
+  })
+
+  await handler.fetch(subscribe())
+  await handler.close()
+  await handler.settled()
+
+  assert.deepEqual(handler.deliveries(), [])
 })

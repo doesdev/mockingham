@@ -59,7 +59,11 @@ export interface Handler {
    * hard-fails" is a property of the return type, not only of the
    * implementation. An undeclared webhook name throws: that is a typo, and
    * `compileTarget`/`resolveTarget` already throw on those rather than
-   * silently never firing.
+   * silently never firing. Calling `emit()` after `close()` rejects too, for
+   * the same reason — the handler has stopped accepting new emissions, and
+   * silently sending anyway would be surprising rather than useful. Tracked
+   * the same way an operation-linked emission is, so `settled()` and
+   * `close()` genuinely wait for it rather than racing ahead of it.
    */
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
   /** Oldest first. */
@@ -200,6 +204,39 @@ export function createHandler(
     pending.add(promise)
     void promise.finally(() => pending.delete(promise))
   }
+
+  // A promise `close()` resolves. Racing an `afterMs` wait against it is the
+  // only way to unblock an INJECTED `sleep` — there is no timer handle to
+  // cancel on one of those — so this is what makes `close()` return promptly
+  // regardless of which `sleep` implementation is in play. Finding I3.
+  let resolveClosedSignal: () => void = () => {}
+  const closedSignal = new Promise<void>((resolve) => { resolveClosedSignal = resolve })
+
+  // Real timers created by the emission path's OWN default sleep (used only
+  // when no `options.sleep` was injected), so `close()` can clear them.
+  // Racing against `closedSignal` above unblocks the `await`, but the
+  // underlying `setTimeout` keeps running and holds the event loop open until
+  // it is cleared too — that is what let a real shutdown hang for up to
+  // `afterMs` even though `close()` had already "returned" the wait.
+  const pendingTimers = new Set<{ handle: ReturnType<typeof setTimeout>; resolve: () => void }>()
+
+  function defaultEmitSleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const entry: { handle: ReturnType<typeof setTimeout>; resolve: () => void } = {
+        handle: setTimeout(() => {
+          pendingTimers.delete(entry)
+          resolve()
+        }, ms),
+        resolve
+      }
+      pendingTimers.add(entry)
+    })
+  }
+
+  // Only the emission path's `afterMs` wait uses this. The shared `sleep`
+  // above is also used by the failure stage's injected delay and by delivery
+  // retry backoff, neither of which this fix touches.
+  const emitSleep = options.sleep ?? defaultEmitSleep
 
   async function settled(): Promise<void> {
     while (pending.size > 0) await Promise.all([...pending])
@@ -716,38 +753,68 @@ export function createHandler(
       }
     }
 
-    // Trigger two. Registered inside the exit's guard, so a throw in an emit
-    // override, in signing, or in delivery reaches `onError` and can never
-    // reach the response the caller already holds.
-    if (trace.emits !== undefined && trace.emits.length > 0 && !closed) {
-      const ctx = trace.ctx
-      if (ctx !== undefined) {
-        // `createContext` returns a plain object whose methods are own
-        // properties, so a spread carries `respond`, `deny`, and `seq` across
-        // intact. `result` is added rather than assigned into `ctx`, so the
-        // request context every other consumer holds is left untouched.
-        const emitCtx: EmitCtx = {
-          ...ctx,
-          result: {
-            status: response.status,
-            headers: headersOf(response),
-            body: parseBodyText(captured, response)
+    // Trigger two. Fires only for a response the operation actually
+    // succeeded at producing — the same reasoning as the callback-capture
+    // block above, applied more strongly: capturing a redirected destination
+    // is a data-integrity risk, but sending a signed outbound request that
+    // announces a 401, a failed validation, an injected failure, or the
+    // boundary 500 announces something that never happened. The idempotency
+    // clause is finding I4: a replayed request must produce zero additional
+    // deliveries, since the whole point of the key is that a client retry has
+    // no further effect. Registered inside this same guard, so a throw in an
+    // emit override, in signing, or in delivery reaches `onError` and can
+    // never reach the response the caller already holds.
+    if (
+      trace.emits !== undefined &&
+      trace.emits.length > 0 &&
+      !closed &&
+      trace.error === undefined &&
+      response.status < 400 &&
+      trace.ctx?.decisions.failure !== 'injected' &&
+      trace.ctx?.decisions.idempotency !== 'replayed'
+    ) {
+      try {
+        const ctx = trace.ctx
+        if (ctx !== undefined) {
+          // `createContext` returns a plain object whose methods are own
+          // properties, so a spread carries `respond`, `deny`, and `seq` across
+          // intact. `result` is added rather than assigned into `ctx`, so the
+          // request context every other consumer holds is left untouched.
+          //
+          // This synchronous construction is now inside the same try/catch as
+          // the delivery loop below it, matching the callback-capture block
+          // above. It is unreachable today — nothing here throws — but it was
+          // the one seam at this exit left asymmetric with its sibling.
+          const emitCtx: EmitCtx = {
+            ...ctx,
+            result: {
+              status: response.status,
+              headers: headersOf(response),
+              body: parseBodyText(captured, response)
+            }
+          }
+          const at = generation
+          for (const emit of trace.emits) {
+            track((async () => {
+              try {
+                const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
+                if (delay !== undefined && delay > 0) {
+                  // Raced rather than plainly awaited: whichever `sleep` is in
+                  // play, `close()` resolving `closedSignal` unblocks this
+                  // promptly instead of waiting out the real delay.
+                  await Promise.race([emitSleep(delay), closedSignal])
+                }
+                // A reset or a close while this was waiting invalidates it.
+                if (closed || at !== generation) return
+                await runEmit(emit.webhook, { body: emit.body, ctx: emitCtx })
+              } catch (error) {
+                reportError(options.onError, markCallback(error), emitCtx)
+              }
+            })())
           }
         }
-        const at = generation
-        for (const emit of trace.emits) {
-          track((async () => {
-            try {
-              const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
-              if (delay !== undefined && delay > 0) await sleep(delay)
-              // A reset or a close while this was waiting invalidates it.
-              if (closed || at !== generation) return
-              await runEmit(emit.webhook, { body: emit.body, ctx: emitCtx })
-            } catch (error) {
-              reportError(options.onError, markCallback(error), emitCtx)
-            }
-          })())
-        }
+      } catch (error) {
+        reportError(options.onError, error, trace.ctx)
       }
     }
 
@@ -769,12 +836,39 @@ export function createHandler(
       deliveryLog.clear()
       await store.clear()
     },
-    emit: (name, opts = {}) => runEmit(name, opts),
+    emit: (name, opts = {}) => {
+      // Finding I2. The imperative trigger used to call `runEmit` directly,
+      // untracked — `settled()` and `close()` genuinely waited only for the
+      // operation-linked path, contradicting both docstrings and design §2.3.
+      if (closed) {
+        return Promise.reject(new Error(
+          'mockingham: emit() was called after close(). The handler has ' +
+            'stopped accepting new emissions.'
+        ))
+      }
+      const delivery = runEmit(name, opts)
+      // The tracked promise never itself rejects — track()/settled() only
+      // need to know when the emission has settled, not how. The caller's own
+      // `delivery` promise is unaffected and still rejects on, e.g., an
+      // undeclared webhook name.
+      track(delivery.then(() => undefined, () => undefined))
+      return delivery
+    },
     deliveries: () => deliveryLog.all(),
     clearDeliveries: () => deliveryLog.clear(),
     settled,
     async close() {
       closed = true
+      resolveClosedSignal()
+      // Clearing without resolving would leave each timer's own promise
+      // pending forever; resolving it is what lets the event loop close
+      // rather than merely letting `close()`'s own await resolve via the
+      // race above.
+      for (const entry of pendingTimers) {
+        clearTimeout(entry.handle)
+        entry.resolve()
+      }
+      pendingTimers.clear()
       await settled()
     }
   }
