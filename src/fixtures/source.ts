@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { ZodType } from 'zod'
 import { classify } from '../schema/walk.ts'
 import type { Compiler } from '../schema/compile.ts'
+import { fnv1a } from '../generate/rng.ts'
 import type { Operation, Schema } from '../spec/types.ts'
 import { operationSlug } from './key.ts'
 import type { FixtureMeta } from './store.ts'
@@ -83,6 +84,30 @@ export function isRecursive(schema: Schema): boolean {
     return false
   }
   return walk(schema, new Set())
+}
+
+/**
+ * A fingerprint of a schema's compiled JSON Schema form, used to detect when
+ * a stored fixture was generated against a document that has since moved —
+ * design section 2.13. `bake` and the startup staleness check both call this
+ * one function so their hashes can never drift apart; two independent
+ * derivations would produce spurious warnings the moment they disagreed.
+ *
+ * Same derivation `buildRequest` uses (`compiler.compile` then
+ * `z.toJSONSchema`), so a schema this hashes is exactly a schema
+ * `buildRequest` could turn into a request. A schema zod cannot express as
+ * JSON Schema yields no hash at all, which the caller treats as "nothing to
+ * compare" rather than a fabricated mismatch.
+ */
+export function schemaHash(schema: Schema, compiler: Compiler): string | undefined {
+  const compiled = compiler.compile(schema)
+  let jsonSchema: Record<string, unknown>
+  try {
+    jsonSchema = z.toJSONSchema(compiled) as Record<string, unknown>
+  } catch {
+    return undefined
+  }
+  return fnv1a(JSON.stringify(jsonSchema)).toString(16).padStart(8, '0')
 }
 
 export interface BuildRequestInput {

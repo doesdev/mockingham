@@ -3,7 +3,7 @@ import type { Compiler } from '../schema/compile.ts'
 import { fixtureKey } from './key.ts'
 import { isScoped, narrow } from './scope.ts'
 import type { ScopeConfig } from './scope.ts'
-import { buildRequest } from './source.ts'
+import { buildRequest, schemaHash } from './source.ts'
 import type { ContentSource, FixtureRequest, FixtureResult } from './source.ts'
 import type { FixtureStore } from './store.ts'
 
@@ -134,9 +134,16 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
         }
       }
 
+      // Same helper the startup staleness check uses on `hashFor` — computed
+      // from the response schema this fixture was actually generated
+      // against, so a later document change is detectable. A schema
+      // `buildRequest` could turn into a request always hashes; this can
+      // only come back undefined for a schema shape neither path can convert
+      // to JSON Schema, which is not written rather than fabricated.
+      const hash = schemaHash(item.schema, options.compiler)
       options.store.set(item.request.operationId, item.request.status, item.request.key, {
         value,
-        meta: { ...(result.meta ?? {}), generatedAt }
+        meta: { ...(result.meta ?? {}), generatedAt, ...(hash !== undefined ? { schemaHash: hash } : {}) }
       })
       summary.generated += 1
     }

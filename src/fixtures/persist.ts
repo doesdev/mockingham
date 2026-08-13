@@ -95,6 +95,32 @@ export async function writeFixtures(dir: string, store: FixtureStore): Promise<v
   }
 }
 
+/**
+ * A schemaHash mismatch means the document moved under a generated fixture.
+ * It warns and the fixture is STILL SERVED — design section 2.13. Rejecting it
+ * would silently discard reviewed, committed, hand-edited data, which is the
+ * opposite of what the store is for. `bake` is what regenerates it.
+ *
+ * A fixture with no meta is hand-written and is never reported.
+ */
+export function warnOnStaleFixtures(
+  store: FixtureStore,
+  hashFor: (operationId: string, status: number) => string | undefined,
+  onWarn: (message: string) => void
+): void {
+  for (const record of store.records()) {
+    const stored = record.entry.meta?.schemaHash
+    if (stored === undefined) continue
+    const current = hashFor(record.operationId, record.status)
+    if (current === undefined || current === stored) continue
+    onWarn(
+      `mockingham: fixture ${record.operationId} status ${record.status} ` +
+        'was generated against a different schema and may no longer match the ' +
+        'document. Re-run bake to regenerate it.'
+    )
+  }
+}
+
 export async function createDiskFixtureStore(
   options: DiskStoreOptions
 ): Promise<FixtureStore & { flush(): Promise<void> }> {

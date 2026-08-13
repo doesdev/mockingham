@@ -14,6 +14,11 @@ import type { FixtureStore } from './fixtures/store.ts'
 import { createCompiler } from './schema/compile.ts'
 import { bake as bakeFixtures } from './fixtures/bake.ts'
 import type { BakeSummary } from './fixtures/bake.ts'
+import { warnOnStaleFixtures } from './fixtures/persist.ts'
+import { schemaHash } from './fixtures/source.ts'
+import { operationSlug } from './fixtures/key.ts'
+
+const JSON_TYPE = 'application/json'
 
 export interface MockOptions extends Omit<HandlerOptions, 'llm'> {
   /**
@@ -68,6 +73,22 @@ export function createMock(
   const fixtureStore = options.fixtures?.store ?? createMemoryFixtureStore()
   const resolvedLlm = resolveLlm(options.llm, { fetch: options.fetch })
   const compiler = createCompiler()
+
+  // A schemaHash mismatch means the document moved under a fixture `bake`
+  // generated earlier. This is diagnostic only — warnOnStaleFixtures never
+  // removes anything from `fixtureStore`, so a stale fixture keeps serving
+  // exactly as it did before this check ran. Design section 2.13.
+  warnOnStaleFixtures(
+    fixtureStore,
+    (operationId, status) => {
+      const operation = api.operations.find((candidate) => operationSlug(candidate) === operationId)
+      const response = operation?.responses.find((entry) => entry.status === status)
+      const media = response?.content[JSON_TYPE]
+      return media ? schemaHash(media.schema, compiler) : undefined
+    },
+    options.onWarn ?? ((message) => console.warn(message))
+  )
+
   const handler = createHandler(api, {
     ...options,
     llm: resolvedLlm,
