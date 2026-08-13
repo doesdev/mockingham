@@ -26,7 +26,7 @@ function reply(content: unknown): Response {
   )
 }
 
-test('json_schema mode sends a strict response_format and returns the value', async () => {
+test('json_schema mode sends a response_format and returns the value', async () => {
   const seen: { url?: string; body?: Record<string, unknown> } = {}
   const source = createOpenAiSource({
     baseUrl: 'http://localhost:11434/v1',
@@ -43,8 +43,108 @@ test('json_schema mode sends a strict response_format and returns the value', as
   assert.equal(seen.url, 'http://localhost:11434/v1/chat/completions')
   const format = seen.body?.response_format as { type: string; json_schema: { strict: boolean } }
   assert.equal(format.type, 'json_schema')
-  assert.equal(format.json_schema.strict, true)
   assert.equal(seen.body?.model, 'llama3.3')
+})
+
+test('strict defaults to false: a typical OpenAPI-derived schema would be rejected by real strict mode', async () => {
+  let format: { strict?: boolean } = {}
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      format = body.response_format.json_schema
+      return reply({ bio: 'ok' })
+    }
+  })
+  await source.generate([request()])
+  assert.equal(format.strict, false)
+})
+
+test('strict: true is honored when explicitly passed', async () => {
+  let format: { strict?: boolean } = {}
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    strict: true,
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      format = body.response_format.json_schema
+      return reply({ bio: 'ok' })
+    }
+  })
+  await source.generate([request()])
+  assert.equal(format.strict, true)
+})
+
+test('json_schema mode strips constraints real OpenAI strict mode rejects outright', async () => {
+  let schema: Record<string, unknown> = {}
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      schema = body.response_format.json_schema.schema
+      return reply({ bio: 'ok' })
+    }
+  })
+  await source.generate([
+    request({
+      jsonSchema: {
+        type: 'object',
+        properties: {
+          bio: { type: 'string', minLength: 1, maxLength: 500, format: 'email', pattern: '^a' },
+          count: { type: 'integer', minimum: 0, maximum: 100, multipleOf: 1, exclusiveMinimum: -1 }
+        }
+      }
+    })
+  ])
+  const bioProps = (schema.properties as Record<string, unknown>).bio as Record<string, unknown>
+  const countProps = (schema.properties as Record<string, unknown>).count as Record<string, unknown>
+  assert.deepEqual(bioProps, { type: 'string' })
+  assert.deepEqual(countProps, { type: 'integer' })
+})
+
+test('json_object mode does NOT strip constraints: the full schema is useful guidance and nothing validates it server-side', async () => {
+  let body: Record<string, unknown> = {}
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    structuredOutput: 'json_object',
+    fetch: async (_url, init) => {
+      body = JSON.parse(String(init?.body))
+      return reply({ bio: 'ok' })
+    }
+  })
+  await source.generate([
+    request({
+      jsonSchema: {
+        type: 'object',
+        properties: { bio: { type: 'string', minLength: 1, format: 'email' } }
+      }
+    })
+  ])
+  const messages = body.messages as Array<{ role: string; content: string }>
+  const content = messages[1]?.content as string
+  assert.match(content, /"minLength": ?1/)
+  assert.match(content, /"format": ?"email"/)
+})
+
+test('stripping for strict mode does not mutate request.jsonSchema itself', async () => {
+  const req = request({
+    jsonSchema: {
+      type: 'object',
+      properties: { bio: { type: 'string', minLength: 1, format: 'email' } }
+    }
+  })
+  const before = JSON.stringify(req.jsonSchema)
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    fetch: async () => reply({ bio: 'ok' })
+  })
+  await source.generate([req])
+  assert.equal(JSON.stringify(req.jsonSchema), before)
 })
 
 test('json_object mode sends the simpler format and carries the schema in the prompt', async () => {
@@ -132,6 +232,20 @@ test('malformed json is a miss, not a throw', async () => {
   assert.equal(result, null)
 })
 
+test('a 200 response whose outer body is not JSON is a miss, not a throw', async () => {
+  // Distinct from the malformed-JSON test above, which is about the INNER
+  // `content` string being unparseable. Here the OUTER envelope itself is
+  // not valid JSON, so `response.json()` throws before `payload.choices` is
+  // even reachable — a different line, a different failure mode.
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    fetch: async () => new Response('not json at all', { status: 200 })
+  })
+  const [result] = await source.generate([request()])
+  assert.equal(result, null)
+})
+
 test('an http 500 is a miss, not a throw', async () => {
   const source = createOpenAiSource({
     baseUrl: 'http://x/v1',
@@ -197,12 +311,36 @@ test('results are positionally aligned with the requests', async () => {
   assert.deepEqual(results[1]?.value, { bio: 'second' })
 })
 
-test('results stay positionally aligned when the second request misses and the first succeeds', async () => {
-  // The above alignment test has both requests succeed, which cannot
-  // distinguish correct alignment from an implementation that just drops
-  // failures and shifts everything down. This one fails request #2 (an id
-  // of '2' always gets an invalid body) and asserts the miss lands at index
-  // 1, not that it vanishes or bleeds into index 0.
+test('results stay positionally aligned when the FIRST request misses and the second succeeds', async () => {
+  // Deliberately the harder direction. An implementation that sorted
+  // successes before misses (or otherwise compacted/reordered) would produce
+  // [value, null] here too when the correct output is [null, value] — the
+  // failure has to be caught at the front, not just proven present somewhere.
+  // A miss-second variant (below) cannot catch that class of bug by itself:
+  // a "successes first" implementation returns the SAME [value, null] shape
+  // as the correct output whenever the failure already comes second.
+  const source = createOpenAiSource({
+    baseUrl: 'http://x/v1',
+    model: 'm',
+    fetch: async (_url, init) => {
+      const body = JSON.parse(String(init?.body))
+      const prompt = (body.messages as Array<{ content: string }>)[1]?.content ?? ''
+      return prompt.includes('id=1') ? reply({ bio: 999 }) : reply({ bio: 'second' })
+    }
+  })
+  const results = await source.generate([
+    request({ key: 'k1', params: { id: '1' } }),
+    request({ key: 'k2', params: { id: '2' } })
+  ])
+  assert.equal(results.length, 2)
+  assert.equal(results[0], null)
+  assert.deepEqual(results[1]?.value, { bio: 'second' })
+})
+
+test('results stay positionally aligned when the SECOND request misses and the first succeeds', async () => {
+  // The mirror image of the test above. Asserting both directions means
+  // neither a "drop the misses" bug nor a "sort successes first" bug can
+  // pass by only exercising the direction that happens to look correct.
   const source = createOpenAiSource({
     baseUrl: 'http://x/v1',
     model: 'm',

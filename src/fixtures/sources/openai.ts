@@ -11,9 +11,65 @@ export interface OpenAiSourceOptions {
    * design section 4.
    */
   structuredOutput?: 'json_schema' | 'json_object' | 'none'
+  /**
+   * OpenAI's strict mode guarantees conformance but accepts only a narrow
+   * schema subset: every object needs additionalProperties:false and every
+   * property must be required. Schemas derived from a typical OpenAPI document
+   * rarely satisfy that, and a strict request carrying one is rejected outright.
+   * Defaults to false, which OpenAI accepts without the subset restriction and
+   * local servers ignore either way. Correctness does not depend on it: every
+   * response is validated against the compiled schema client-side regardless.
+   */
+  strict?: boolean
   /** Injectable so the suite never reaches the network. */
   fetch?: typeof fetch
   timeoutMs?: number
+}
+
+/**
+ * Real OpenAI strict mode rejects a schema outright — an HTTP error, not a
+ * silent ignore — if it carries any of these numeric/string constraints or an
+ * unrecognized `format`. Ollama, llama.cpp, and vLLM are the opposite: their
+ * grammar decoders best-effort honor or ignore these and never reject. So
+ * this is stripped only from the copy placed in `response_format` for
+ * `json_schema` mode; `request.zodSchema.safeParse` already enforces all of
+ * it client-side on the way back in, unconditionally, in every mode — the
+ * "enforce" half of strip-and-enforce was already built, this is the other
+ * half. `format` is stripped entirely rather than allow-listing the subset
+ * OpenAI accepts, since which formats are accepted is model/version-specific
+ * and an over-permissive allow-list risks reintroducing the same class of
+ * rejection; losing a format hint costs far less than a rejected request.
+ *
+ * Operates on the already-derived JSON Schema, not an OpenAPI `Schema`, so it
+ * does not implicate the single-schema-interpretation invariant and is not
+ * routed through `classify()`. Recurses into every nested value generically
+ * (object properties, array `items`, and the `anyOf`/`oneOf`/`allOf` arrays)
+ * rather than special-casing each — anything reachable is walked. Never
+ * mutates its input; every level is rebuilt fresh, so `request.jsonSchema`
+ * itself is untouched and other consumers keep seeing the original.
+ */
+const STRIP_FOR_STRICT_MODE = new Set([
+  'minLength',
+  'maxLength',
+  'minimum',
+  'maximum',
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+  'multipleOf',
+  'pattern',
+  'format'
+])
+
+function stripForStrictMode(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(stripForStrictMode)
+  if (node === null || typeof node !== 'object') return node
+  const input = node as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(input).sort()) {
+    if (STRIP_FOR_STRICT_MODE.has(key)) continue
+    out[key] = stripForStrictMode(input[key])
+  }
+  return out
 }
 
 const SYSTEM = [
@@ -65,7 +121,11 @@ export function createOpenAiSource(options: OpenAiSourceOptions): ContentSource 
     if (mode === 'json_schema') {
       body.response_format = {
         type: 'json_schema',
-        json_schema: { name: 'response_body', schema: request.jsonSchema, strict: true }
+        json_schema: {
+          name: 'response_body',
+          schema: stripForStrictMode(request.jsonSchema),
+          strict: options.strict ?? false
+        }
       }
     } else if (mode === 'json_object') {
       body.response_format = { type: 'json_object' }
