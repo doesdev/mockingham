@@ -4,8 +4,8 @@ import { fixtureKey, operationSlug } from './key.ts'
 import { isScoped } from './scope.ts'
 import type { ScopeConfig } from './scope.ts'
 import { buildRequest } from './source.ts'
-import type { ContentSource } from './source.ts'
-import type { FixtureStore } from './store.ts'
+import type { ContentSource, FixtureRequest } from './source.ts'
+import type { FixtureMeta, FixtureStore } from './store.ts'
 
 const JSON_TYPE = 'application/json'
 
@@ -55,8 +55,17 @@ export function createFixtureResolver(input: ResolverInput): FixtureResolver {
   const inFlight = new Map<string, Promise<unknown>>()
   let calls = 0
 
-  const shape = (value: unknown): ResolvedFixture =>
-    scoped ? { layer: value } : { whole: value }
+  // Whole-vs-layer is decided per ENTRY, not from the ambient llm.scope
+  // config alone: a fixture baked WITH a scope carries `meta.scoped: true`
+  // (set by bake(), design section 2.13/scope), and that marker travels with
+  // the value even when it is later served under a config with no scope at
+  // all — which the design's own mode table explicitly allows. Only a
+  // fixture with no marker (hand-written, or generated before this field
+  // existed) falls back to the ambient reading; that fallback is also what
+  // keeps a hand-written fixture whole-body by default, since it has no meta
+  // at all.
+  const shape = (value: unknown, meta?: FixtureMeta): ResolvedFixture =>
+    (meta?.scoped ?? scoped) ? { layer: value } : { whole: value }
 
   const lookup = (
     operation: Operation,
@@ -95,9 +104,18 @@ export function createFixtureResolver(input: ResolverInput): FixtureResolver {
   }
 
   const peek: FixtureResolver['peek'] = (operation, status, params) => {
-    const { id, key, wildcardKey } = lookup(operation, status, params)
+    const { id, key, wildcardKey, schema } = lookup(operation, status, params)
+    // Design: "Responses with no body — 204 and anything with no JSON
+    // content — skip fixture resolution entirely." A schema-less status has
+    // nothing a fixture could be layered onto or replace, and handing one
+    // back here is what produced an un-constructible Response downstream.
+    if (schema === undefined) return undefined
     const entry = storeGet(id, status, key, wildcardKey)
-    return entry === undefined ? undefined : shape(entry.value)
+    // A malformed entry (not a non-null object carrying `value`) can reach
+    // the store through a route other than loadFixtures's own validation —
+    // falls through to generation rather than throwing, per invariant 4.
+    if (!entry || typeof entry !== 'object') return undefined
+    return shape(entry.value, entry.meta)
   }
 
   return {
@@ -105,15 +123,16 @@ export function createFixtureResolver(input: ResolverInput): FixtureResolver {
 
     async resolve(operation, status, params) {
       const { id, key, wildcardKey, schema } = lookup(operation, status, params)
+      // Same skip as peek() above, for the same reason.
+      if (schema === undefined) return undefined
 
       if (llm?.mode !== 'live') {
         const entry = storeGet(id, status, key, wildcardKey)
-        if (entry !== undefined) return shape(entry.value)
+        if (entry && typeof entry === 'object') return shape(entry.value, entry.meta)
       }
 
       if (!llm || !llm.source) return undefined
       if (llm.mode !== 'lazy' && llm.mode !== 'live') return undefined
-      if (schema === undefined) return undefined
       if (llm.budget.maxCalls !== undefined && calls >= llm.budget.maxCalls) {
         return undefined
       }
@@ -125,16 +144,26 @@ export function createFixtureResolver(input: ResolverInput): FixtureResolver {
         return value === undefined ? undefined : shape(value)
       }
 
-      const request = buildRequest({
-        operation,
-        status,
-        key,
-        params,
-        schema,
-        compiler: input.compiler,
-        schemaNames: input.api.schemaNames,
-        persona: llm.persona
-      })
+      let request: FixtureRequest | undefined
+      try {
+        request = buildRequest({
+          operation,
+          status,
+          key,
+          params,
+          schema,
+          compiler: input.compiler,
+          schemaNames: input.api.schemaNames,
+          persona: llm.persona
+        })
+      } catch (error) {
+        // Invariant 4/6: schema compilation on the lazy path can throw (a
+        // pattern the runtime regex engine rejects, say) — that must fall
+        // through to generation exactly like a source failure does, not
+        // surface as a 500 from inside what looks like a synchronous lookup.
+        input.onError?.(error)
+        return undefined
+      }
       if (!request) return undefined
 
       calls += 1

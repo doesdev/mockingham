@@ -4,7 +4,8 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createMemoryFixtureStore } from '../../src/fixtures/store.ts'
-import { loadFixtures, writeFixtures, createDiskFixtureStore } from '../../src/fixtures/persist.ts'
+import type { FixtureEntry } from '../../src/fixtures/store.ts'
+import { loadFixtures, writeFixtures, createDiskFixtureStore, warnOnStaleFixtures } from '../../src/fixtures/persist.ts'
 
 async function scratch(): Promise<string> {
   return await mkdtemp(join(tmpdir(), 'mockingham-fixtures-'))
@@ -92,6 +93,65 @@ test('a status bucket that is null warns and is skipped rather than throwing', a
   assert.equal(store.records().length, 0)
   assert.equal(warnings.length, 1)
   assert.match(warnings[0] as string, /getUser\.json/)
+})
+
+test('an entry that is null warns and is skipped rather than throwing', async () => {
+  const dir = await scratch()
+  await writeFile(join(dir, 'getUser.json'), JSON.stringify({ '200': { k: null } }))
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 0)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0] as string, /getUser\.json/)
+  assert.match(warnings[0] as string, /"k"/)
+})
+
+test('an entry that is a scalar, not an object, warns and is skipped rather than throwing', async () => {
+  const dir = await scratch()
+  await writeFile(join(dir, 'getUser.json'), JSON.stringify({ '200': { k: 42 } }))
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 0)
+  assert.equal(warnings.length, 1)
+})
+
+test('an entry that is an object but has no value property warns and is skipped rather than throwing', async () => {
+  const dir = await scratch()
+  await writeFile(
+    join(dir, 'getUser.json'),
+    JSON.stringify({ '200': { k: { meta: { source: 'recorded' } } } })
+  )
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 0)
+  assert.equal(warnings.length, 1)
+})
+
+// A well-formed entry alongside a malformed one in the same bucket: proves
+// the bad entry is skipped INDIVIDUALLY, not that the whole bucket (or file)
+// was discarded — which the bucket- and file-level tests above could not
+// distinguish from this, since they only ever plant one entry.
+test('a malformed entry does not take a sibling well-formed entry down with it', async () => {
+  const dir = await scratch()
+  await writeFile(
+    join(dir, 'getUser.json'),
+    JSON.stringify({ '200': { bad: null, good: { value: { id: 1 } } } })
+  )
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 1)
+  assert.deepEqual(store.get('getUser', 200, 'good'), { value: { id: 1 } })
+  assert.equal(warnings.length, 1)
+})
+
+test('warnOnStaleFixtures does not throw when a record entry is null — defense in depth beyond loadFixtures for a store populated some other way', () => {
+  const store = createMemoryFixtureStore()
+  store.set('getUser', 200, 'k', null as unknown as FixtureEntry)
+  assert.doesNotThrow(() => warnOnStaleFixtures(store, () => 'some-hash', () => {}))
 })
 
 test('a non-numeric status key warns and is skipped rather than colliding into one entry', async () => {

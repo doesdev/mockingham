@@ -1,9 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHandler } from '../../src/server/handler.ts'
+import { createMock } from '../../src/index.ts'
 import { loadApi } from '../../src/spec/load.ts'
 import { createMemoryFixtureStore } from '../../src/fixtures/store.ts'
+import type { FixtureEntry } from '../../src/fixtures/store.ts'
 import { fixtureKey } from '../../src/fixtures/key.ts'
+import { bake } from '../../src/fixtures/bake.ts'
+import { createCompiler } from '../../src/schema/compile.ts'
 import type { ContentSource } from '../../src/fixtures/source.ts'
 
 const doc = {
@@ -426,4 +430,104 @@ test('lazy mode still writes under the exact key, so a different id is not serve
   const second = await handler.fetch(new Request('https://x/users/43'))
   assert.deepEqual(await second.json(), { id: '43', bio: 'fetched for 43' })
   assert.equal(calls, 2)
+})
+
+// --- A null (or otherwise malformed) fixture entry must never take the mock
+// down — invariant 4, "a fixture problem is never an error". loadFixtures
+// itself now filters this shape (see persist.test.ts), but a store can also
+// be populated through some other route — a hand-rolled disk loader, a
+// programmatic caller — that never goes through that validation, so
+// createMock's own construction-time check (warnOnStaleFixtures) and the
+// per-request resolve() path both need their own guard.
+
+test('createMock does not crash when the store contains a malformed (null) entry', () => {
+  const store = createMemoryFixtureStore()
+  // Simulates an entry that reached the store through a route other than
+  // loadFixtures, which now rejects this shape itself before it ever gets
+  // this far.
+  store.set('getUser', 200, keyFor('42'), null as unknown as FixtureEntry)
+  assert.doesNotThrow(() => createMock(doc, { fixtures: { store } }))
+})
+
+test('a request against a store with a malformed (null) entry falls through to generation rather than crashing', async () => {
+  const store = createMemoryFixtureStore()
+  store.set('getUser', 200, keyFor('42'), null as unknown as FixtureEntry)
+  const handler = createHandler(loadApi(doc), { fixtures: { store } })
+  const response = await handler.fetch(new Request('https://x/users/42'))
+  assert.equal(response.status, 200)
+  const body = (await response.json()) as { id: string; bio: string }
+  assert.equal(typeof body.id, 'string')
+  assert.equal(typeof body.bio, 'string')
+})
+
+// --- A body-less response (204, or any status with no JSON content) must
+// skip fixture resolution entirely, even when a fixture happens to be
+// stored under that exact status. Reproduced without this guard: the store
+// hands back a value, `renderResponse` tries to build a Response carrying a
+// body at status 204, and the WHATWG Response constructor throws, surfacing
+// to the caller as a 500.
+
+const noContentDoc = {
+  openapi: '3.1.0',
+  info: { title: 't', version: '1' },
+  paths: {
+    '/users/{id}': {
+      delete: {
+        operationId: 'deleteUser',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } }
+        ],
+        responses: {
+          '204': { description: 'no content' }
+        }
+      }
+    }
+  }
+}
+
+test('a fixture stored under a body-less (204) status is never served, and the response still succeeds', async () => {
+  const store = createMemoryFixtureStore()
+  store.set(
+    'deleteUser',
+    204,
+    fixtureKey({ method: 'delete', path: '/users/{id}', params: { id: '42' } }),
+    { value: { should: 'never be served' } }
+  )
+  const handler = createHandler(loadApi(noContentDoc), { fixtures: { store } })
+  const response = await handler.fetch(new Request('https://x/users/42', { method: 'DELETE' }))
+  assert.equal(response.status, 204)
+  const text = await response.text()
+  assert.equal(text, '')
+})
+
+// --- A fixture baked WITH a scope config must still be applied as a LAYER
+// when later served under a config with no scope at all — the design's own
+// mode table permits exactly that combination. Reading whole-vs-layer from
+// the ambient config alone (rather than from the entry) misreads the
+// narrowed value as a whole body, dropping every field the fixture did not
+// cover (here, `id`, which the schema requires).
+
+test('a fixture baked WITH scope is still applied as a layer when served WITHOUT any scope config', async () => {
+  const store = createMemoryFixtureStore()
+  await bake({
+    api: loadApi(doc),
+    store,
+    source: {
+      generate: async (reqs) => reqs.map(() => ({ value: { id: '42', bio: 'scoped bio' } }))
+    },
+    compiler: createCompiler(),
+    now: () => 1_000,
+    scope: { byName: ['bio'] }
+  })
+
+  // Served with no llm config at all — nothing tells this handler the store
+  // was ever scoped.
+  const handler = createHandler(loadApi(doc), { fixtures: { store } })
+  const response = await handler.fetch(new Request('https://x/users/42'))
+  const body = (await response.json()) as { id: string; bio: string }
+  // If shape() misread this as a whole body, `id` — required by the schema,
+  // never covered by the { byName: ['bio'] } scope — would be missing
+  // entirely, since a whole-body fixture bypasses ordinary generation.
+  assert.equal(body.bio, 'scoped bio')
+  assert.equal(typeof body.id, 'string')
 })

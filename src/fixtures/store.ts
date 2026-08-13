@@ -6,6 +6,18 @@ export interface FixtureMeta {
   schemaHash?: string
   promptVersion?: number
   generatedAt?: string
+  /**
+   * Set by `bake()` when the stored value was narrowed by a scope config —
+   * `narrow()` in `scope.ts` — so `resolve()`'s `shape()` can tell a whole
+   * body from a layer by reading the ENTRY rather than the ambient llm.scope
+   * config at serve time. Ambient config is the wrong source of truth: a
+   * fixture baked with a scope can later be served under a config with no
+   * scope at all (the design's mode table allows it), and reading ambient
+   * config there would misread the narrowed, index-keyed partial value as a
+   * whole body. Absent (never `false`) on a hand-written or unscoped-baked
+   * fixture, which is what keeps the whole-body default for those.
+   */
+  scoped?: boolean
 }
 
 export interface FixtureEntry {

@@ -68,7 +68,22 @@ export async function loadFixtures(
         continue
       }
       for (const key of Object.keys(bucket).sort()) {
-        store.set(operationId, status, key, bucket[key] as FixtureEntry)
+        const entry = bucket[key]
+        // The entry one level below the status bucket needs the same shape
+        // check the bucket itself already gets above: a hand-edited fixture
+        // file can carry `null`, a scalar, or an object with no `value` at
+        // this position, and every consumer downstream (warnOnStaleFixtures,
+        // resolve(), peek()) assumes an entry it reads back out is at least
+        // `{ value: ... }`. Skipping it here is what keeps invariant 4 —
+        // never an error — true for this shape too.
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry) || !('value' in entry)) {
+          onWarn?.(
+            `mockingham: fixture file ${name} has a malformed entry ${JSON.stringify(key)} ` +
+              `in status ${JSON.stringify(statusKey)}; skipping it`
+          )
+          continue
+        }
+        store.set(operationId, status, key, entry as FixtureEntry)
       }
     }
   }
@@ -109,6 +124,10 @@ export function warnOnStaleFixtures(
   onWarn: (message: string) => void
 ): void {
   for (const record of store.records()) {
+    // Defense in depth beyond loadFixtures's own entry validation above: a
+    // store populated through some other route (a direct `store.set` call
+    // that bypassed the loader) must not crash this either.
+    if (record.entry === null || typeof record.entry !== 'object') continue
     const stored = record.entry.meta?.schemaHash
     if (stored === undefined) continue
     const current = hashFor(record.operationId, record.status)

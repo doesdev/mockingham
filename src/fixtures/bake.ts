@@ -126,7 +126,8 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
       }
 
       let value = result.value
-      if (isScoped(options.scope)) {
+      const scoped = isScoped(options.scope)
+      if (scoped) {
         value = narrow(value, item.schema, options.scope as ScopeConfig, options.api.schemaNames)
         if (value === undefined) {
           summary.failed += 1
@@ -143,7 +144,15 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
       const hash = schemaHash(item.schema, options.compiler)
       options.store.set(item.request.operationId, item.request.status, item.request.key, {
         value,
-        meta: { ...(result.meta ?? {}), generatedAt, ...(hash !== undefined ? { schemaHash: hash } : {}) }
+        meta: {
+          ...(result.meta ?? {}),
+          generatedAt,
+          ...(hash !== undefined ? { schemaHash: hash } : {}),
+          // FixtureMeta.scoped: so resolve()'s shape() decides whole-vs-layer
+          // from this entry, not from whatever llm.scope config happens to
+          // be active when it is later served — see the doc comment there.
+          ...(scoped ? { scoped: true } : {})
+        }
       })
       summary.generated += 1
     }

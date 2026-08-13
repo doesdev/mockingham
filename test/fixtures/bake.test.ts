@@ -159,6 +159,37 @@ test('a scoped config stores only the scoped paths, as the index-keyed shape nar
   assert.deepEqual(ok?.entry.value, { '0': { bio: 'a' } })
 })
 
+test('a scoped bake marks the stored entry meta as scoped, so it is still applied as a layer even when served without a scope config', async () => {
+  const store = createMemoryFixtureStore()
+  await bake({
+    api: loadApi(doc),
+    store,
+    source: { generate: async (reqs) => reqs.map((r) => ({
+      value: r.status === 200 ? [{ bio: 'a', extra: 'dropped' }] : { message: 'gone' }
+    })) },
+    compiler: createCompiler(),
+    now: () => 1_000,
+    scope: { byName: ['bio'] }
+  })
+  const ok = store.records().find((r) => r.status === 200)
+  assert.equal(ok?.entry.meta?.scoped, true)
+})
+
+test('an unscoped bake does not mark the entry as scoped', async () => {
+  const store = createMemoryFixtureStore()
+  await bake({
+    api: loadApi(doc),
+    store,
+    source: { generate: async (reqs) => reqs.map((r) => ({
+      value: r.status === 200 ? [{ bio: 'a' }] : { message: 'gone' }
+    })) },
+    compiler: createCompiler(),
+    now: () => 1_000
+  })
+  const ok = store.records().find((r) => r.status === 200)
+  assert.equal(ok?.entry.meta?.scoped, undefined)
+})
+
 // --- Beyond the brief -------------------------------------------------
 
 // Three declared statuses on one operation, each with a distinct, simple,

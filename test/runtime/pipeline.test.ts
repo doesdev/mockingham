@@ -140,15 +140,26 @@ test('generate honors a falsy-but-defined fixture value rather than treating it 
 })
 
 test('generate consults the fixture before the media-type lookup', () => {
-  // status 204 has no JSON content, so mediaFor(204) would return undefined —
-  // proof the fixture answers even where generation could not have.
+  // status 999 is not declared on the operation at all, so mediaFor(999)
+  // would find nothing — proof the fixture answers even where the media
+  // lookup could not have.
+  //
+  // This deliberately does NOT use a body-less (204-style) status anymore:
+  // resolve() itself now skips fixture resolution entirely for a status with
+  // no JSON content (design: "Responses with no body ... skip fixture
+  // resolution entirely"), so a real caller's `fixture` hook — wired to
+  // resolve()/peek() — never hands back a value for one. This test only
+  // pins createResponders' OWN call ordering (fixture before mediaFor),
+  // independent of what resolve() chooses to serve; an explicit status
+  // argument bypasses selectResponse entirely, so `999` never needs to be a
+  // status the operation could plausibly select on its own.
   const responders = createResponders({
-    operation: operation([{ status: 204, headers: {}, content: {} }]),
+    operation: operation([spec(200)]),
     request: new Request('http://mock/x'),
     staticStatus: undefined,
     key: 'k',
     generateOptions: {},
-    fixture: (status) => (status === 204 ? { fixed: true } : undefined)
+    fixture: (status) => (status === 999 ? { fixed: true } : undefined)
   })
-  assert.deepEqual(responders.generate(), { fixed: true })
+  assert.deepEqual(responders.generate(999), { fixed: true })
 })
