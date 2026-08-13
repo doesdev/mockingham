@@ -12,6 +12,14 @@ function request(key: string): FixtureRequest {
   }
 }
 
+function requestWithStatus(key: string, status: number): FixtureRequest {
+  return {
+    operationId: 'getUser', method: 'get', path: '/users/{id}', status,
+    key, params: {}, jsonSchema: { type: 'object' },
+    zodSchema: z.object({ bio: z.string() })
+  }
+}
+
 function requestWithSchema(key: string, jsonSchema: Record<string, unknown>): FixtureRequest {
   return {
     operationId: 'getUser', method: 'get', path: '/users/{id}', status: 200,
@@ -265,8 +273,8 @@ test('above the threshold the batch path runs and results realign by custom_id',
           create: async () => ({ id: 'batch_1' }),
           retrieve: async () => ({ processing_status: 'ended' }),
           results: async function* () {
-            yield { custom_id: 'k2', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
-            yield { custom_id: 'k1', result: { type: 'succeeded', message: { parsed_output: { bio: 'first' } } } }
+            yield { custom_id: 'k2|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
+            yield { custom_id: 'k1|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'first' } } } }
           }
         }
       }
@@ -275,6 +283,67 @@ test('above the threshold the batch path runs and results realign by custom_id',
   const results = await source.generate([request('k1'), request('k2')])
   assert.deepEqual(results[0]?.value, { bio: 'first' })
   assert.deepEqual(results[1]?.value, { bio: 'second' })
+})
+
+// Every realignment test above uses distinct KEYS at the same status
+// (200), which is exactly why a `custom_id` collision across DIFFERENT
+// statuses of the SAME key went unmodelled: `fixtureKey()` deliberately
+// excludes the status, so `request.key` alone is not unique across a
+// two-status operation. This drives that shape directly: same key, two
+// statuses, and checks each receives its OWN body rather than one status's
+// result silently landing on the other.
+test('same key, different statuses: each status realigns to its own body, not to the other status', async () => {
+  const source = createAnthropicSource({
+    batchThreshold: 2,
+    client: {
+      messages: {
+        parse: async () => { throw new Error('the batch path must not call parse') },
+        batches: {
+          create: async () => ({ id: 'batch_1' }),
+          retrieve: async () => ({ processing_status: 'ended' }),
+          results: async function* () {
+            // Reverse order, same as the custom_id realignment test above —
+            // the API makes no ordering promise.
+            yield { custom_id: 'k|404', result: { type: 'succeeded', message: { parsed_output: { bio: 'not-found body' } } } }
+            yield { custom_id: 'k|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'ok body' } } } }
+          }
+        }
+      }
+    }
+  })
+  const results = await source.generate([requestWithStatus('k', 200), requestWithStatus('k', 404)])
+  assert.deepEqual(results[0]?.value, { bio: 'ok body' })
+  assert.deepEqual(results[1]?.value, { bio: 'not-found body' })
+})
+
+// Pins the outbound shape directly: two requests sharing a key but differing
+// only in status must be sent with two DIFFERENT custom_ids. Without this,
+// a fix that realigned correctly by accident (e.g. by index) could still
+// leave the outbound `custom_id`s colliding, which is what the real
+// Batches API rejects.
+test('the outbound custom_id is unique per status even when the key is shared', async () => {
+  let sent: Record<string, unknown> = {}
+  const source = createAnthropicSource({
+    batchThreshold: 2,
+    client: {
+      messages: {
+        parse: async () => { throw new Error('unused') },
+        batches: {
+          create: async (params: Record<string, unknown>) => {
+            sent = params
+            return { id: 'batch_1' }
+          },
+          retrieve: async () => ({ processing_status: 'ended' }),
+          results: async function* () {}
+        }
+      }
+    }
+  })
+  await source.generate([requestWithStatus('k', 200), requestWithStatus('k', 404)])
+  const requests = sent.requests as Array<{ custom_id: string }>
+  const ids = requests.map((r) => r.custom_id)
+  assert.equal(new Set(ids).size, 2)
+  assert.deepEqual(ids.sort(), ['k|200', 'k|404'])
 })
 
 test('a batch entry with no result is a miss, not a shift', async () => {
@@ -287,7 +356,7 @@ test('a batch entry with no result is a miss, not a shift', async () => {
           create: async () => ({ id: 'batch_1' }),
           retrieve: async () => ({ processing_status: 'ended' }),
           results: async function* () {
-            yield { custom_id: 'k2', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
+            yield { custom_id: 'k2|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
           }
         }
       }
@@ -308,8 +377,8 @@ test('an errored batch entry is a miss', async () => {
           create: async () => ({ id: 'batch_1' }),
           retrieve: async () => ({ processing_status: 'ended' }),
           results: async function* () {
-            yield { custom_id: 'k1', result: { type: 'errored', error: {} } }
-            yield { custom_id: 'k2', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
+            yield { custom_id: 'k1|200', result: { type: 'errored', error: {} } }
+            yield { custom_id: 'k2|200', result: { type: 'succeeded', message: { parsed_output: { bio: 'second' } } } }
           }
         }
       }

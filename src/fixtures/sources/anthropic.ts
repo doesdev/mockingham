@@ -255,9 +255,23 @@ export function createAnthropicSource(options: AnthropicSourceOptions): ContentS
     return toResult(request, response)
   }
 
+  /**
+   * `request.key` is `fixtureKey()`, which deliberately excludes the status
+   * (the store namespaces by status separately — design section 2.1). Using
+   * it bare as `custom_id` means every status of one operation shares a
+   * `custom_id`, so the Batches API's realignment-by-`custom_id` collapses
+   * two different requests into one: the results loop below would silently
+   * overwrite one status's result with the other's, and the real Batches API
+   * rejects a duplicate `custom_id` outright. Folding the status in makes
+   * `custom_id` unique per request without touching `fixtureKey` itself,
+   * whose status exclusion is load-bearing elsewhere (bake's wildcard-key
+   * fallback in resolve.ts).
+   */
+  const customId = (request: FixtureRequest): string => `${request.key}|${request.status}`
+
   const generateBatch = async (client: AnthropicLike, reqs: FixtureRequest[]): Promise<(FixtureResult | null)[]> => {
     const requests = reqs.map((request) => ({
-      custom_id: request.key,
+      custom_id: customId(request),
       params: bodyFor(model, request, { fallback: false })
     }))
     const batch = await client.messages.batches.create({ requests })
@@ -268,7 +282,7 @@ export function createAnthropicSource(options: AnthropicSourceOptions): ContentS
     // never even opened, since nothing in it would be trustworthy yet.
     if (!ended) return reqs.map(() => null)
 
-    const byKey = new Map(reqs.map((request) => [request.key, request] as const))
+    const byKey = new Map(reqs.map((request) => [customId(request), request] as const))
     const byId = new Map<string, FixtureResult | null>()
     for await (const raw of client.messages.batches.results(batch.id)) {
       const entry = raw as BatchResultEntry
@@ -285,7 +299,7 @@ export function createAnthropicSource(options: AnthropicSourceOptions): ContentS
     // stream (refused before it was ever emitted, or the stream ended
     // early) is a miss at its own index via `?? null`; it never shifts any
     // other result.
-    return reqs.map((request) => byId.get(request.key) ?? null)
+    return reqs.map((request) => byId.get(customId(request)) ?? null)
   }
 
   return {
