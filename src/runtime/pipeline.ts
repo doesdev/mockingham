@@ -20,6 +20,13 @@ export interface RespondersInput {
    * closure behavior: resolvers receive the live ctx at generation time.
    */
   ctx?: () => unknown
+  /**
+   * Consulted before generating. Returns a whole-body fixture, or undefined to
+   * fall through. Synchronous by design: a store hit is a Map read, and a lazy
+   * fetch is awaited earlier in `produce()` — design section 2.12. A full
+   * response callback therefore sees baked fixtures but never triggers a fetch.
+   */
+  fixture?: (status: number) => unknown
 }
 
 export interface Responders {
@@ -68,6 +75,10 @@ export function createResponders(input: RespondersInput): Responders {
     generate(status) {
       const target = targetFor(status)
       if (target === undefined) return undefined
+      // Before mediaFor: a fixture answers even where the media type lookup
+      // would not, and it must not pay for generation it replaces.
+      const fixed = input.fixture?.(target)
+      if (fixed !== undefined) return fixed
       const media = mediaFor(target)
       if (!media) return undefined
       return generateValue(media.schema, rngFor(String(target)), {

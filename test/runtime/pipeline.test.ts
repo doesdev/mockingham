@@ -90,3 +90,65 @@ test('rngFor differs across labels', () => {
 test('Prefer still selects a declared status', () => {
   assert.equal(build([spec(200), spec(404)], 'status=404').selection()?.spec.status, 404)
 })
+
+test('generate returns a whole-body fixture instead of generating', () => {
+  let calls = 0
+  const responders = createResponders({
+    operation: operation([spec(200)]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: (status) => {
+      calls += 1
+      return status === 200 ? { fixed: true } : undefined
+    }
+  })
+  assert.deepEqual(responders.generate(), { fixed: true })
+  assert.equal(calls, 1)
+})
+
+test('generate falls through to generation when the fixture hook returns undefined', () => {
+  const responders = createResponders({
+    operation: operation([spec(200)]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: () => undefined
+  })
+  const value = responders.generate() as Record<string, unknown>
+  assert.equal(typeof value['a'], 'string')
+})
+
+test('generate is unchanged when no fixture hook is supplied', () => {
+  const value = build([spec(200)]).generate() as Record<string, unknown>
+  assert.equal(typeof value['a'], 'string')
+})
+
+test('generate honors a falsy-but-defined fixture value rather than treating it as a miss', () => {
+  // null is a legitimate whole-body fixture; only undefined means "fall through".
+  const responders = createResponders({
+    operation: operation([spec(200)]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: (status) => (status === 200 ? null : undefined)
+  })
+  assert.equal(responders.generate(), null)
+})
+
+test('generate consults the fixture before the media-type lookup', () => {
+  // status 204 has no JSON content, so mediaFor(204) would return undefined —
+  // proof the fixture answers even where generation could not have.
+  const responders = createResponders({
+    operation: operation([{ status: 204, headers: {}, content: {} }]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: (status) => (status === 204 ? { fixed: true } : undefined)
+  })
+  assert.deepEqual(responders.generate(), { fixed: true })
+})
