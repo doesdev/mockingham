@@ -39,6 +39,13 @@ function keyFor(id: string): string {
   return fixtureKey({ method: 'get', path: '/users/{id}', params: { id } })
 }
 
+// What `bake()` writes: an empty-params key, since bake runs offline with no
+// concrete request in hand. `resolve.ts` reads this back as "applies to any
+// request for this operation and status."
+function wildcardKey(): string {
+  return fixtureKey({ method: 'get', path: '/users/{id}', params: {} })
+}
+
 test('a whole-body fixture is served in place of generation', async () => {
   const store = createMemoryFixtureStore()
   store.set('getUser', 200, keyFor('42'), { value: { id: '42', bio: 'from the store' } })
@@ -302,4 +309,121 @@ test('a scoped fixture layers beneath the override machinery, a whole fixture re
   assert.equal(scopedBody.bio, 'scoped bio')
   assert.equal(typeof scopedBody.id, 'string')
   assert.notEqual(scopedBody, undefined)
+})
+
+// A lazy source whose calls are counted rather than merely asserted-against
+// inline: `resolve()` wraps the source call in a try/catch (invariant 4 — a
+// throwing source must never propagate), so throwing from inside `generate`
+// would be silently swallowed and never surface as a loud test failure; it
+// would just fall through to seeded generation, same as any other miss. A
+// counter checked by the caller afterward is what actually lets the test
+// observe an unwanted call.
+//
+// Its presence matters because `resolve()` is the only place that decides
+// whether to call the source at all — `renderResponse`'s `fixture` hook
+// falls back to a synchronous `peek()` whenever `resolve()` found nothing, so
+// a body-only assertion could pass even with `resolve()`'s own wildcard
+// fallback broken, entirely on the strength of `peek()`'s. `calls` stays 0
+// only if `resolve()` itself found the wildcard fixture and never reached
+// the "call the source" branch.
+function countingSource(): { source: ContentSource; calls: () => number } {
+  let calls = 0
+  return {
+    source: {
+      generate: async (reqs) => {
+        calls += 1
+        return reqs.map(() => ({ value: { id: 'from-source', bio: 'should not have been called' } }))
+      }
+    },
+    calls: () => calls
+  }
+}
+
+test('a baked fixture, stored under the empty-params key, is served for a parameterized request', async () => {
+  const store = createMemoryFixtureStore()
+  // What bake() actually writes: no concrete id, because it ran offline.
+  store.set('getUser', 200, wildcardKey(), { value: { id: 'any', bio: 'baked for any id' } })
+  const { source, calls } = countingSource()
+  const handler = createHandler(loadApi(doc), {
+    fixtures: { store },
+    llm: { mode: 'lazy', source, budget: { maxConcurrency: 4, timeoutMs: 1000 } }
+  })
+  const response = await handler.fetch(new Request('https://x/users/42'))
+  assert.deepEqual(await response.json(), { id: 'any', bio: 'baked for any id' })
+  assert.equal(calls(), 0)
+})
+
+test('the same baked fixture is served for a different id', async () => {
+  const store = createMemoryFixtureStore()
+  store.set('getUser', 200, wildcardKey(), { value: { id: 'any', bio: 'baked for any id' } })
+  const { source, calls } = countingSource()
+  const handler = createHandler(loadApi(doc), {
+    fixtures: { store },
+    llm: { mode: 'lazy', source, budget: { maxConcurrency: 4, timeoutMs: 1000 } }
+  })
+  // Proves the wildcard genuinely applies to any request, not that it
+  // coincidentally matched the one id exercised above.
+  const response = await handler.fetch(new Request('https://x/users/999'))
+  assert.deepEqual(await response.json(), { id: 'any', bio: 'baked for any id' })
+  assert.equal(calls(), 0)
+})
+
+test('an exact-key fixture beats a wildcard fixture for the same request', async () => {
+  const store = createMemoryFixtureStore()
+  store.set('getUser', 200, wildcardKey(), { value: { id: 'any', bio: 'baked for any id' } })
+  store.set('getUser', 200, keyFor('42'), { value: { id: '42', bio: 'specific to 42' } })
+  const { source, calls } = countingSource()
+  const handler = createHandler(loadApi(doc), {
+    fixtures: { store },
+    llm: { mode: 'lazy', source, budget: { maxConcurrency: 4, timeoutMs: 1000 } }
+  })
+
+  const exactResponse = await handler.fetch(new Request('https://x/users/42'))
+  assert.deepEqual(await exactResponse.json(), { id: '42', bio: 'specific to 42' })
+
+  // A different id has no exact entry, so it still falls back to the
+  // wildcard — precedence, not exclusivity.
+  const wildcardResponse = await handler.fetch(new Request('https://x/users/7'))
+  assert.deepEqual(await wildcardResponse.json(), { id: 'any', bio: 'baked for any id' })
+  assert.equal(calls(), 0)
+})
+
+test('a full response callback sees the wildcard fixture too', async () => {
+  const store = createMemoryFixtureStore()
+  store.set('getUser', 200, wildcardKey(), { value: { id: 'any', bio: 'baked for any id' } })
+  const handler = createHandler(loadApi(doc), {
+    fixtures: { store },
+    // The `peek()` path: a response callback runs before status selection
+    // and calls ctx.generate() directly, which must agree with the ordinary
+    // pipeline about whether a baked fixture exists for this request.
+    operations: {
+      'GET /users/{id}': { respond: (ctx: any) => ctx.respond(200, ctx.generate(200)) }
+    }
+  })
+  const response = await handler.fetch(new Request('https://x/users/42'))
+  assert.deepEqual(await response.json(), { id: 'any', bio: 'baked for any id' })
+})
+
+test('lazy mode still writes under the exact key, so a different id is not served the cached value', async () => {
+  const store = createMemoryFixtureStore()
+  let calls = 0
+  const source: ContentSource = {
+    generate: async (reqs) => {
+      calls += 1
+      return reqs.map((req) => ({ value: { id: req.params.id, bio: `fetched for ${req.params.id}` } }))
+    }
+  }
+  const handler = createHandler(loadApi(doc), {
+    fixtures: { store },
+    llm: { mode: 'lazy', source, budget: { maxConcurrency: 4, timeoutMs: 1000 } }
+  })
+  const first = await handler.fetch(new Request('https://x/users/42'))
+  assert.deepEqual(await first.json(), { id: '42', bio: 'fetched for 42' })
+
+  // No wildcard entry was ever written (lazy never writes one), and no exact
+  // entry exists for 43 — the wildcard fallback must not let 42's cached
+  // value leak into this request.
+  const second = await handler.fetch(new Request('https://x/users/43'))
+  assert.deepEqual(await second.json(), { id: '43', bio: 'fetched for 43' })
+  assert.equal(calls, 2)
 })

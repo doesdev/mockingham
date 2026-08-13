@@ -69,6 +69,13 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
       const request = buildRequest({
         operation,
         status: response.status,
+        // Deliberately keyed with empty params, not synthesized concrete
+        // ones: bake runs offline with no request in hand, so this is a
+        // wildcard key meaning "this fixture applies to any request for this
+        // operation and status." `resolve.ts` falls back to this exact key
+        // when a request's own parameterized key misses. Do not "fix" this
+        // by inventing params — that would break the fallback and make a
+        // baked fixture for a parameterized path unreachable again.
         key: fixtureKey({ method: operation.method, path: operation.path, params: {} }),
         params: {},
         schema: media.schema,

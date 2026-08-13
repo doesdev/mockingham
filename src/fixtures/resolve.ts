@@ -62,17 +62,41 @@ export function createFixtureResolver(input: ResolverInput): FixtureResolver {
     operation: Operation,
     status: number,
     params: Record<string, string>
-  ): { id: string; key: string; schema?: Schema } => {
+  ): { id: string; key: string; wildcardKey: string; schema?: Schema } => {
     const id = operationSlug(operation)
     const key = fixtureKey({ method: operation.method, path: operation.path, params })
+    // `bake()` has no concrete request in hand offline, so it stores every
+    // fixture under the empty-params key — which this reads back as "applies
+    // to any request for this operation and status". Computed unconditionally
+    // (cheap: one more hash), even for a parameter-free operation where it is
+    // identical to `key` — `storeGet` below is what skips the redundant read.
+    const wildcardKey = fixtureKey({ method: operation.method, path: operation.path, params: {} })
     const schema = operation.responses.find((r) => r.status === status)
       ?.content[JSON_TYPE]?.schema
-    return { id, key, schema }
+    return { id, key, wildcardKey, schema }
+  }
+
+  // The exact-key/wildcard-key fallback, shared by `peek()` and `resolve()`
+  // so the two paths can never drift on whether a baked fixture is visible —
+  // the same reasoning as this project's single-schema-interpretation
+  // invariant, applied to fixture lookup instead of schema walking. An exact
+  // hand-written or lazily-fetched entry always beats a baked wildcard one,
+  // because it is checked first.
+  const storeGet = (
+    id: string,
+    status: number,
+    key: string,
+    wildcardKey: string
+  ) => {
+    const exact = input.store.get(id, status, key)
+    if (exact !== undefined) return exact
+    if (wildcardKey === key) return undefined
+    return input.store.get(id, status, wildcardKey)
   }
 
   const peek: FixtureResolver['peek'] = (operation, status, params) => {
-    const { id, key } = lookup(operation, status, params)
-    const entry = input.store.get(id, status, key)
+    const { id, key, wildcardKey } = lookup(operation, status, params)
+    const entry = storeGet(id, status, key, wildcardKey)
     return entry === undefined ? undefined : shape(entry.value)
   }
 
@@ -80,10 +104,10 @@ export function createFixtureResolver(input: ResolverInput): FixtureResolver {
     peek,
 
     async resolve(operation, status, params) {
-      const { id, key, schema } = lookup(operation, status, params)
+      const { id, key, wildcardKey, schema } = lookup(operation, status, params)
 
       if (llm?.mode !== 'live') {
-        const entry = input.store.get(id, status, key)
+        const entry = storeGet(id, status, key, wildcardKey)
         if (entry !== undefined) return shape(entry.value)
       }
 
