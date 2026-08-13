@@ -2,7 +2,9 @@ import { z } from 'zod'
 import type { McpContext, McpTool } from '../context.ts'
 import { createCompiler } from '../../schema/compile.ts'
 import { toJsonSchema } from '../../schema/json-schema.ts'
-import type { Operation, Schema } from '../../spec/types.ts'
+import type { Operation, Parameter, Schema } from '../../spec/types.ts'
+import { createRng } from '../../generate/rng.ts'
+import { generateValue } from '../../generate/generate.ts'
 
 // One compiler for the module: compilation is pure and its cache is a win
 // across calls. It holds no per-request state.
@@ -161,4 +163,100 @@ const listOperations: McpTool = {
   }
 }
 
-export const READ_TOOLS: McpTool[] = [listOperations, describeOperation, getAuthRequirements]
+/**
+ * A path parameter the caller did not supply. Seeded on the operation and
+ * parameter name and NOT on the mock's root seed: a synthesized parameter is
+ * an address, not content. `set_seed` must change what `/orders/abc` returns
+ * without turning it into `/orders/xyz` — otherwise every sample an agent
+ * recorded stops resolving the moment anything reseeds. It also keeps fixture
+ * keys stable, since fixtureKey includes params.
+ *
+ * Generated through the same generateValue the mock itself uses, so the value
+ * satisfies the parameter's declared schema and survives request validation.
+ */
+function synthesizeParam(operation: Operation, parameter: Parameter): string {
+  const rng = createRng(`${operation.operationId ?? operation.path}|${parameter.name}`)
+  const value = generateValue(parameter.schema, rng, { schemaNames: new Map() })
+  return String(value)
+}
+
+const sampleResponse: McpTool = {
+  name: 'sample_response',
+  description:
+    'A live response for an operation, produced by the real request pipeline — ' +
+    'the exact bytes your code will receive, not a schema you have to guess ' +
+    'from. Path parameters you omit are filled with schema-valid values. Use ' +
+    '`status` to ask for a specific declared response.',
+  inputSchema: {
+    operationId: z.string().optional(),
+    method: z.string().optional(),
+    path: z.string().optional(),
+    params: z.record(z.string(), z.union([z.string(), z.number()])).optional()
+      .describe('Path parameter values, e.g. { orderId: "abc" }'),
+    query: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    body: z.unknown().optional(),
+    status: z.number().optional().describe('Ask for a specific declared status')
+  },
+  async handler(ctx: McpContext, args: Record<string, unknown>) {
+    const operation = findOperation(ctx, args)
+    const supplied = (args.params ?? {}) as Record<string, string | number>
+
+    let path = operation.path
+    for (const parameter of operation.parameters) {
+      if (parameter.location !== 'path') continue
+      const value = supplied[parameter.name] !== undefined
+        ? String(supplied[parameter.name])
+        : synthesizeParam(operation, parameter)
+      path = path.replace(`{${parameter.name}}`, encodeURIComponent(value))
+    }
+
+    const url = new URL(path, ctx.origin)
+    const query = (args.query ?? {}) as Record<string, string | number>
+    // Sorted: query keys arrive as object keys, and invariant 2 forbids object
+    // key order deciding a URL that feeds generation.
+    for (const name of Object.keys(query).sort()) {
+      url.searchParams.set(name, String(query[name]))
+    }
+
+    const headers = new Headers((args.headers ?? {}) as Record<string, string>)
+    if (args.status !== undefined) {
+      // The same mechanism a real client uses (master spec section 2), so this
+      // introduces no second status-selection path.
+      headers.set('prefer', `status=${String(args.status)}`)
+    }
+
+    const method = operation.method.toUpperCase()
+    const sendsBody = method !== 'GET' && method !== 'HEAD' && args.body !== undefined
+    if (sendsBody && !headers.has('content-type')) {
+      headers.set('content-type', 'application/json')
+    }
+
+    const response = await ctx.fetch(new Request(url, {
+      method,
+      headers,
+      body: sendsBody ? JSON.stringify(args.body) : undefined
+    }))
+
+    const responseHeaders: Record<string, string> = {}
+    response.headers.forEach((value, name) => { responseHeaders[name] = value })
+    const text = await response.text()
+    const isJson = (response.headers.get('content-type') ?? '').includes('json')
+
+    return {
+      status: response.status,
+      headers: responseHeaders,
+      // Parsed when it is JSON so an agent reads a structure rather than an
+      // escaped string; the raw text otherwise.
+      body: isJson && text.length > 0 ? JSON.parse(text) : text,
+      url: url.toString()
+    }
+  }
+}
+
+export const READ_TOOLS: McpTool[] = [
+  listOperations,
+  describeOperation,
+  getAuthRequirements,
+  sampleResponse
+]
