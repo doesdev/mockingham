@@ -33,7 +33,7 @@ export interface FixtureStore {
 }
 
 function id(operationId: string, status: number, key: string): string {
-  return `${operationId}|${status}|${key}`
+  return JSON.stringify([operationId, status, key])
 }
 
 export function createMemoryFixtureStore(): FixtureStore {
@@ -47,16 +47,18 @@ export function createMemoryFixtureStore(): FixtureStore {
       entries.set(id(operationId, status, key), { operationId, status, key, entry })
     },
 
-    // Sorted rather than insertion-ordered. Insertion order depends on the order
-    // requests arrived, which would make the file on disk differ between two
-    // runs that produced identical content — against the determinism invariant
-    // in the one place it reaches a committed artifact.
+    // An explicit ordinal comparator, not localeCompare: collation with no
+    // locale argument varies with the process ICU environment, and these
+    // records are written to disk as a committed, diffable artifact. Status is
+    // compared numerically so ordering never depends on digit width.
     records: () =>
-      [...entries.values()].sort((a, b) =>
-        id(a.operationId, a.status, a.key).localeCompare(
-          id(b.operationId, b.status, b.key)
-        )
-      ),
+      [...entries.values()].sort((a, b) => {
+        if (a.operationId !== b.operationId) {
+          return a.operationId < b.operationId ? -1 : 1
+        }
+        if (a.status !== b.status) return a.status - b.status
+        return a.key < b.key ? -1 : a.key > b.key ? 1 : 0
+      }),
 
     clear: () => entries.clear()
   }

@@ -44,3 +44,30 @@ test('clear empties the store', () => {
   store.clear()
   assert.equal(store.records().length, 0)
 })
+
+test('records sort on the whole triple, not just the operation', () => {
+  const one = createMemoryFixtureStore()
+  one.set('a', 200, 'k2', { value: 2 })
+  one.set('a', 200, 'k1', { value: 1 })
+  const two = createMemoryFixtureStore()
+  two.set('a', 200, 'k1', { value: 1 })
+  two.set('a', 200, 'k2', { value: 2 })
+  assert.deepEqual(
+    one.records().map((r) => r.key),
+    ['k1', 'k2']
+  )
+  assert.deepEqual(
+    one.records().map((r) => r.key),
+    two.records().map((r) => r.key)
+  )
+})
+
+test('records sort status numerically, not lexically', () => {
+  const store = createMemoryFixtureStore()
+  store.set('a', 1000, 'k', { value: 1 })
+  store.set('a', 200, 'k', { value: 2 })
+  assert.deepEqual(
+    store.records().map((r) => r.status),
+    [200, 1000]
+  )
+})
