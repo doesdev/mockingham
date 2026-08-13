@@ -41,6 +41,15 @@ test('a missing directory loads as empty rather than throwing', async () => {
   assert.equal(store.records().length, 0)
 })
 
+test('a missing directory does not warn — the silence is deliberate', async () => {
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(join(await scratch(), 'does-not-exist'), store, (message) =>
+    warnings.push(message)
+  )
+  assert.equal(warnings.length, 0)
+})
+
 test('malformed json warns and is skipped rather than throwing', async () => {
   const dir = await scratch()
   await writeFile(join(dir, 'broken.json'), '{ not json')
@@ -50,6 +59,54 @@ test('malformed json warns and is skipped rather than throwing', async () => {
   assert.equal(store.records().length, 0)
   assert.equal(warnings.length, 1)
   assert.match(warnings[0] as string, /broken\.json/)
+})
+
+test('a file that is valid JSON but not an object (null) warns and is skipped rather than throwing', async () => {
+  const dir = await scratch()
+  await writeFile(join(dir, 'getUser.json'), 'null')
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 0)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0] as string, /getUser\.json/)
+})
+
+test('a file that is valid JSON but an array warns and is skipped rather than throwing', async () => {
+  const dir = await scratch()
+  await writeFile(join(dir, 'getUser.json'), '[1, 2, 3]')
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 0)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0] as string, /getUser\.json/)
+})
+
+test('a status bucket that is null warns and is skipped rather than throwing', async () => {
+  const dir = await scratch()
+  await writeFile(join(dir, 'getUser.json'), JSON.stringify({ '200': null }))
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 0)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0] as string, /getUser\.json/)
+})
+
+test('a non-numeric status key warns and is skipped rather than colliding into one entry', async () => {
+  const dir = await scratch()
+  await writeFile(
+    join(dir, 'getUser.json'),
+    JSON.stringify({ abc: { a3f19c2e: { value: 1 } } })
+  )
+  const warnings: string[] = []
+  const store = createMemoryFixtureStore()
+  await loadFixtures(dir, store, (message) => warnings.push(message))
+  assert.equal(store.records().length, 0)
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0] as string, /getUser\.json/)
+  assert.match(warnings[0] as string, /abc/)
 })
 
 test('two writes of the same content produce byte-identical files', async () => {
@@ -116,5 +173,19 @@ test('an operation slug that escapes the directory is rejected', async () => {
   const dir = await scratch()
   const store = createMemoryFixtureStore()
   store.set('../escape', 200, 'a3f19c2e', { value: 1 })
+  await assert.rejects(() => writeFixtures(dir, store), /operation id/i)
+})
+
+test('an operation slug containing only a backslash is rejected', async () => {
+  const dir = await scratch()
+  const store = createMemoryFixtureStore()
+  store.set('esc\\ape', 200, 'a3f19c2e', { value: 1 })
+  await assert.rejects(() => writeFixtures(dir, store), /operation id/i)
+})
+
+test('an operation slug containing only a forward slash is rejected', async () => {
+  const dir = await scratch()
+  const store = createMemoryFixtureStore()
+  store.set('esc/ape', 200, 'a3f19c2e', { value: 1 })
   await assert.rejects(() => writeFixtures(dir, store), /operation id/i)
 })

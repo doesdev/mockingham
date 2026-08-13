@@ -31,14 +31,19 @@ export async function loadFixtures(
   let names: string[]
   try {
     names = await readdir(dir)
-  } catch {
-    // No fixture directory is the common case, not an error.
+  } catch (error) {
+    // A missing fixture directory is the normal case. Anything else — a
+    // permission problem, a path that is not a directory — would otherwise be
+    // indistinguishable from "no fixtures", which an operator cannot diagnose.
+    if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      onWarn?.(`mockingham: could not read the fixture directory ${dir}; serving no fixtures`)
+    }
     return
   }
 
   for (const name of names.filter((n) => n.endsWith('.json')).sort()) {
     const operationId = name.slice(0, -'.json'.length)
-    let parsed: Record<string, Record<string, FixtureEntry>>
+    let parsed: unknown
     try {
       parsed = JSON.parse(await readFile(join(dir, name), 'utf8'))
     } catch {
@@ -46,10 +51,24 @@ export async function loadFixtures(
       onWarn?.(`mockingham: could not read fixture file ${name}; skipping it`)
       continue
     }
-    for (const status of Object.keys(parsed).sort()) {
-      const bucket = parsed[status] ?? {}
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      onWarn?.(`mockingham: fixture file ${name} is not an object; skipping it`)
+      continue
+    }
+    const byStatus = parsed as Record<string, Record<string, FixtureEntry>>
+    for (const statusKey of Object.keys(byStatus).sort()) {
+      const bucket = byStatus[statusKey]
+      if (typeof bucket !== 'object' || bucket === null || Array.isArray(bucket)) {
+        onWarn?.(`mockingham: fixture file ${name} has a non-object status bucket ${JSON.stringify(statusKey)}; skipping it`)
+        continue
+      }
+      const status = Number(statusKey)
+      if (!Number.isInteger(status)) {
+        onWarn?.(`mockingham: fixture file ${name} has a non-numeric status ${JSON.stringify(statusKey)}; skipping it`)
+        continue
+      }
       for (const key of Object.keys(bucket).sort()) {
-        store.set(operationId, Number(status), key, bucket[key] as FixtureEntry)
+        store.set(operationId, status, key, bucket[key] as FixtureEntry)
       }
     }
   }
@@ -84,13 +103,17 @@ export async function createDiskFixtureStore(
 
   const debounceMs = options.debounceMs ?? 250
   let timer: ReturnType<typeof setTimeout> | undefined
-  let pending: Promise<void> | undefined
 
-  const write = async (): Promise<void> => {
+  // Serialized rather than concurrent. writeFixtures always writes the full
+  // current store, so chaining makes last-write-wins correct by construction —
+  // two overlapping writes could otherwise land their renames out of order and
+  // leave stale content behind a resolved flush().
+  let queue: Promise<void> = Promise.resolve()
+
+  const write = (): Promise<void> => {
     timer = undefined
-    pending = writeFixtures(options.dir, memory)
-    await pending
-    pending = undefined
+    queue = queue.then(() => writeFixtures(options.dir, memory))
+    return queue
   }
 
   return {
@@ -104,13 +127,12 @@ export async function createDiskFixtureStore(
       timer = setTimeout(() => void write(), debounceMs)
     },
 
-    async flush() {
+    flush() {
       if (timer) {
         clearTimeout(timer)
         timer = undefined
       }
-      await write()
-      if (pending) await pending
+      return write()
     }
   }
 }
