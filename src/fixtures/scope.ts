@@ -50,8 +50,25 @@ export function narrow(
 
     if (kind.kind === 'array') {
       if (!Array.isArray(node)) return undefined
-      const items = node.map((item) => walk(item, kind.items, nested))
-      return items.some((item) => item !== undefined) ? items : undefined
+      // Index-keyed object, not a literal array. `overlay()` in
+      // `src/resolve/layer.ts` only merges an override into a base array
+      // per index when the override node is a plain object keyed by index
+      // (or '*') — a literal array override replaces the base wholesale. An
+      // omitted index means "nothing in scope here", which overlay() then
+      // reads as "leave the generated item at this index alone" rather than
+      // blanking it.
+      const out: Record<string, unknown> = {}
+      let kept = false
+      // Iterated in ascending index order (the array's own order) so the
+      // narrowed object serializes identically across processes.
+      node.forEach((item, index) => {
+        const narrowed = walk(item, kind.items, nested)
+        if (narrowed !== undefined) {
+          out[String(index)] = narrowed
+          kept = true
+        }
+      })
+      return kept ? out : undefined
     }
 
     if (kind.kind === 'object') {
