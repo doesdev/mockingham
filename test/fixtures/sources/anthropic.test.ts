@@ -1,7 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { z } from 'zod'
-import { createAnthropicSource } from '../../../src/fixtures/sources/anthropic.ts'
+import {
+  createAnthropicSource,
+  DEFAULT_BATCH_THRESHOLD
+} from '../../../src/fixtures/sources/anthropic.ts'
 import type { FixtureRequest } from '../../../src/fixtures/source.ts'
 
 function request(key: string): FixtureRequest {
@@ -27,6 +30,18 @@ function requestWithSchema(key: string, jsonSchema: Record<string, unknown>): Fi
     zodSchema: z.object({ bio: z.string() })
   }
 }
+
+test('the source asks for chunks large enough to reach its own batch threshold', () => {
+  // Without this the batch path is unreachable under default configuration:
+  // the driver chunks by its own budget (4) while the threshold is 20, so
+  // `reqs.length >= batchThreshold` never holds and every bake takes the
+  // single-call path regardless of how much there is to bake.
+  assert.equal(createAnthropicSource({}).chunkSize, DEFAULT_BATCH_THRESHOLD)
+})
+
+test('a configured batchThreshold is what the source asks for', () => {
+  assert.equal(createAnthropicSource({ batchThreshold: 7 }).chunkSize, 7)
+})
 
 test('a parsed response becomes a result', async () => {
   const source = createAnthropicSource({

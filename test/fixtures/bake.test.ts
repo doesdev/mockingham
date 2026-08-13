@@ -449,3 +449,81 @@ test('a scoped array fixture survives bake and a JSON round trip: unmatched item
   // override is itself an array, rather than merging it per index.
   assert.deepEqual(merged[1], base[1])
 })
+
+/** Six bakeable entries: three operations, each declaring two statuses. */
+function sixEntryDoc(): Record<string, unknown> {
+  const responses = {
+    '200': {
+      description: 'ok',
+      content: {
+        'application/json': {
+          schema: { type: 'object', properties: { a: { type: 'string' } } }
+        }
+      }
+    },
+    '404': {
+      description: 'gone',
+      content: {
+        'application/json': {
+          schema: { type: 'object', properties: { message: { type: 'string' } } }
+        }
+      }
+    }
+  }
+  return {
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: {
+      '/a': { get: { operationId: 'a', responses } },
+      '/b': { get: { operationId: 'b', responses } },
+      '/c': { get: { operationId: 'c', responses } }
+    }
+  }
+}
+
+function recordingSource(chunkSize?: number): ContentSource & { sizes: number[] } {
+  const sizes: number[] = []
+  return {
+    sizes,
+    ...(chunkSize === undefined ? {} : { chunkSize }),
+    generate: async (reqs) => {
+      sizes.push(reqs.length)
+      return reqs.map(() => null)
+    }
+  }
+}
+
+test('the driver hands a source its declared chunkSize, not maxConcurrency', async () => {
+  // The Anthropic batch path is only reached at or above its batchThreshold
+  // (20), but the driver chunked by maxConcurrency (4), so batching was dead
+  // under default config. A source that knows it wants larger calls says so.
+  const source = recordingSource(20)
+
+  await bake({
+    api: loadApi(sixEntryDoc()),
+    store: createMemoryFixtureStore(),
+    source,
+    compiler: createCompiler(),
+    now: () => 0,
+    budget: { maxConcurrency: 4 }
+  })
+
+  assert.deepEqual(source.sizes, [6])
+})
+
+test('a source with no chunkSize still chunks by maxConcurrency', async () => {
+  // The default path must not change: only a source that declares a size opts
+  // out of it, and a third-party source that omits the field is unaffected.
+  const source = recordingSource()
+
+  await bake({
+    api: loadApi(sixEntryDoc()),
+    store: createMemoryFixtureStore(),
+    source,
+    compiler: createCompiler(),
+    now: () => 0,
+    budget: { maxConcurrency: 4 }
+  })
+
+  assert.deepEqual(source.sizes, [4, 2])
+})

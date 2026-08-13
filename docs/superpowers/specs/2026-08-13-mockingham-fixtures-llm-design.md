@@ -463,6 +463,28 @@ one that works.
   then to seeded generation, rather than to a clear error.
 - **Recursive schemas never reach any source.** Per §14; they remain
   generator-only.
+- **A `default` response is never baked.** `bake` walks `operation.responses`
+  only. A `default` entry carries a sentinel status that resolves to a concrete
+  one at request time, so baking it would mean guessing which status to file it
+  under — and a wrong guess stores fixtures under keys no request looks up. An
+  operation declaring both a 2xx and a `default` still gets its 2xx; only a
+  `default`-only operation gets nothing and falls through to generation.
+- **`narrow()` does not descend beneath a union.** Scope narrowing walks the
+  `array` and `object` kinds; a field nested under a `oneOf`/`anyOf` branch is
+  silently out of scope rather than an error. Fails safe, per invariant 4, but
+  a `byName` entry naming such a field will never match.
+- **The bake summary reports `generated`, `skipped`, and `failed` only.** §14
+  also lists `refused` and `unchanged`. `refused` is unrepresentable —
+  `ContentSource` returns `FixtureResult | null`, so the driver cannot tell a
+  refusal from any other miss, and a field pinned at zero is worse than an
+  absent one. Refusals count in `failed`.
+- **`maxConcurrency` is a per-call batch size, not a concurrency bound.**
+  Nothing in the bake pipeline runs concurrently: the driver awaits each chunk
+  before starting the next, and every shipped source handles its array
+  sequentially. The name predates that reality. A source may override the size
+  with `ContentSource.chunkSize`, which is how the Anthropic source reaches its
+  own batch threshold — without it, the batch path was unreachable under
+  default configuration.
 
 ---
 

@@ -56,7 +56,7 @@ export interface AnthropicSourceOptions {
 }
 
 const DEFAULT_MODEL = 'claude-opus-5'
-const DEFAULT_BATCH_THRESHOLD = 20
+export const DEFAULT_BATCH_THRESHOLD = 20
 const MAX_TOKENS = 16000
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 // Poll cadence for the Batches API. `timeoutMs` (design 4's default 30_000)
@@ -307,11 +307,18 @@ export function createAnthropicSource(options: AnthropicSourceOptions): ContentS
   }
 
   return {
-    // Sequential, like the OpenAI-compatible source: the driver owns
-    // concurrency, and a source that fanned out on its own would make
-    // maxConcurrency a lie. The batch path is the one exception — it is a
-    // single round trip to the API regardless of how many requests it
-    // carries, so there is nothing to fan out.
+    // Ask the driver for chunks big enough to reach the batch threshold. Its
+    // own default is far below this, so without asking, `reqs.length >=
+    // batchThreshold` below could never hold and the batch path was dead
+    // whatever the user configured.
+    chunkSize: batchThreshold,
+
+    // Sequential, like the OpenAI-compatible source: the driver decides how
+    // many requests arrive per call, and a source that fanned out underneath
+    // that would mean two layers each believing they control the load. The
+    // batch path is the one exception — it is a single round trip to the API
+    // regardless of how many requests it carries, so there is nothing to fan
+    // out.
     async generate(reqs) {
       // Invariant 4/6: every failure mode here — a missing package, a
       // refusal, a null parse, a validation failure, a thrown SDK call, a

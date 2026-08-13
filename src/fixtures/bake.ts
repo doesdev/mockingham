@@ -45,7 +45,12 @@ export interface BakeSummary {
 export async function bake(options: BakeOptions): Promise<BakeSummary> {
   const summary: BakeSummary = { generated: 0, skipped: 0, failed: 0 }
   const budget = options.budget ?? {}
-  const concurrency = Math.max(1, budget.maxConcurrency ?? 4)
+  // How many requests go to the source per call. `maxConcurrency` names it
+  // badly — chunks are awaited one after another below and every shipped source
+  // handles its array sequentially, so nothing here runs concurrently. A source
+  // that declares a `chunkSize` overrides it, which is the only way a batching
+  // source can ever see enough requests to reach its own threshold.
+  const chunkSize = Math.max(1, options.source.chunkSize ?? budget.maxConcurrency ?? 4)
 
   const planned: Array<{ request: FixtureRequest; schema: Schema }> = []
 
@@ -105,8 +110,8 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
 
   const generatedAt = new Date(options.now()).toISOString()
 
-  for (let start = 0; start < attempted.length; start += concurrency) {
-    const chunk = attempted.slice(start, start + concurrency)
+  for (let start = 0; start < attempted.length; start += chunkSize) {
+    const chunk = attempted.slice(start, start + chunkSize)
     let results: (FixtureResult | null)[]
     try {
       results = await options.source.generate(chunk.map((item) => item.request))
