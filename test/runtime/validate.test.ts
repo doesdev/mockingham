@@ -11,7 +11,7 @@ function ctx(partial: Partial<Ctx>): Ctx {
 }
 
 function op(parameters: Operation['parameters'], requestBody?: Operation['requestBody']): Operation {
-  return { method: 'post', path: '/x', parameters, responses: [], requestBody, callbacks: [] }
+  return { method: 'post', path: '/x', tags: [], parameters, responses: [], requestBody, callbacks: [] }
 }
 
 test('coerce turns numeric strings into numbers', () => {

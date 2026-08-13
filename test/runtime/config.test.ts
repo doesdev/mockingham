@@ -4,7 +4,7 @@ import { compileConfigs, resolveConfigs } from '../../src/runtime/config.ts'
 import type { Operation } from '../../src/spec/types.ts'
 
 function op(method: Operation['method'], path: string, id: string): Operation {
-  return { method, path, operationId: id, parameters: [], responses: [], callbacks: [] }
+  return { method, path, operationId: id, tags: [], parameters: [], responses: [], callbacks: [] }
 }
 
 const known = [op('get', '/pets/{petId}', 'showPet'), op('get', '/pets', 'listPets')]

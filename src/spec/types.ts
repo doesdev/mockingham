@@ -102,6 +102,8 @@ export interface Operation {
   operationId?: string
   summary?: string
   description?: string
+  /** Free-form OpenAPI tags. Always present; `[]` when the document declares none. */
+  tags: string[]
   parameters: Parameter[]
   requestBody?: Record<string, MediaType>
   requestBodyRequired?: boolean

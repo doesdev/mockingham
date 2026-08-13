@@ -81,6 +81,7 @@ function baseOperation() {
     method: 'get' as const,
     path: '/users/{id}',
     operationId: 'getUser',
+    tags: [],
     parameters: [],
     responses: [],
     callbacks: []
@@ -140,6 +141,7 @@ test('a request carries through summary, description, example, and persona', () 
       operationId: 'getUser',
       summary: 'Get a user',
       description: 'Fetches a single user by id',
+      tags: [],
       parameters: [],
       responses: [],
       callbacks: []
@@ -165,7 +167,7 @@ test('a recursive schema builds no request', () => {
   node.properties = { child: node }
   const request = buildRequest({
     operation: { method: 'get', path: '/n', operationId: 'n',
-      parameters: [], responses: [], callbacks: [] },
+      tags: [], parameters: [], responses: [], callbacks: [] },
     status: 200,
     key: 'k',
     params: {},
@@ -244,7 +246,7 @@ test('operationId falls back to method and path when the operation has none', ()
   const schema: Schema = { type: 'object', properties: {} }
   const request = buildRequest({
     operation: { method: 'post', path: '/widgets/{id}',
-      parameters: [], responses: [], callbacks: [] },
+      tags: [], parameters: [], responses: [], callbacks: [] },
     status: 201,
     key: 'k',
     params: { id: '1' },

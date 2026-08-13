@@ -195,3 +195,31 @@ test('an absent required flag is falsy', () => {
   }
   assert.notEqual(loadApi(doc).operations[0]?.requestBodyRequired, true)
 })
+
+test('loads operation tags, defaulting to an empty array', () => {
+  const api = loadApi({
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: {
+      '/a': { get: { operationId: 'a', tags: ['pets', 'admin'], responses: {} } },
+      '/b': { get: { operationId: 'b', responses: {} } }
+    }
+  })
+
+  const a = api.operations.find((op) => op.operationId === 'a')
+  const b = api.operations.find((op) => op.operationId === 'b')
+  assert.deepEqual(a?.tags, ['pets', 'admin'])
+  assert.deepEqual(b?.tags, [])
+})
+
+test('drops non-string tags rather than coercing them', () => {
+  const api = loadApi({
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: {
+      '/a': { get: { operationId: 'a', tags: ['ok', 7, null, { x: 1 }], responses: {} } }
+    }
+  })
+
+  assert.deepEqual(api.operations[0]?.tags, ['ok'])
+})

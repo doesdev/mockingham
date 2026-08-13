@@ -8,7 +8,7 @@ import type { Ctx } from '../../src/runtime/types.ts'
 import type { Operation } from '../../src/spec/types.ts'
 
 const operation: Operation = {
-  method: 'get', path: '/x', operationId: 'x', parameters: [], responses: [], callbacks: []
+  method: 'get', path: '/x', operationId: 'x', tags: [], parameters: [], responses: [], callbacks: []
 }
 
 /**
@@ -247,10 +247,10 @@ test('two policies matching one operation keep separate circuits', async () => {
 test('one wildcard policy keeps separate circuits per operation', async () => {
   const store = createMemoryStore()
   const opA: Operation = {
-    method: 'get', path: '/a', operationId: 'a', parameters: [], responses: [], callbacks: []
+    method: 'get', path: '/a', operationId: 'a', tags: [], parameters: [], responses: [], callbacks: []
   }
   const opB: Operation = {
-    method: 'get', path: '/b', operationId: 'b', parameters: [], responses: [], callbacks: []
+    method: 'get', path: '/b', operationId: 'b', tags: [], parameters: [], responses: [], callbacks: []
   }
   const policies: FailurePolicy[] = [
     { match: '* /**', rate: 1, circuit: { after: 5, openFor: 1_000, then: 503 } }
