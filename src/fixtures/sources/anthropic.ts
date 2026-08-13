@@ -7,8 +7,8 @@ import { stripUnsupportedKeywords } from './json-schema-strip.ts'
  * installed in this repository — this interface exists precisely so a test
  * (or a consumer without the package) can supply a structurally-compatible
  * stub instead of the real client, per the dependency rule in design 2.2.
- * `batches` is unused by this task (single-call path only — design 2.5) but
- * is part of the shape a real client, or a future batch-path test, expects.
+ * `batches` backs the Message Batches path above `batchThreshold` — design
+ * 2.4/2.5/2.6.
  */
 export interface AnthropicMessagesParseResponse {
   stop_reason: string
@@ -38,20 +38,35 @@ export interface AnthropicSourceOptions {
   model?: string
   apiKey?: string
   /**
-   * Reserved for the batch path (design 2.4) — a later task switches to the
-   * Message Batches API above this many requests in one `generate()` call.
-   * Accepted here so the config surface and this source's options are
-   * stable across that task; unused until then.
+   * Above this many requests in one `generate()` call, the source switches
+   * from the single-call path to the Message Batches API (design 2.4).
+   * Default 20.
    */
   batchThreshold?: number
   timeoutMs?: number
   /** Injectable so the suite never needs the SDK installed. */
   client?: AnthropicLike
+  /**
+   * Injectable delay for batch polling, so a test can drive a stuck or slow
+   * batch to its deadline without a real wall-clock wait. Defaults to a real
+   * `setTimeout`-backed sleep — the same shape as `webhooks/deliver.ts`'s
+   * injected `sleep`.
+   */
+  sleep?: (ms: number) => Promise<void>
 }
 
 const DEFAULT_MODEL = 'claude-opus-5'
+const DEFAULT_BATCH_THRESHOLD = 20
 const MAX_TOKENS = 16000
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
+// Poll cadence for the Batches API. `timeoutMs` (design 4's default 30_000)
+// is converted to a bounded attempt count — `timeoutMs / POLL_INTERVAL_MS` —
+// rather than checked against a `Date.now()` deadline (invariant 2). That
+// keeps the loop's termination a pure function of attempt count, so a test
+// can drive it to its end deterministically by stubbing `retrieve` and
+// `sleep`, the same shape as the bounded retry loop in webhooks/deliver.ts.
+const POLL_INTERVAL_MS = 1000
+const DEFAULT_BATCH_TIMEOUT_MS = 30_000
 
 const SYSTEM = [
   'You generate realistic sample data for an HTTP API mock.',
@@ -117,8 +132,15 @@ function outputFormatFor(request: FixtureRequest): Record<string, unknown> {
   return { type: 'json_schema', schema: stripUnsupportedKeywords(request.jsonSchema) }
 }
 
-function bodyFor(model: string, request: FixtureRequest): Record<string, unknown> {
-  return {
+/**
+ * `fallback: true` is the single-call path only (design 2.5) — the Batches
+ * API rejects `fallbacks` outright, so the batch path calls this with
+ * `fallback: false` and the keys are omitted entirely, not set to a falsy
+ * value. A per-request params object built this way is what design 2.5's
+ * "the two cannot be combined" resolves to in code.
+ */
+function bodyFor(model: string, request: FixtureRequest, mode: { fallback: boolean }): Record<string, unknown> {
+  const body: Record<string, unknown> = {
     model,
     max_tokens: MAX_TOKENS,
     // `thinking` is deliberately omitted, not disabled: on claude-opus-5
@@ -126,11 +148,50 @@ function bodyFor(model: string, request: FixtureRequest): Record<string, unknown
     // thinking plus the response body (design 2.7).
     system: [{ type: 'text', text: systemFor(request), cache_control: { type: 'ephemeral' } }],
     messages: [{ role: 'user', content: promptFor(request) }],
-    output_config: { format: outputFormatFor(request), effort: 'low' },
-    // Single-call path only (design 2.5) — the Batches API rejects `fallbacks`.
-    fallbacks: 'default',
-    betas: [FALLBACK_BETA]
+    output_config: { format: outputFormatFor(request), effort: 'low' }
   }
+  if (mode.fallback) {
+    body.fallbacks = 'default'
+    body.betas = [FALLBACK_BETA]
+  }
+  return body
+}
+
+/**
+ * One entry from `batches.results()`. Only `type: 'succeeded'` carries a
+ * usable `message`; `errored`, `canceled`, and `expired` (and anything else
+ * the API might add) are treated identically — a miss, per invariant 4.
+ * `message` is intentionally loose (not `AnthropicMessagesParseResponse`):
+ * unlike the single-call response, nothing here guarantees `stop_reason` is
+ * present.
+ */
+interface BatchResultEntry {
+  custom_id: string
+  result?: {
+    type?: string
+    message?: { stop_reason?: string; parsed_output?: unknown }
+  }
+}
+
+/**
+ * Polls `retrieve` until `processing_status === 'ended'` or `maxAttempts` is
+ * exhausted, sleeping `POLL_INTERVAL_MS` between attempts (never after the
+ * last). `maxAttempts` is the injected timeout converted to a poll budget —
+ * see the constants above — so a batch stuck in `in_progress` forever still
+ * returns `false` rather than hanging `generate()`.
+ */
+async function pollUntilEnded(
+  client: AnthropicLike,
+  batchId: string,
+  maxAttempts: number,
+  sleep: (ms: number) => Promise<void>
+): Promise<boolean> {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const status = (await client.messages.batches.retrieve(batchId)) as { processing_status?: string }
+    if (status.processing_status === 'ended') return true
+    if (attempt < maxAttempts - 1) await sleep(POLL_INTERVAL_MS)
+  }
+  return false
 }
 
 const INSTALL_ERROR =
@@ -167,32 +228,82 @@ async function loadClient(options: AnthropicSourceOptions): Promise<AnthropicLik
 
 export function createAnthropicSource(options: AnthropicSourceOptions): ContentSource {
   const model = options.model ?? DEFAULT_MODEL
+  const batchThreshold = options.batchThreshold ?? DEFAULT_BATCH_THRESHOLD
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+
+  // Branch on stop_reason BEFORE reading parsed_output — never on the
+  // presence of stop_details, which can be null on a genuine refusal
+  // (design 2.10). Shared by both paths: the single-call response and a
+  // successful batch entry's `message` are both consumed here.
+  const toResult = (
+    request: FixtureRequest,
+    message: { stop_reason?: string; parsed_output?: unknown } | undefined
+  ): FixtureResult | null => {
+    if (!message) return null
+    if (message.stop_reason === 'refusal') return null
+    if (message.parsed_output === null || message.parsed_output === undefined) return null
+    const checked = request.zodSchema.safeParse(message.parsed_output)
+    if (!checked.success) return null
+    return { value: checked.data, meta: { source: 'anthropic', model, promptVersion: 1 } }
+  }
 
   const attempt = async (client: AnthropicLike, request: FixtureRequest): Promise<FixtureResult | null> => {
     const response = await client.messages.parse(
-      bodyFor(model, request),
+      bodyFor(model, request, { fallback: true }),
       options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : undefined
     )
-    // Branch on stop_reason BEFORE reading parsed_output — never on the
-    // presence of stop_details, which can be null on a genuine refusal
-    // (design 2.10).
-    if (response.stop_reason === 'refusal') return null
-    if (response.parsed_output === null || response.parsed_output === undefined) return null
-    const checked = request.zodSchema.safeParse(response.parsed_output)
-    if (!checked.success) return null
-    return { value: checked.data, meta: { source: 'anthropic', model, promptVersion: 1 } }
+    return toResult(request, response)
+  }
+
+  const generateBatch = async (client: AnthropicLike, reqs: FixtureRequest[]): Promise<(FixtureResult | null)[]> => {
+    const requests = reqs.map((request) => ({
+      custom_id: request.key,
+      params: bodyFor(model, request, { fallback: false })
+    }))
+    const batch = await client.messages.batches.create({ requests })
+    const maxAttempts = Math.max(1, Math.floor((options.timeoutMs ?? DEFAULT_BATCH_TIMEOUT_MS) / POLL_INTERVAL_MS))
+    const ended = await pollUntilEnded(client, batch.id, maxAttempts, sleep)
+    // A batch that never reaches `ended` within its deadline is a miss for
+    // every request in it, not an exception (invariant 4) — results() is
+    // never even opened, since nothing in it would be trustworthy yet.
+    if (!ended) return reqs.map(() => null)
+
+    const byKey = new Map(reqs.map((request) => [request.key, request] as const))
+    const byId = new Map<string, FixtureResult | null>()
+    for await (const raw of client.messages.batches.results(batch.id)) {
+      const entry = raw as BatchResultEntry
+      const request = byKey.get(entry.custom_id)
+      if (!request || entry.result?.type !== 'succeeded') {
+        byId.set(entry.custom_id, null)
+        continue
+      }
+      byId.set(entry.custom_id, toResult(request, entry.result.message))
+    }
+    // Design 2.6: results arrive in arbitrary order, so `reqs` — the
+    // caller's ORIGINAL request array, never the order results streamed in
+    // — is what gets mapped through `byId`. A `custom_id` never seen in the
+    // stream (refused before it was ever emitted, or the stream ended
+    // early) is a miss at its own index via `?? null`; it never shifts any
+    // other result.
+    return reqs.map((request) => byId.get(request.key) ?? null)
   }
 
   return {
     // Sequential, like the OpenAI-compatible source: the driver owns
     // concurrency, and a source that fanned out on its own would make
-    // maxConcurrency a lie.
+    // maxConcurrency a lie. The batch path is the one exception — it is a
+    // single round trip to the API regardless of how many requests it
+    // carries, so there is nothing to fan out.
     async generate(reqs) {
       // Invariant 4/6: every failure mode here — a missing package, a
-      // refusal, a null parse, a validation failure, a thrown SDK call — is
-      // a miss, never an error. Nothing propagates out of generate().
+      // refusal, a null parse, a validation failure, a thrown SDK call, a
+      // batch that never ends — is a miss, never an error. Nothing
+      // propagates out of generate().
       try {
         const client = await loadClient(options)
+        if (reqs.length >= batchThreshold) {
+          return await generateBatch(client, reqs)
+        }
         const out: (FixtureResult | null)[] = []
         for (const request of reqs) {
           try {
