@@ -173,3 +173,75 @@ test('a mixed-template expression with one unresolvable token captures nothing',
   assert.equal(response.status, 201)
   assert.equal(await handler.store.get(callbackKey('onOrderShipped')), undefined)
 })
+
+test('emit generates a conforming payload and records the delivery', async () => {
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+
+  const delivery = await handler.emit('onOrderShipped')
+
+  assert.equal(delivery.outcome, 'captured')
+  assert.equal(typeof (JSON.parse(delivery.body) as { orderId: unknown }).orderId, 'string')
+  assert.deepEqual(handler.deliveries().map((d) => d.webhook), ['onOrderShipped'])
+})
+
+test('emit honors an explicit destination and a body override', async () => {
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+
+  const delivery = await handler.emit('onOrderShipped', {
+    to: 'http://explicit.test/x',
+    body: { orderId: 'o_9' }
+  })
+
+  assert.equal(delivery.url, 'http://explicit.test/x')
+  assert.equal((JSON.parse(delivery.body) as { orderId: string }).orderId, 'o_9')
+})
+
+test('emit uses a url captured from an earlier subscription', async () => {
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  await handler.fetch(subscribe())
+
+  const delivery = await handler.emit('onOrderShipped')
+
+  assert.equal(delivery.url, 'http://hooks.test/mine')
+})
+
+test('emit resolves rather than rejecting when nothing addresses it', async () => {
+  const handler = createHandler(api, { seed: 'hooks' })
+  const delivery = await handler.emit('onOrderShipped')
+  assert.equal(delivery.outcome, 'unresolved')
+})
+
+test('emit throws on an undeclared webhook name', async () => {
+  const handler = createHandler(api, { seed: 'hooks' })
+  await assert.rejects(handler.emit('nope'), /nope/)
+})
+
+test('clearDeliveries empties the log', async () => {
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  await handler.emit('onOrderShipped')
+  handler.clearDeliveries()
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('reset clears the delivery log too', async () => {
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  await handler.emit('onOrderShipped')
+  await handler.reset()
+  assert.deepEqual(handler.deliveries(), [])
+})
+
+test('two emissions of one webhook get different payloads, and a replay reproduces both', async () => {
+  // Pins the design point that the payload rng is keyed by webhook name and a
+  // per-name ordinal (identity plus an ordinal), not one shared advancing
+  // stream. Neither property is exercised by the tests above: each of those
+  // calls `emit` at most once per handler.
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  const first = await handler.emit('onOrderShipped')
+  const second = await handler.emit('onOrderShipped')
+  assert.notEqual(first.body, second.body)
+
+  await handler.reset()
+  const replay = [await handler.emit('onOrderShipped'), await handler.emit('onOrderShipped')]
+  assert.equal(replay[0]!.body, first.body)
+  assert.equal(replay[1]!.body, second.body)
+})

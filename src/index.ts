@@ -1,11 +1,12 @@
 import { loadApi } from './spec/load.ts'
 import type { Api } from './spec/types.ts'
 import { createHandler } from './server/handler.ts'
-import type { HandlerOptions } from './server/handler.ts'
+import type { HandlerOptions, EmitOptions } from './server/handler.ts'
 import { createNodeServer } from './server/node.ts'
 import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
 import { targetKey, failNextKey, outageKey } from './runtime/failure.ts'
+import type { Delivery } from './webhooks/deliver.ts'
 
 export type MockOptions = HandlerOptions
 
@@ -29,6 +30,9 @@ export interface Mock {
   reset(): Promise<void>
   store: Store
   api: Api
+  emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  deliveries(): Delivery[]
+  clearDeliveries(): void
 }
 
 export function createMock(
@@ -81,10 +85,16 @@ export function createMock(
     },
 
     store: handler.store,
-    api
+    api,
+
+    emit: (name, opts) => handler.emit(name, opts),
+    deliveries: () => handler.deliveries(),
+    clearDeliveries: () => handler.clearDeliveries()
   }
 }
 
 export { loadApi } from './spec/load.ts'
 export type { Api, Operation, Schema } from './spec/types.ts'
 export type { HandlerOptions } from './server/handler.ts'
+export type { Delivery } from './webhooks/deliver.ts'
+export type { WebhookConfig } from './webhooks/emit.ts'

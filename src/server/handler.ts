@@ -26,8 +26,19 @@ import { requestIdFor, emitLog, reportError } from '../runtime/logging.ts'
 import type { LogSink, ErrorSink } from '../runtime/logging.ts'
 import { createIdempotencyStage, resolveIdempotency } from '../runtime/idempotency.ts'
 import type { IdempotencyConfig } from '../runtime/idempotency.ts'
+import { emitWebhook, resolveWebhook, createDeliveryLog } from '../webhooks/emit.ts'
+import type { WebhookConfig, ResolvedWebhook } from '../webhooks/emit.ts'
+import type { Delivery } from '../webhooks/deliver.ts'
 
 export type { OperationConfig, StatusConfig } from '../runtime/config.ts'
+
+/** Passed to `Handler.emit` — the imperative trigger. */
+export interface EmitOptions {
+  /** Destination tier 1: wins over a captured or configured url. */
+  to?: string
+  /** Layered over the generated payload, exactly as a response body override is. */
+  body?: OverrideNode
+}
 
 export interface Handler {
   fetch(request: Request): Promise<Response>
@@ -42,6 +53,18 @@ export interface Handler {
    * application's.
    */
   reset(): Promise<void>
+  /**
+   * The imperative trigger. Resolves with a `Delivery` in every case,
+   * including `unresolved` and an exhausted retry — §13's "an emit never
+   * hard-fails" is a property of the return type, not only of the
+   * implementation. An undeclared webhook name throws: that is a typo, and
+   * `compileTarget`/`resolveTarget` already throw on those rather than
+   * silently never firing.
+   */
+  emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  /** Oldest first. */
+  deliveries(): Delivery[]
+  clearDeliveries(): void
 }
 
 export interface HandlerOptions {
@@ -76,6 +99,11 @@ export interface HandlerOptions {
    * so an embedding application can route it.
    */
   onWarn?: (message: string) => void
+  webhooks?: Record<string, WebhookConfig>
+  /** Capture every delivery without sending it. See the webhooks design §2.6. */
+  captureOnly?: boolean
+  /** Injectable so the suite never reaches the network. */
+  fetch?: typeof fetch
 }
 
 // Module scope: a per-request TextEncoder would be one more allocation on
@@ -139,6 +167,47 @@ export function createHandler(
       return false
     })
   }))
+
+  const webhookConfigs = new Map<string, ResolvedWebhook>()
+  for (const [name, config] of Object.entries(options.webhooks ?? {})) {
+    webhookConfigs.set(name, resolveWebhook(config))
+  }
+  const deliveryLog = createDeliveryLog()
+  const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
+
+  /**
+   * One emission, from either trigger. Records into the delivery log whatever
+   * comes back — including `unresolved` — because §13 says an emit never
+   * hard-fails and the log is where an operator sees that it did not.
+   */
+  async function runEmit(
+    name: string,
+    opts: { to?: string; body?: OverrideNode; ctx?: unknown } = {}
+  ): Promise<Delivery> {
+    const delivery = await emitWebhook({
+      name,
+      api,
+      config: webhookConfigs.get(name) ?? resolveWebhook(),
+      store,
+      captureOnly: options.captureOnly === true,
+      seed,
+      rng: createRng(`${seed}|webhook|${name}|${counters.next(`webhook|${name}`)}`),
+      generateOptions: {
+        maxDepth: options.maxDepth,
+        preferExamples: options.preferExamples,
+        resolvers,
+        schemaNames: api.schemaNames
+      },
+      fetch: doFetch,
+      sleep,
+      now,
+      to: opts.to,
+      bodyOverride: opts.body,
+      ctx: opts.ctx
+    })
+    deliveryLog.record(delivery)
+    return delivery
+  }
 
   /**
    * The error builder, bound to one operation and one request key. Binding here
@@ -625,7 +694,11 @@ export function createHandler(
       counters.reset()
       chaosCounts.clear()
       requestOrdinals.clear()
+      deliveryLog.clear()
       await store.clear()
-    }
+    },
+    emit: (name, opts = {}) => runEmit(name, opts),
+    deliveries: () => deliveryLog.all(),
+    clearDeliveries: () => deliveryLog.clear()
   }
 }
