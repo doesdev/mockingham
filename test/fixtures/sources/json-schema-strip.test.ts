@@ -93,3 +93,112 @@ test('format is not stripped by default — Anthropic documents it as a supporte
   const stripped = stripUnsupportedKeywords(schema) as Record<string, unknown>
   assert.equal(stripped.format, 'uuid')
 })
+
+// --- Structural awareness: `properties` is a MAP, its KEYS are user-chosen
+// property names, never schema keywords. Before this, the generic walk
+// treated every object (including a `properties` map) as a schema node and
+// deleted any property literally NAMED after a stripped keyword.
+
+test('a schema whose PROPERTY NAMES collide with stripped keywords keeps every one of them', () => {
+  const schema = {
+    type: 'object',
+    properties: {
+      format: { type: 'string' },
+      pattern: { type: 'string' },
+      minimum: { type: 'number' },
+      name: { type: 'string' }
+    },
+    required: ['format', 'pattern', 'minimum', 'name']
+  }
+  const stripped = stripUnsupportedKeywords(schema) as {
+    properties: Record<string, unknown>
+    required: string[]
+    description?: string
+  }
+  assert.deepEqual(Object.keys(stripped.properties).sort(), ['format', 'minimum', 'name', 'pattern'])
+  // No phantom description injected on the object node from mistaking these
+  // property NAMES for stripped keywords.
+  assert.equal(stripped.description, undefined)
+  // required still names properties that actually exist.
+  assert.deepEqual(stripped.required.sort(), ['format', 'minimum', 'name', 'pattern'])
+})
+
+test('a real constraint nested under a property named after a keyword is still stripped', () => {
+  // `minimum` is both a property NAME here and, on ITS OWN value, carries a
+  // real `minimum` KEYWORD — proving the fix does not overcorrect into never
+  // stripping anything under such a property.
+  const schema = {
+    type: 'object',
+    properties: {
+      minimum: { type: 'number', minimum: 0 }
+    }
+  }
+  const stripped = stripUnsupportedKeywords(schema) as {
+    properties: { minimum: { minimum?: number; description?: string } }
+  }
+  assert.equal(stripped.properties.minimum.minimum, undefined)
+  assert.equal(stripped.properties.minimum.description, 'Minimum value: 0.')
+})
+
+test('patternProperties and $defs are walked as schema maps too: their keys survive even when named after a stripped keyword', () => {
+  const schema = {
+    type: 'object',
+    patternProperties: {
+      '^pattern$': { type: 'string', minLength: 1 }
+    },
+    $defs: {
+      minimum: { type: 'object', properties: { x: { type: 'string' } } }
+    }
+  }
+  const stripped = stripUnsupportedKeywords(schema) as {
+    patternProperties: Record<string, { minLength?: number; description?: string }>
+    $defs: Record<string, unknown>
+  }
+  assert.ok('^pattern$' in stripped.patternProperties)
+  assert.equal(stripped.patternProperties['^pattern$']?.minLength, undefined)
+  assert.equal(stripped.patternProperties['^pattern$']?.description, 'Minimum length: 1.')
+  assert.ok('minimum' in stripped.$defs)
+})
+
+test('additionalProperties as a schema is walked; as a boolean it passes through unchanged', () => {
+  const schemaObject = { type: 'object', additionalProperties: { type: 'string', minLength: 2 } }
+  const strippedObject = stripUnsupportedKeywords(schemaObject) as {
+    additionalProperties: { minLength?: number; description?: string }
+  }
+  assert.equal(strippedObject.additionalProperties.minLength, undefined)
+  assert.equal(strippedObject.additionalProperties.description, 'Minimum length: 2.')
+
+  const schemaBool = { type: 'object', additionalProperties: false }
+  const strippedBool = stripUnsupportedKeywords(schemaBool) as { additionalProperties: boolean }
+  assert.equal(strippedBool.additionalProperties, false)
+})
+
+test('prefixItems is walked as a list of schemas, same as allOf/anyOf/oneOf', () => {
+  const schema = {
+    type: 'array',
+    prefixItems: [{ type: 'string', minLength: 1 }, { type: 'number', minimum: 0 }]
+  }
+  const stripped = stripUnsupportedKeywords(schema) as {
+    prefixItems: Array<{ minLength?: number; minimum?: number }>
+  }
+  assert.equal(stripped.prefixItems[0]?.minLength, undefined)
+  assert.equal(stripped.prefixItems[1]?.minimum, undefined)
+})
+
+test('data-only keys — const, default, examples, enum — are copied through untouched, never walked as schemas', () => {
+  // A `default`/`const`/`examples` value can itself contain an object whose
+  // keys happen to collide with stripped keywords or schema-map keywords —
+  // it must never be mistaken for a nested schema.
+  const schema = {
+    type: 'object',
+    default: { minimum: 5, properties: 'not a schema map' },
+    const: { pattern: 'literal data, not a keyword' },
+    examples: [{ format: 'literal data too' }],
+    enum: ['minimum', 'pattern']
+  }
+  const stripped = stripUnsupportedKeywords(schema) as Record<string, unknown>
+  assert.deepEqual(stripped.default, { minimum: 5, properties: 'not a schema map' })
+  assert.deepEqual(stripped.const, { pattern: 'literal data, not a keyword' })
+  assert.deepEqual(stripped.examples, [{ format: 'literal data too' }])
+  assert.deepEqual(stripped.enum, ['minimum', 'pattern'])
+})
