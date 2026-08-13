@@ -15,8 +15,7 @@ import { createCompiler } from './schema/compile.ts'
 import { bake as bakeFixtures } from './fixtures/bake.ts'
 import type { BakeSummary } from './fixtures/bake.ts'
 import { warnOnStaleFixtures } from './fixtures/persist.ts'
-import { schemaHash } from './fixtures/source.ts'
-import { operationSlug } from './fixtures/key.ts'
+import { schemaHashLookup } from './fixtures/source.ts'
 
 const JSON_TYPE = 'application/json'
 
@@ -80,12 +79,7 @@ export function createMock(
   // exactly as it did before this check ran. Design section 2.13.
   warnOnStaleFixtures(
     fixtureStore,
-    (operationId, status) => {
-      const operation = api.operations.find((candidate) => operationSlug(candidate) === operationId)
-      const response = operation?.responses.find((entry) => entry.status === status)
-      const media = response?.content[JSON_TYPE]
-      return media ? schemaHash(media.schema, compiler) : undefined
-    },
+    schemaHashLookup(api, compiler),
     options.onWarn ?? ((message) => console.warn(message))
   )
 
@@ -180,5 +174,29 @@ export type { HandlerOptions } from './server/handler.ts'
 export type { Delivery } from './webhooks/deliver.ts'
 export type { WebhookConfig } from './webhooks/emit.ts'
 export type { LlmConfig } from './fixtures/config.ts'
-export type { FixtureStore } from './fixtures/store.ts'
 export type { BakeSummary } from './fixtures/bake.ts'
+
+// The bake-commit-serve loop needs these at the package root. Exporting only
+// the types, as this file used to, left no way to construct a store or a
+// source without importing internal paths — which happened to work solely
+// because package.json declares no `exports` map.
+export { createMemoryFixtureStore } from './fixtures/store.ts'
+export type {
+  FixtureStore,
+  FixtureEntry,
+  FixtureMeta,
+  FixtureRecord
+} from './fixtures/store.ts'
+
+export { createDiskFixtureStore } from './fixtures/persist.ts'
+export type { DiskStoreOptions } from './fixtures/persist.ts'
+
+// A third-party provider is written against these and nothing else.
+export type {
+  ContentSource,
+  FixtureRequest,
+  FixtureResult
+} from './fixtures/source.ts'
+
+export { createRecordedSource } from './fixtures/sources/recorded.ts'
+export type { RecordedEntry } from './fixtures/sources/recorded.ts'

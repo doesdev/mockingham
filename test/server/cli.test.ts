@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, writeFile, readFile } from 'node:fs/promises'
+import { mkdtemp, writeFile, readFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -15,6 +15,7 @@ import {
   BAKE_USAGE
 } from '../../src/server/cli.ts'
 import { createMemoryFixtureStore } from '../../src/fixtures/store.ts'
+import { fixtureKey } from '../../src/fixtures/key.ts'
 
 const cliPath = fileURLToPath(new URL('../../src/server/cli.ts', import.meta.url))
 
@@ -38,14 +39,21 @@ const doc = (title: string) => JSON.stringify({
 
 test('parseArgs reads a document path and defaults', () => {
   assert.deepEqual(parseArgs(['api.json']), {
-    document: 'api.json', port: 0, seed: undefined, watch: false, help: false
+    document: 'api.json', port: 0, seed: undefined, fixtures: undefined,
+    watch: false, help: false
   })
 })
 
 test('parseArgs reads every flag', () => {
-  assert.deepEqual(parseArgs(['api.json', '--port', '4000', '--seed', 's', '--watch']), {
-    document: 'api.json', port: 4000, seed: 's', watch: true, help: false
-  })
+  assert.deepEqual(
+    parseArgs([
+      'api.json', '--port', '4000', '--seed', 's', '--fixtures', './fx', '--watch'
+    ]),
+    {
+      document: 'api.json', port: 4000, seed: 's', fixtures: './fx',
+      watch: true, help: false
+    }
+  )
 })
 
 test('parseArgs accepts --flag=value', () => {
@@ -149,6 +157,49 @@ test('startCli serves the document over a real port', async () => {
   assert.equal(handle.watching, false)
 
   await handle.close()
+})
+
+test('serve --fixtures serves a fixture from disk', async () => {
+  // The headline loop: bake writes JSON, you commit it, the CLI serves it.
+  // Until this flag existed the serve path never loaded fixtures at all, so a
+  // baked directory was inert unless the caller used the library API.
+  const directory = await mkdtemp(join(tmpdir(), 'mockingham-cli-'))
+  const path = join(directory, 'api.json')
+  await writeFile(path, doc('first'))
+
+  const fixtures = join(directory, 'fixtures')
+  await mkdir(fixtures, { recursive: true })
+  await writeFile(
+    join(fixtures, 'ping.json'),
+    JSON.stringify({
+      '200': { [fixtureKey({ method: 'get', path: '/ping', params: {} })]: { value: { title: 'from the fixture' } } }
+    })
+  )
+
+  // close() in a finally, not after the assertions: a failing assertion would
+  // otherwise leave the port open and the runner would HANG instead of
+  // reporting. Verified — an early version of this test did exactly that.
+  const handle = await startCli([path, '--fixtures', fixtures], { log: () => {} })
+  try {
+    const response = await fetch(`${handle.url}/ping`)
+    assert.deepEqual(await response.json(), { title: 'from the fixture' })
+  } finally {
+    await handle.close()
+  }
+})
+
+test('serve without --fixtures still generates', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mockingham-cli-'))
+  const path = join(directory, 'api.json')
+  await writeFile(path, doc('first'))
+
+  const handle = await startCli([path], { log: () => {} })
+  try {
+    const response = await fetch(`${handle.url}/ping`)
+    assert.deepEqual(await response.json(), { title: 'first' })
+  } finally {
+    await handle.close()
+  }
 })
 
 test('reload picks up an edited document', async () => {

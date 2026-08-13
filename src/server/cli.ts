@@ -9,7 +9,8 @@ import { createNodeServer } from './node.ts'
 import { bake } from '../fixtures/bake.ts'
 import type { BakeSummary } from '../fixtures/bake.ts'
 import { resolveLlm } from '../fixtures/config.ts'
-import { createDiskFixtureStore } from '../fixtures/persist.ts'
+import { createDiskFixtureStore, warnOnStaleFixtures } from '../fixtures/persist.ts'
+import { schemaHashLookup } from '../fixtures/source.ts'
 import type { FixtureStore } from '../fixtures/store.ts'
 import { createCompiler } from '../schema/compile.ts'
 
@@ -17,13 +18,19 @@ export const USAGE = `mockingham — OpenAPI driven HTTP mock server
 
   mockingham <document.json> [options]
 
-  --port <n>    Port to listen on (default: an ephemeral port)
-  --seed <s>    Generation seed (default: mockingham)
-  --watch       Reload the document when it changes on disk
-  --help, -h    Show this message
+  --port <n>        Port to listen on (default: an ephemeral port)
+  --seed <s>        Generation seed (default: mockingham)
+  --fixtures <dir>  Serve committed fixture files from this directory
+  --watch           Reload the document when it changes on disk
+  --help, -h        Show this message
 
   mockingham bake <document.json> [options]   Generate fixture files
                                                (see: mockingham bake --help)
+
+Bake once, review and commit the JSON it writes, then serve it back:
+
+  mockingham bake ./openapi.json --fixtures ./fixtures --model llama3.3
+  mockingham ./openapi.json --fixtures ./fixtures
 
 YAML is not parsed. Convert the document to JSON first, or use createMock()
 from a script and pass the parsed object in.
@@ -33,14 +40,23 @@ export interface CliArgs {
   document?: string
   port: number
   seed?: string
+  /** Directory of committed fixture files to serve ahead of generation. */
+  fixtures?: string
   watch: boolean
   help: boolean
 }
 
-const NEEDS_VALUE = new Set(['--port', '--seed'])
+const NEEDS_VALUE = new Set(['--port', '--seed', '--fixtures'])
 
 export function parseArgs(argv: string[]): CliArgs {
-  const args: CliArgs = { document: undefined, port: 0, seed: undefined, watch: false, help: false }
+  const args: CliArgs = {
+    document: undefined,
+    port: 0,
+    seed: undefined,
+    fixtures: undefined,
+    watch: false,
+    help: false
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i] as string
@@ -72,6 +88,8 @@ export function parseArgs(argv: string[]): CliArgs {
           throw new Error(`mockingham: --port must be a port number, got "${value}"`)
         }
         args.port = port
+      } else if (name === '--fixtures') {
+        args.fixtures = value
       } else {
         args.seed = value
       }
@@ -135,9 +153,19 @@ export async function startCli(
 
   const build = async (): Promise<Handler> => {
     const text = await readFile(path)
-    return createHandler(loadApi(JSON.parse(text) as Record<string, unknown>), {
-      seed: args.seed
-    })
+    const api = loadApi(JSON.parse(text) as Record<string, unknown>)
+
+    // Rebuilt per build() rather than once, so a reload picks up fixture files
+    // edited since startup the same way it picks up an edited document.
+    let fixtures: { store: FixtureStore } | undefined
+    if (args.fixtures !== undefined) {
+      const store = await createDiskFixtureStore({ dir: args.fixtures, onWarn: log })
+      // The same drift check createMock runs, through the same shared lookup.
+      warnOnStaleFixtures(store, schemaHashLookup(api, createCompiler()), log)
+      fixtures = { store }
+    }
+
+    return createHandler(api, { seed: args.seed, fixtures, onWarn: log })
   }
 
   let current = await build()

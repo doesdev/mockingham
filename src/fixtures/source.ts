@@ -3,7 +3,7 @@ import type { ZodType } from 'zod'
 import { classify } from '../schema/walk.ts'
 import type { Compiler } from '../schema/compile.ts'
 import { fnv1a } from '../generate/rng.ts'
-import type { Operation, Schema } from '../spec/types.ts'
+import type { Api, Operation, Schema } from '../spec/types.ts'
 import { operationSlug } from './key.ts'
 import type { FixtureMeta } from './store.ts'
 
@@ -40,6 +40,17 @@ export interface FixtureResult {
  */
 export interface ContentSource {
   generate(reqs: FixtureRequest[]): Promise<(FixtureResult | null)[]>
+  /**
+   * How many requests this source wants per `generate` call. Optional: omit it
+   * and the driver uses its own budget, which is what a third-party source
+   * should do.
+   *
+   * It exists because a source can have a threshold the driver cannot know.
+   * The Anthropic source only switches to the Batches API at or above its
+   * `batchThreshold`, and the driver's default budget is far below that — so
+   * without this the batch path was unreachable under default configuration.
+   */
+  chunkSize?: number
 }
 
 /**
@@ -108,6 +119,29 @@ export function schemaHash(schema: Schema, compiler: Compiler): string | undefin
     return undefined
   }
   return fnv1a(JSON.stringify(jsonSchema)).toString(16).padStart(8, '0')
+}
+
+/**
+ * The lookup `warnOnStaleFixtures` needs: given a stored fixture's operation id
+ * and status, the hash that operation's response schema has NOW.
+ *
+ * Shared rather than written at each call site. Both `createMock` and the CLI's
+ * serve path run this check, and two copies of the derivation would eventually
+ * disagree — at which point every fixture reports stale against a document that
+ * never changed, which is worse than not checking at all.
+ */
+export function schemaHashLookup(
+  api: Api,
+  compiler: Compiler
+): (operationId: string, status: number) => string | undefined {
+  return (operationId, status) => {
+    const operation = api.operations.find(
+      (candidate) => operationSlug(candidate) === operationId
+    )
+    const media = operation?.responses.find((entry) => entry.status === status)
+      ?.content['application/json']
+    return media ? schemaHash(media.schema, compiler) : undefined
+  }
 }
 
 export interface BuildRequestInput {
