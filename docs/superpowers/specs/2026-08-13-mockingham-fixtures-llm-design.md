@@ -112,8 +112,14 @@ is meaningless for the default provider.
 `ContentSource.generate` already takes an *array* of requests, which is the right
 seam: how a source satisfies that array is its own business. The Anthropic source
 uses the Batches API above its own configured `batchThreshold`; the
-OpenAI-compatible source runs bounded concurrency. `batchThreshold` moves out of
-the shared budget and into the Anthropic source's configuration block.
+OpenAI-compatible source calls its endpoint sequentially, one request at a time,
+deliberately not fanning out on its own. `bake`'s driver already owns
+concurrency and its budget (`maxConcurrency`) at the `ContentSource.generate`
+boundary — a source that ran its own bounded concurrency underneath that would
+mean two layers each believing they control the fan-out, and `maxConcurrency`
+would no longer describe the actual load a source puts on its endpoint.
+`batchThreshold` moves out of the shared budget and into the Anthropic source's
+configuration block.
 
 ### 2.5 `fallbacks` cannot be sent on the Message Batches API
 
