@@ -104,14 +104,21 @@ export async function deliver(input: DeliverInput): Promise<Delivery> {
   let lastError: string | undefined
   let lastStatus: number | undefined
 
+  const method = input.method ?? 'POST'
+  // GET and HEAD cannot carry a body — undici (and the fetch spec generally)
+  // throws `Request with GET/HEAD method cannot have body` rather than
+  // silently dropping it. A webhook declared `get:` or `head:` would
+  // otherwise burn every retry attempt against a guaranteed throw.
+  const carriesBody = method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD'
+
   for (let attempt = 0; attempt < input.retry.attempts; attempt++) {
     record.attempts = attempt + 1
     let status: number | undefined
     try {
       const response = await input.fetch(input.url, {
-        method: input.method ?? 'POST',
+        method,
         headers: input.headers,
-        body: input.body
+        ...(carriesBody ? { body: input.body } : {})
       })
       status = response.status
       lastStatus = status

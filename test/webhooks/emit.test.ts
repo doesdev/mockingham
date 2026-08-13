@@ -292,3 +292,34 @@ test('a webhook declared with a non-POST method is delivered with that method (I
 
   assert.deepEqual(sent, [{ method: 'PUT' }])
 })
+
+test('a webhook declared get: delivers rather than failing (regression)', async () => {
+  const withGet = loadApi({
+    openapi: '3.1.0',
+    webhooks: {
+      onPing: {
+        get: { responses: { '200': { description: 'ok' } } }
+      }
+    },
+    paths: {}
+  })
+  const sent: Array<{ method: string; hasBody: boolean }> = []
+  const fetchStub = (async (_url: string, init: RequestInit) => {
+    sent.push({ method: String(init.method), hasBody: 'body' in init })
+    return new Response('', { status: 200 })
+  }) as unknown as typeof fetch
+
+  const delivery = await emitWebhook({
+    ...baseInput,
+    api: withGet,
+    name: 'onPing',
+    config: resolveWebhook({ url: 'http://hooks.test/x' }),
+    store: createMemoryStore(),
+    rng: createRng('t'),
+    fetch: fetchStub,
+    sleep: async () => {}
+  })
+
+  assert.equal(delivery.outcome, 'delivered')
+  assert.deepEqual(sent, [{ method: 'GET', hasBody: false }])
+})

@@ -681,9 +681,12 @@ test('settled() waits for an in-flight imperative emit', async () => {
   const settling = handler.settled()
   releaseFetch?.()
   await settling
-  await emitting
 
+  // `settled()` alone must be sufficient — not the `emitting` promise below,
+  // which would complete the delivery regardless of whether `track()` was
+  // ever called.
   assert.equal(handler.deliveries().length, 1)
+  await emitting
 })
 
 test('close() drains an in-flight imperative emit before returning', async () => {
@@ -708,11 +711,13 @@ test('close() drains an in-flight imperative emit before returning', async () =>
   const closing = handler.close()
   releaseFetch?.()
   await closing
-  await emitting
 
   // close() only returned once the in-flight delivery had actually landed —
-  // draining, not dropping, an emission that is already in flight.
+  // draining, not dropping, an emission that is already in flight. Asserted
+  // before `emitting` is awaited: the point is that `close()` alone was
+  // sufficient, not that awaiting the emit promise directly completed it.
   assert.equal(handler.deliveries().length, 1)
+  await emitting
 })
 
 test('emit() after close() rejects rather than silently sending', async () => {

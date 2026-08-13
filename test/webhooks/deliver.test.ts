@@ -131,3 +131,26 @@ test('the delivery carries the body and headers it was given', async () => {
   assert.equal(delivery.webhook, 'onOrderShipped')
   assert.equal(delivery.url, 'http://hooks.test/x')
 })
+
+test('GET and HEAD never carry a body — undici throws otherwise', async () => {
+  // Regression from I5's method plumbing: undici (and fetch generally) throws
+  // "Request with GET/HEAD method cannot have body" rather than dropping it.
+  // Before the fix, a webhook declared `get:` or `head:` burned every retry
+  // attempt against a guaranteed throw and recorded `outcome: 'failed'` where
+  // it previously (incorrectly) delivered as a POST.
+  for (const method of ['GET', 'HEAD']) {
+    const inits: RequestInit[] = []
+    const fetchStub = (async (_url: string, init: RequestInit) => {
+      inits.push(init)
+      return new Response('', { status: 200 })
+    }) as unknown as typeof fetch
+
+    const delivery = await deliver({
+      ...base, method, fetch: fetchStub, sleep: async () => {}
+    })
+
+    assert.equal(delivery.outcome, 'delivered', method)
+    assert.equal('body' in inits[0]!, false, method)
+    assert.equal(inits[0]!.method, method)
+  }
+})
