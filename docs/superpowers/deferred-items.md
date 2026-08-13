@@ -61,8 +61,10 @@ tests passing, up from a 509-test baseline, typecheck clean.
    both specify it. Decide deliberately and record the outcome; it was never
    consciously dropped, it was simply never planned in.
    **Status: decided deferral, plan 5.** The scope question was put to the user
-   during plan 5 and they ruled it out of this plan's scope. It goes to plan 6 —
-   this is now a deliberate deferral, not an oversight.
+   during plan 5 and they ruled it out of this plan's scope — a deliberate
+   deferral, not an oversight. It was expected to land in plan 6, but plan 6
+   turned out to be webhooks alone; it is now unscheduled, to be picked up when
+   someone next opens the override surface.
 
 7. **Cookie parameters cannot validate.** `Parameter['location']` includes
    `'cookie'` and `src/runtime/validate.ts` handles only path/query/header.
@@ -83,8 +85,10 @@ tests passing, up from a 509-test baseline, typecheck clean.
     or a throw before the boundary catch releases the marker), not for a real
     race. A `Store` with no compare-and-set primitive cannot fix this properly.
     **Status: documented deferral, plan 5.** `Store.setIfAbsent` is the eventual
-    fix and is plan 6 scope — adding it mid-plan-5 was judged out of scope for a
-    fix wave. See phases 7-9 design §6 (known limitation 6) and master spec §11.
+    fix — adding it mid-plan-5 was judged out of scope for a fix wave. Expected
+    to land in plan 6, but plan 6 turned out to be webhooks alone; it is now
+    unscheduled, to be picked up when someone next opens the `Store` interface.
+    See phases 7-9 design §6 (known limitation 6) and master spec §11.
 
 16. **The response-always-returned guarantee has one remaining hole.**
     `handle()`'s first line (`const startedAt = now()`) and `internalError()`'s
