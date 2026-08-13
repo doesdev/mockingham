@@ -3,33 +3,21 @@ import { createMock } from '../../src/index.ts'
 import type { Mock, MockOptions } from '../../src/index.ts'
 import { mcpTools } from '../../src/mcp/tools/index.ts'
 import type { McpToolOptions } from '../../src/mcp/tools/index.ts'
-import { computeEmitters } from '../../src/mcp/context.ts'
+import { createMcpContext } from '../../src/mcp/context.ts'
 import type { McpContext, McpTool } from '../../src/mcp/context.ts'
 import { compileConfigs } from '../../src/runtime/config.ts'
 import { mcpDoc } from './doc.ts'
 
 /**
- * Builds the same McpContext `createMock` builds, from an existing Mock.
- * These two constructions MUST stay in step — see self-review note 1 at the
- * end of the plan. If you were able to have createMock export the context it
- * builds, delete this body and call that instead.
+ * The same McpContext `createMock().mcp()` builds, from an existing Mock —
+ * literally the same call, not a parallel one. Production and tests share one
+ * construction path so the two cannot drift apart at the seam.
  */
 export function contextForMock(mock: Mock, options: MockOptions = {}): McpContext {
-  return {
-    api: mock.api,
-    fetch: (request) => mock.fetch(request),
-    failNext: (target, opts) => mock.failNext(target, opts),
-    outage: (target, opts) => mock.outage(target, opts),
-    setSeed: (seed) => mock.setSeed(seed),
-    reset: () => mock.reset(),
-    emit: (name, opts) => mock.emit(name, opts),
-    deliveries: () => mock.deliveries(),
-    emitters: computeEmitters(
-      mock.api.operations,
-      compileConfigs(options.operations, mock.api.operations)
-    ),
-    origin: 'http://mock.local'
-  }
+  return createMcpContext(
+    mock,
+    compileConfigs(options.operations, mock.api.operations)
+  )
 }
 
 export function contextFor(

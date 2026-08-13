@@ -39,6 +39,48 @@ export interface McpContext {
   origin: string
 }
 
+/**
+ * The eight members of `McpContext` a `Mock` supplies directly. Typed
+ * structurally rather than as `Mock` on purpose: `../index.ts` imports this
+ * module, so naming its type here would close a cycle. It is also the whole
+ * point of the narrowing — this is every part of a `Mock` a tool may reach.
+ */
+export interface McpContextSource {
+  api: Api
+  fetch(request: Request): Promise<Response>
+  failNext(target: string, opts?: McpFailNextOptions): Promise<void>
+  outage(target: string, opts?: McpOutageOptions): Promise<void>
+  setSeed(seed: string): Promise<void>
+  reset(): Promise<void>
+  emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  deliveries(): Delivery[]
+}
+
+/**
+ * The one construction path for an `McpContext`. `createMock().mcp()` and the
+ * test helpers both call this, so there is no second literal that could drift
+ * out of step with the first — a seam where two independently-correct
+ * constructions disagree is the defect shape this exists to make impossible.
+ */
+export function createMcpContext(
+  source: McpContextSource,
+  configs: CompiledConfig[],
+  origin = 'http://mock.local'
+): McpContext {
+  return {
+    api: source.api,
+    fetch: (request) => source.fetch(request),
+    failNext: (target, opts) => source.failNext(target, opts),
+    outage: (target, opts) => source.outage(target, opts),
+    setSeed: (seed) => source.setSeed(seed),
+    reset: () => source.reset(),
+    emit: (name, opts) => source.emit(name, opts),
+    deliveries: () => source.deliveries(),
+    emitters: computeEmitters(source.api.operations, configs),
+    origin
+  }
+}
+
 export interface McpTool {
   name: string
   description: string

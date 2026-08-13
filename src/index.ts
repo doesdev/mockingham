@@ -16,6 +16,10 @@ import { bake as bakeFixtures } from './fixtures/bake.ts'
 import type { BakeSummary } from './fixtures/bake.ts'
 import { warnOnStaleFixtures } from './fixtures/persist.ts'
 import { schemaHashLookup } from './fixtures/source.ts'
+import { createMcpServer } from './mcp/server.ts'
+import type { McpOptions, McpServerHandle } from './mcp/server.ts'
+import { createMcpContext } from './mcp/context.ts'
+import { compileConfigs } from './runtime/config.ts'
 
 const JSON_TYPE = 'application/json'
 
@@ -59,6 +63,11 @@ export interface Mock {
    * or a provider block with `llm.mode` set to something other than `off`.
    */
   bake(): Promise<BakeSummary>
+  /**
+   * Builds an MCP server over this mock. `transport: 'http'` mounts it on the
+   * mock's own fetch surface, so it works before or after `listen()`.
+   */
+  mcp(options?: McpOptions): McpServerHandle
 }
 
 export function createMock(
@@ -88,7 +97,18 @@ export function createMock(
     llm: resolvedLlm,
     fixtures: { store: fixtureStore }
   })
-  const server = createNodeServer(handler.fetch)
+  // Read on every request rather than captured, so mcp() works after listen().
+  let mount: { path: string; handle: McpServerHandle } | undefined
+
+  const fetchWithMcp = async (request: Request): Promise<Response> => {
+    const current = mount
+    if (current !== undefined && new URL(request.url).pathname === current.path) {
+      return current.handle.handleRequest(request)
+    }
+    return handler.fetch(request)
+  }
+
+  const server = createNodeServer(fetchWithMcp)
 
   // Resolves a control-plane target to EVERY key the failure stage reads, so a
   // typo throws instead of silently arming nothing and a wildcard target arms
@@ -97,8 +117,8 @@ export function createMock(
   const keysFor = (target: string): string[] =>
     resolveTarget(target, api.operations).map(targetKey)
 
-  return {
-    fetch: handler.fetch,
+  const mockRef: Mock = {
+    fetch: fetchWithMcp,
     listen: (port) => server.listen(port),
     async close() {
       // Emissions in flight are dropped rather than delivered after the server
@@ -164,8 +184,36 @@ export function createMock(
         onWarn: options.onWarn,
         onError: (error) => options.onError?.(error)
       })
+    },
+
+    mcp(mcpOptions: McpOptions = {}): McpServerHandle {
+      // Built through the one shared factory rather than a literal here, so
+      // the context a tool sees in production is the context it sees under
+      // test. `mockRef` is read at call time, never during construction.
+      const context = createMcpContext(
+        mockRef,
+        compileConfigs(options.operations, api.operations)
+      )
+      const handle = createMcpServer(context, mcpOptions)
+
+      if (mcpOptions.transport === 'http') {
+        const path = mcpOptions.path ?? '/mcp'
+        if (api.operations.some((operation) => operation.path === path)) {
+          ;(options.onWarn ?? ((message: string) => console.warn(message)))(
+            `mockingham: the MCP server is mounted at ${path}, which shadows an ` +
+              'operation the document declares at the same path. Requests to it ' +
+              'will reach the MCP server, not the mock. Mount elsewhere with ' +
+              'mcp({ path: "..." }) if that is not what you want.'
+          )
+        }
+        mount = { path, handle }
+      }
+
+      return handle
     }
   }
+
+  return mockRef
 }
 
 export { loadApi } from './spec/load.ts'
@@ -200,3 +248,6 @@ export type {
 
 export { createRecordedSource } from './fixtures/sources/recorded.ts'
 export type { RecordedEntry } from './fixtures/sources/recorded.ts'
+
+export type { McpOptions, McpServerHandle } from './mcp/server.ts'
+export type { McpContext, McpTool } from './mcp/context.ts'
