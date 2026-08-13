@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { z } from 'zod'
 import { isRecursive, buildRequest } from '../../src/fixtures/source.ts'
 import { createCompiler } from '../../src/schema/compile.ts'
 import type { Schema } from '../../src/spec/types.ts'
@@ -26,6 +27,35 @@ test('a schema recursive through an array is recursive', () => {
   const node: Schema = { type: 'object', properties: {} }
   node.properties = { children: { type: 'array', items: node } }
   assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through anyOf is recursive', () => {
+  const node: Schema = { anyOf: [] }
+  node.anyOf = [{ type: 'object', properties: { self: node } }, { type: 'string' }]
+  assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through oneOf is recursive', () => {
+  const node: Schema = { oneOf: [] }
+  node.oneOf = [{ type: 'string' }, { type: 'object', properties: { self: node } }]
+  assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through additionalProperties is recursive', () => {
+  const node: Schema = { type: 'object', properties: {} }
+  node.additionalProperties = node
+  assert.equal(isRecursive(node), true)
+})
+
+test('the same schema in two sibling union variants is a diamond, not a cycle', () => {
+  // Without this, a fix that over-detects (e.g. flags a union whenever ANY
+  // two variants are `===`) would still pass the anyOf/oneOf cycle tests
+  // above, since those also involve a repeated reference. This schema
+  // repeats a reference with no cycle anywhere: `shared` does not, directly
+  // or indirectly, contain `node`.
+  const shared: Schema = { type: 'object', properties: { value: { type: 'string' } } }
+  const node: Schema = { anyOf: [shared, shared] }
+  assert.equal(isRecursive(node), false)
 })
 
 test('a cycle expressed through an allOf member is still recursive', () => {
@@ -141,6 +171,70 @@ test('a recursive schema builds no request', () => {
     params: {},
     schema: node,
     compiler: createCompiler(),
+    schemaNames: new Map()
+  })
+  assert.equal(request, undefined)
+})
+
+test('a property description survives into jsonSchema', () => {
+  const schema: Schema = {
+    type: 'object',
+    properties: { bio: { type: 'string', description: 'A short biography' } }
+  }
+  const request = buildRequest({
+    operation: baseOperation(),
+    status: 200,
+    key: 'k',
+    params: {},
+    schema,
+    compiler: createCompiler(),
+    schemaNames: new Map()
+  })
+  assert.ok(request)
+  const json = request.jsonSchema as {
+    properties?: Record<string, { description?: string }>
+  }
+  assert.equal(json.properties?.['bio']?.description, 'A short biography')
+})
+
+test('an undiscriminated oneOf response schema builds no request', () => {
+  // compile.ts's shared interpretation compiles an undiscriminated oneOf to
+  // `z.unknown().superRefine(...)`, which z.toJSONSchema converts to a bare
+  // `{ "$schema": ... }` with no type, properties, or any other structural
+  // key. A provider handed that cannot produce a conforming body, so this
+  // must fall through to seeded generation rather than build a doomed
+  // request.
+  const schema: Schema = {
+    oneOf: [
+      { type: 'object', properties: { a: { type: 'string' } }, required: ['a'] },
+      { type: 'object', properties: { b: { type: 'number' } }, required: ['b'] }
+    ]
+  }
+  const request = buildRequest({
+    operation: baseOperation(),
+    status: 200,
+    key: 'k',
+    params: {},
+    schema,
+    compiler: createCompiler(),
+    schemaNames: new Map()
+  })
+  assert.equal(request, undefined)
+})
+
+test('a schema zod cannot express as JSON Schema builds no request', () => {
+  // Exercises the catch branch through the public contract: `compiler` is an
+  // injected interface (BuildRequestInput.compiler), so a stub that returns
+  // a zod type z.toJSONSchema cannot express reaches this path without any
+  // mockingham internal producing such a type today.
+  const schema: Schema = { type: 'object', properties: {} }
+  const request = buildRequest({
+    operation: baseOperation(),
+    status: 200,
+    key: 'k',
+    params: {},
+    schema,
+    compiler: { compile: () => z.date() },
     schemaNames: new Map()
   })
   assert.equal(request, undefined)

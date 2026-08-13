@@ -100,7 +100,15 @@ export function createCompiler(): Compiler {
       active.delete(schema)
     }
 
-    const final = isNullable(schema) ? built.nullable() : built
+    const nullable = isNullable(schema) ? built.nullable() : built
+    // Metadata only — `.describe()` never changes what parses or what fails,
+    // only what `z.toJSONSchema` reports. Attached last (outermost) so it
+    // survives on the same node a provider actually reads, rather than
+    // nesting inside the `anyOf` a nullable wrapper introduces.
+    const final =
+      schema.description !== undefined
+        ? nullable.describe(schema.description)
+        : nullable
     cache.set(schema, final)
     return final
   }

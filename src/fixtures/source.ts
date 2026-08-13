@@ -44,7 +44,11 @@ export interface ContentSource {
 /**
  * Structured outputs do not support recursive schemas, so a recursive response
  * never reaches any source and stays generator-only. Walks through
- * `classify()`, like everything else that reads a schema.
+ * `classify()`, like everything else that reads a schema — every branch that
+ * can hold a nested `Schema` (`array` items, `object` properties AND its
+ * `additional` schema, `union` variants) is followed, or a cycle routed
+ * through the branch this walk skips would build a request whose JSON Schema
+ * contains a live self-reference no provider can act on.
  *
  * `seen` tracks visited schemas by identity along the current path only (a
  * fresh copy is threaded into each recursive call rather than mutated in
@@ -65,10 +69,16 @@ export function isRecursive(schema: Schema): boolean {
     nested.add(node)
     const kind = classify(node)
     if (kind.kind === 'array') return walk(kind.items, nested)
+    if (kind.kind === 'union') {
+      return kind.variants.some((variant) => walk(variant, nested))
+    }
     if (kind.kind === 'object') {
-      return Object.keys(kind.properties)
+      const throughProperties = Object.keys(kind.properties)
         .sort()
         .some((name) => walk(kind.properties[name] as Schema, nested))
+      if (throughProperties) return true
+      if (kind.additional === false) return false
+      return walk(kind.additional, nested)
     }
     return false
   }
@@ -98,6 +108,14 @@ export function buildRequest(input: BuildRequestInput): FixtureRequest | undefin
     // A schema zod cannot express as JSON Schema is a miss, not an error.
     return undefined
   }
+  // An undiscriminated `oneOf` compiles to `z.unknown().superRefine(...)`
+  // (compile.ts's shared interpretation, deliberately not changed here — see
+  // Finding 3), which converts to a JSON Schema carrying none of these keys:
+  // no type, no properties, nothing a provider could shape a body around. A
+  // shapeless schema cannot yield a conforming response, so this is a miss
+  // like any other unsendable schema, not a request built on a false promise.
+  const structural = ['type', 'properties', 'items', 'anyOf', 'oneOf', 'allOf', 'enum', 'const']
+  if (!structural.some((key) => jsonSchema[key] !== undefined)) return undefined
   return {
     operationId: operationSlug(input.operation),
     method: input.operation.method,
