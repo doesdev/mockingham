@@ -110,10 +110,14 @@ export async function createDiskFixtureStore(
   // leave stale content behind a resolved flush().
   let queue: Promise<void> = Promise.resolve()
 
+  // Writes serialize, but a failed write must not poison the chain: `queue`
+  // tracks a caught copy so the next write still runs, while the caller gets
+  // the real promise and can still see the failure.
   const write = (): Promise<void> => {
     timer = undefined
-    queue = queue.then(() => writeFixtures(options.dir, memory))
-    return queue
+    const next = queue.then(() => writeFixtures(options.dir, memory))
+    queue = next.catch(() => undefined)
+    return next
   }
 
   return {
@@ -124,7 +128,16 @@ export async function createDiskFixtureStore(
     set(operationId, status, key, entry) {
       memory.set(operationId, status, key, entry)
       if (timer) clearTimeout(timer)
-      timer = setTimeout(() => void write(), debounceMs)
+      timer = setTimeout(() => {
+        // A background write failure warns; it must never become an unhandled
+        // rejection, which would terminate the process. An explicit flush()
+        // still rejects so a caller that asked for a write learns it failed.
+        void write().catch((error) => {
+          options.onWarn?.(
+            `mockingham: could not write fixtures to ${options.dir}: ${String(error)}`
+          )
+        })
+      }, debounceMs)
     },
 
     flush() {

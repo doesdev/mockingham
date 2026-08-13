@@ -189,3 +189,38 @@ test('an operation slug containing only a forward slash is rejected', async () =
   store.set('esc/ape', 200, 'a3f19c2e', { value: 1 })
   await assert.rejects(() => writeFixtures(dir, store), /operation id/i)
 })
+
+test('an operation id containing only .. is rejected', async () => {
+  const dir = await scratch()
+  const store = createMemoryFixtureStore()
+  store.set('esc..ape', 200, 'k', { value: 1 })
+  await assert.rejects(() => writeFixtures(dir, store), /operation id/i)
+})
+
+test('a failed write does not stop later writes from succeeding', async () => {
+  const dir = await scratch()
+  const store = await createDiskFixtureStore({ dir, debounceMs: 10_000 })
+  // An unsafe operation id makes writeFixtures reject.
+  store.set('../escape', 200, 'k', { value: 1 })
+  await assert.rejects(() => store.flush())
+  // The chain must still be alive: a good record written afterwards lands.
+  store.clear()
+  store.set('getUser', 200, 'k', { value: 2 })
+  await store.flush()
+  const written = JSON.parse(await readFile(join(dir, 'getUser.json'), 'utf8'))
+  assert.deepEqual(written['200'].k, { value: 2 })
+})
+
+test('a failed background write warns instead of rejecting unhandled', async () => {
+  const dir = await scratch()
+  const warnings: string[] = []
+  const store = await createDiskFixtureStore({
+    dir,
+    debounceMs: 5,
+    onWarn: (message) => warnings.push(message)
+  })
+  store.set('../escape', 200, 'k', { value: 1 })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0] as string, /could not write fixtures/)
+})
