@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { createOpenAiSource } from './sources/openai.ts'
+import { createAnthropicSource } from './sources/anthropic.ts'
 import type { ContentSource } from './source.ts'
 import type { ResolvedLlm } from './resolve.ts'
 
@@ -93,10 +94,13 @@ export function resolveLlm(
     }
   }
 
-  // Anthropic is constructed in a later task; until then this branch throws
-  // with the install instruction the master spec specifies.
-  throw new Error(
-    'mockingham: provider "anthropic" requires @anthropic-ai/sdk. ' +
-      'Install it, or use the default openai-compatible provider.'
-  )
+  return {
+    ...base,
+    source: createAnthropicSource({
+      model: parsed.anthropic?.model,
+      apiKey: parsed.anthropic?.apiKey,
+      batchThreshold: parsed.anthropic?.batchThreshold,
+      timeoutMs: budget.timeoutMs
+    })
+  }
 }
