@@ -254,9 +254,126 @@ const sampleResponse: McpTool = {
   }
 }
 
+const searchOperations: McpTool = {
+  name: 'search_operations',
+  description:
+    'Free-text search over path, summary, description, and tags. Use this when ' +
+    'you know what you want to do but not what it is called.',
+  inputSchema: {
+    query: z.string().describe('Free text; matched case-insensitively as a substring'),
+    limit: z.number().int().positive().optional()
+  },
+  handler(ctx: McpContext, args: Record<string, unknown>) {
+    const query = String(args.query ?? '').toLowerCase().trim()
+    const limit = (args.limit as number | undefined) ?? 20
+    if (query.length === 0) return []
+
+    const scored = ctx.api.operations
+      .map((operation) => {
+        const haystacks = [
+          operation.path,
+          operation.summary ?? '',
+          operation.description ?? '',
+          operation.tags.join(' '),
+          operation.operationId ?? ''
+        ].map((text) => text.toLowerCase())
+
+        // Ranked by WHERE it matched, not by how often: a summary hit is a
+        // better answer than an incidental description hit, and an agent
+        // reading the first result should get the best one.
+        let score = 0
+        if (haystacks[1]!.includes(query)) score += 8
+        if (haystacks[4]!.includes(query)) score += 6
+        if (haystacks[0]!.includes(query)) score += 4
+        if (haystacks[3]!.includes(query)) score += 3
+        if (haystacks[2]!.includes(query)) score += 1
+        return { operation, score }
+      })
+      .filter((entry) => entry.score > 0)
+
+    // Stable: equal scores keep document order, because sort() is stable in
+    // Node and `scored` was built by walking operations in order.
+    scored.sort((a, b) => b.score - a.score)
+
+    return scored.slice(0, limit).map((entry) => ({
+      method: entry.operation.method.toUpperCase(),
+      path: entry.operation.path,
+      operationId: entry.operation.operationId,
+      summary: entry.operation.summary,
+      tags: entry.operation.tags
+    }))
+  }
+}
+
+const listWebhooks: McpTool = {
+  name: 'list_webhooks',
+  description:
+    'Outbound requests this API can make — top-level webhooks and per-operation ' +
+    'callbacks — with payload schemas and which operations are configured to ' +
+    'emit them. An empty emittedBy means the document declares it but nothing ' +
+    'fires it.',
+  inputSchema: {},
+  handler(ctx: McpContext) {
+    const callbacks = new Map<string, { expression: string; owner: string }>()
+    for (const operation of ctx.api.operations) {
+      for (const callback of operation.callbacks) {
+        if (callbacks.has(callback.name)) continue
+        callbacks.set(callback.name, {
+          expression: callback.expression,
+          owner: `${operation.method.toUpperCase()} ${operation.path}`
+        })
+      }
+    }
+
+    // Sorted: api.webhooks is an object, and invariant 2 forbids object key
+    // order deciding output.
+    return Object.keys(ctx.api.webhooks).sort().map((name) => {
+      const webhook = ctx.api.webhooks[name]!
+      const callback = callbacks.get(name)
+      const media = webhook.body?.['application/json']
+      const configured = ctx.emitters.get(name) ?? []
+      return {
+        name,
+        kind: callback === undefined ? 'webhook' : 'callback',
+        method: webhook.method.toUpperCase(),
+        payloadSchema: media ? toJsonSchema(media.schema, compiler) : undefined,
+        // A callback's owning operation is declared in the document, so it is
+        // reported whether or not anything is configured to emit it. A
+        // top-level webhook has no declared owner — only config can link it.
+        emittedBy: callback !== undefined && configured.length === 0
+          ? [callback.owner]
+          : configured,
+        expression: callback?.expression
+      }
+    })
+  }
+}
+
+const listDeliveries: McpTool = {
+  name: 'list_deliveries',
+  description:
+    'Webhook deliveries this mock has made so far, oldest first — the feedback ' +
+    'loop for verifying your own receiver. Filter by webhook name or outcome.',
+  inputSchema: {
+    webhook: z.string().optional(),
+    outcome: z.string().optional().describe('e.g. captured, delivered, unresolved')
+  },
+  handler(ctx: McpContext, args: Record<string, unknown>) {
+    const webhook = args.webhook as string | undefined
+    const outcome = args.outcome as string | undefined
+    // Filtered here rather than by widening Mock.deliveries() — design 3.9.
+    return ctx.deliveries()
+      .filter((delivery) => webhook === undefined || delivery.webhook === webhook)
+      .filter((delivery) => outcome === undefined || delivery.outcome === outcome)
+  }
+}
+
 export const READ_TOOLS: McpTool[] = [
   listOperations,
   describeOperation,
   getAuthRequirements,
-  sampleResponse
+  sampleResponse,
+  searchOperations,
+  listWebhooks,
+  listDeliveries
 ]
