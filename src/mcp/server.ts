@@ -48,6 +48,22 @@ interface TransportLike {
  * dependency. Only a genuinely absent module becomes the friendly message — an
  * error thrown from inside the SDK propagates as itself, because reporting a
  * broken install as a missing one sends the reader to the wrong problem.
+ *
+ * Every specifier is read through a non-literal variable so `tsc` cannot
+ * resolve it statically — the same trick `fixtures/sources/anthropic.ts` uses,
+ * and for the same reason. This package ships raw TypeScript (`main` is
+ * `src/index.ts`) and `src/index.ts` imports this module statically, so a
+ * literal specifier would fail a consumer's own `tsc --noEmit` with TS2307
+ * whenever they skipped the optional peer dependency.
+ *
+ * The cost, stated plainly: a non-literal specifier types the import as `any`,
+ * so the compiler NEVER checks the casts below — not even once
+ * @modelcontextprotocol/sdk IS installed. `McpServerLike` and `TransportLike`
+ * are therefore unverified against the real SDK; if it renames an export or
+ * changes a constructor or method signature, only a runtime failure would show
+ * it. Review both interfaces and these casts by hand whenever the SDK is
+ * bumped. In practice that is a small bill here — both are already narrow
+ * structural interfaces reached through `as never`.
  */
 async function loadSdk(): Promise<{
   McpServer: new (info: { name: string; version: string }) => McpServerLike
@@ -56,10 +72,12 @@ async function loadSdk(): Promise<{
     enableJsonResponse: boolean
   }) => TransportLike
 }> {
+  const mcpSpecifier = '@modelcontextprotocol/sdk/server/mcp.js'
+  const httpSpecifier = '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
   try {
     const [mcp, http] = await Promise.all([
-      import('@modelcontextprotocol/sdk/server/mcp.js'),
-      import('@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js')
+      import(mcpSpecifier),
+      import(httpSpecifier)
     ])
     return {
       McpServer: mcp.McpServer as never,
@@ -126,10 +144,14 @@ export function createMcpServer(
     },
 
     async connectStdio(): Promise<void> {
+      // loadSdk() runs first, so an absent package has already produced
+      // MISSING_SDK by the time this import is reached. Non-literal specifier
+      // for the same reason as above, with the same unchecked-cast caveat.
       const sdk = await loadSdk()
-      const { StdioServerTransport } = await import(
-        '@modelcontextprotocol/sdk/server/stdio.js'
-      )
+      const stdioSpecifier = '@modelcontextprotocol/sdk/server/stdio.js'
+      const { StdioServerTransport } = (await import(stdioSpecifier)) as {
+        StdioServerTransport: new () => unknown
+      }
       const server = new sdk.McpServer({ name: 'mockingham', version })
       register(server, context, tools)
       const transport = new StdioServerTransport()
