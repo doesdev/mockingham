@@ -1,7 +1,7 @@
-import { z } from 'zod'
 import type { ZodType } from 'zod'
 import { classify } from '../schema/walk.ts'
 import type { Compiler } from '../schema/compile.ts'
+import { toJsonSchema } from '../schema/json-schema.ts'
 import { fnv1a } from '../generate/rng.ts'
 import type { Api, Operation, Schema } from '../spec/types.ts'
 import { operationSlug } from './key.ts'
@@ -104,20 +104,15 @@ export function isRecursive(schema: Schema): boolean {
  * one function so their hashes can never drift apart; two independent
  * derivations would produce spurious warnings the moment they disagreed.
  *
- * Same derivation `buildRequest` uses (`compiler.compile` then
- * `z.toJSONSchema`), so a schema this hashes is exactly a schema
- * `buildRequest` could turn into a request. A schema zod cannot express as
- * JSON Schema yields no hash at all, which the caller treats as "nothing to
- * compare" rather than a fabricated mismatch.
+ * Same derivation `buildRequest` uses — both route through `toJsonSchema` —
+ * so a schema this hashes is exactly a schema `buildRequest` could turn into
+ * a request. A schema zod cannot express as JSON Schema yields no hash at
+ * all, which the caller treats as "nothing to compare" rather than a
+ * fabricated mismatch.
  */
 export function schemaHash(schema: Schema, compiler: Compiler): string | undefined {
-  const compiled = compiler.compile(schema)
-  let jsonSchema: Record<string, unknown>
-  try {
-    jsonSchema = z.toJSONSchema(compiled) as Record<string, unknown>
-  } catch {
-    return undefined
-  }
+  const jsonSchema = toJsonSchema(schema, compiler)
+  if (jsonSchema === undefined) return undefined
   return fnv1a(JSON.stringify(jsonSchema)).toString(16).padStart(8, '0')
 }
 
@@ -160,13 +155,9 @@ export interface BuildRequestInput {
 export function buildRequest(input: BuildRequestInput): FixtureRequest | undefined {
   if (isRecursive(input.schema)) return undefined
   const zodSchema = input.compiler.compile(input.schema)
-  let jsonSchema: Record<string, unknown>
-  try {
-    jsonSchema = z.toJSONSchema(zodSchema) as Record<string, unknown>
-  } catch {
-    // A schema zod cannot express as JSON Schema is a miss, not an error.
-    return undefined
-  }
+  // A schema zod cannot express as JSON Schema is a miss, not an error.
+  const jsonSchema = toJsonSchema(input.schema, input.compiler)
+  if (jsonSchema === undefined) return undefined
   // An undiscriminated `oneOf` compiles to `z.unknown().superRefine(...)`
   // (compile.ts's shared interpretation, deliberately not changed here — see
   // Finding 3), which converts to a JSON Schema carrying none of these keys:
