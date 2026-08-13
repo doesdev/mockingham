@@ -129,9 +129,11 @@ export async function createDiskFixtureStore(
       memory.set(operationId, status, key, entry)
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
-        // A background write failure warns; it must never become an unhandled
-        // rejection, which would terminate the process. An explicit flush()
-        // still rejects so a caller that asked for a write learns it failed.
+        // A background write failure warns because nothing else would report
+        // it: the queue's internal catch above exists only to keep the chain
+        // alive, so without this an operator gets no signal that persistence
+        // stopped working. An explicit flush() still rejects, for a caller
+        // that asked for a write and can handle the failure itself.
         void write().catch((error) => {
           options.onWarn?.(
             `mockingham: could not write fixtures to ${options.dir}: ${String(error)}`

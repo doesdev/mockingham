@@ -214,13 +214,25 @@ test('a failed write does not stop later writes from succeeding', async () => {
 test('a failed background write warns instead of rejecting unhandled', async () => {
   const dir = await scratch()
   const warnings: string[] = []
+  let signal: () => void = () => {}
+  const warned = new Promise<void>((resolve) => {
+    signal = resolve
+  })
   const store = await createDiskFixtureStore({
     dir,
     debounceMs: 5,
-    onWarn: (message) => warnings.push(message)
+    onWarn: (message) => {
+      warnings.push(message)
+      signal()
+    }
   })
   store.set('../escape', 200, 'k', { value: 1 })
-  await new Promise((resolve) => setTimeout(resolve, 60))
+  await Promise.race([
+    warned,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('no warning arrived within 2s')), 2000)
+    )
+  ])
   assert.equal(warnings.length, 1)
   assert.match(warnings[0] as string, /could not write fixtures/)
 })
