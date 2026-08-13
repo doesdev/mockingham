@@ -92,22 +92,24 @@ test('a real delivery arrives signed and verifiable', async () => {
     webhooks: { onOrderShipped: { url: hook.url, secret: 'topsecret' } }
   })
 
-  const delivery = await mock.emit('onOrderShipped')
+  try {
+    const delivery = await mock.emit('onOrderShipped')
 
-  assert.equal(delivery.outcome, 'delivered')
-  assert.equal(delivery.status, 200)
-  assert.equal(hook.received.length, 1)
-  assert.equal(hook.received[0]!.body, delivery.body)
+    assert.equal(delivery.outcome, 'delivered')
+    assert.equal(delivery.status, 200)
+    assert.equal(hook.received.length, 1)
+    assert.equal(hook.received[0]!.body, delivery.body)
 
-  // The signature the receiver got verifies against the body it got — the
-  // security-critical path a consumer will implement.
-  const header = hook.received[0]!.signature
-  assert.ok(header, 'no signature header arrived')
-  assert.equal(await verify('topsecret', header, hook.received[0]!.body), true)
-  assert.equal(await verify('wrong', header, hook.received[0]!.body), false)
-
-  await mock.close()
-  await hook.close()
+    // The signature the receiver got verifies against the body it got — the
+    // security-critical path a consumer will implement.
+    const header = hook.received[0]!.signature
+    assert.ok(header, 'no signature header arrived')
+    assert.equal(await verify('topsecret', header, hook.received[0]!.body), true)
+    assert.equal(await verify('wrong', header, hook.received[0]!.body), false)
+  } finally {
+    await mock.close()
+    await hook.close()
+  }
 })
 
 test('a real delivery retries a 500 and succeeds on the second attempt', async () => {
@@ -119,13 +121,15 @@ test('a real delivery retries a 500 and succeeds on the second attempt', async (
     webhooks: { onOrderShipped: { url: hook.url, retry: { attempts: 3 } } }
   })
 
-  const delivery = await mock.emit('onOrderShipped')
+  try {
+    const delivery = await mock.emit('onOrderShipped')
 
-  assert.equal(delivery.outcome, 'delivered')
-  assert.equal(delivery.attempts, 2)
-  assert.equal(hook.received.length, 2)
-  assert.equal(slept.length, 1)
-
-  await mock.close()
-  await hook.close()
+    assert.equal(delivery.outcome, 'delivered')
+    assert.equal(delivery.attempts, 2)
+    assert.equal(hook.received.length, 2)
+    assert.equal(slept.length, 1)
+  } finally {
+    await mock.close()
+    await hook.close()
+  }
 })
