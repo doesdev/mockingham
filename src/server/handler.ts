@@ -7,6 +7,8 @@ import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
+import { isSupported, resolveExpression } from '../webhooks/expr.ts'
+import { callbackKey } from '../webhooks/emit.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
@@ -68,6 +70,12 @@ export interface HandlerOptions {
   now?: () => number
   onLog?: LogSink
   onError?: ErrorSink
+  /**
+   * Where startup warnings go — an unsupported runtime expression, for one.
+   * Injectable so a test can assert on it without capturing the console, and
+   * so an embedding application can route it.
+   */
+  onWarn?: (message: string) => void
 }
 
 // Module scope: a per-request TextEncoder would be one more allocation on
@@ -112,6 +120,25 @@ export function createHandler(
   const requestOrdinals = new Map<string, number>()
 
   const mode: ErrorBodyMode = options.errorBody ?? 'contract'
+
+  const warn = options.onWarn ?? ((message: string) => console.warn(message))
+
+  // Compiled once. An expression outside the documented subset warns here
+  // rather than silently never firing — the same reasoning as `compileTarget`
+  // throwing on a target that matches nothing.
+  const callbacks = api.operations.map((operation) => ({
+    operation,
+    specs: operation.callbacks.filter((callback) => {
+      if (isSupported(callback.expression)) return true
+      warn(
+        `mockingham: callback "${callback.name}" on ` +
+          `${operation.method.toUpperCase()} ${operation.path} uses the runtime ` +
+          `expression ${callback.expression}, which is outside the supported ` +
+          'subset. It will not capture a destination.'
+      )
+      return false
+    })
+  }))
 
   /**
    * The error builder, bound to one operation and one request key. Binding here
@@ -418,6 +445,22 @@ export function createHandler(
   }
 
   /**
+   * The response body as a value, for `$response.body#/…` and for `EmitCtx`.
+   * A non-JSON body stays a string rather than becoming `undefined`, so an
+   * expression pointing at a text body still resolves.
+   */
+  function parseBodyText(text: string | null, response: Response): unknown {
+    if (text === null || text === '') return undefined
+    const type = response.headers.get('content-type') ?? ''
+    if (!type.includes('json')) return text
+    try {
+      return JSON.parse(text)
+    } catch {
+      return text
+    }
+  }
+
+  /**
    * THE SINGLE EXIT. Every response leaves through here — a 404 built before any
    * operation was known, a body-parse 400, a stage short-circuit, a rendered
    * body, and the boundary 500 alike. Stage 11 (idempotency capture, then the
@@ -446,9 +489,15 @@ export function createHandler(
     // before this fix, a throw anywhere past `produce()` destroyed an
     // already-correct response instead of merely failing to log or store it.
     const claimed = trace.claimed
-    const needsBody = claimed !== undefined || options.onLog !== undefined
+    const hasCallbacks =
+      trace.operation !== undefined &&
+      callbacks.some(
+        (candidate) => candidate.operation === trace.operation && candidate.specs.length > 0
+      )
+    const needsBody = claimed !== undefined || options.onLog !== undefined || hasCallbacks
     // The body is read at most once, from a clone, and only when something
-    // needs it: an idempotency record to store, or a `bytesOut` to report.
+    // needs it: an idempotency record to store, a `bytesOut` to report, or a
+    // callback expression that may point at it.
     let captured: string | null = null
     if (needsBody) {
       try {
@@ -526,6 +575,37 @@ export function createHandler(
           },
           options.onError
         )
+      } catch (error) {
+        reportError(options.onError, error, trace.ctx)
+      }
+    }
+
+    // Destination tier 2. Only for a response the operation actually accepted:
+    // a 401 has not subscribed to anything, and capturing from one would let an
+    // unauthenticated caller redirect another tenant's webhooks. Doing it here
+    // rather than mid-pipeline also means `$response.*` and `$statusCode`
+    // resolve, because the result exists.
+    if (trace.operation !== undefined && response.status < 400) {
+      try {
+        const entry = callbacks.find((candidate) => candidate.operation === trace.operation)
+        if (entry !== undefined && entry.specs.length > 0) {
+          const exprInput = {
+            request,
+            url: new URL(request.url),
+            method: request.method,
+            params: trace.params,
+            body: trace.ctx?.body,
+            result: {
+              status: response.status,
+              headers: headersOf(response),
+              body: parseBodyText(captured, response)
+            }
+          }
+          for (const callback of entry.specs) {
+            const resolved = resolveExpression(callback.expression, exprInput)
+            if (resolved.ok) await store.set(callbackKey(callback.name), resolved.value)
+          }
+        }
       } catch (error) {
         reportError(options.onError, error, trace.ctx)
       }

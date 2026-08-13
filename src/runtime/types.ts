@@ -65,6 +65,24 @@ export interface Decisions {
   fixture?: string
 }
 
+/**
+ * What an emit override function receives: the request `Ctx` plus the finished
+ * response.
+ *
+ * `result` is a separate type rather than an optional field on `Ctx` because
+ * `Ctx` is built before a response exists — `result` would then be `undefined`
+ * throughout every ordinary resolver, header override, and response callback,
+ * and a field that is only sometimes real is a field that gets read when it is
+ * not. See the webhooks design §2.4.
+ */
+export interface EmitCtx extends Ctx {
+  result: {
+    status: number
+    headers: Record<string, string>
+    body: unknown
+  }
+}
+
 /** A resolver or override leaf. May return a value or a promise of one. */
 export type Resolver = (ctx: Ctx) => unknown
 
