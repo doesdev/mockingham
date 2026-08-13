@@ -163,20 +163,47 @@ test('json_object mode does NOT strip constraints: the full schema is useful gui
 })
 
 test('stripping for strict mode does not mutate request.jsonSchema itself', async () => {
+  // strict: true is required here: stripping is now gated on it, and with
+  // the default (false) this test would never call stripForStrictMode at
+  // all — request.jsonSchema would pass through by reference, unprocessed,
+  // and the assertion below would pass for a reason that has nothing to do
+  // with what this test's name claims.
   const req = request({
     jsonSchema: {
       type: 'object',
-      properties: { bio: { type: 'string', minLength: 1, format: 'email' } }
+      properties: {
+        bio: { type: 'string', minLength: 1, format: 'email' },
+        address: {
+          type: 'object',
+          properties: { city: { type: 'string', minLength: 1, pattern: '^[A-Z]' } }
+        }
+      }
     }
   })
   const before = JSON.stringify(req.jsonSchema)
   const source = createOpenAiSource({
     baseUrl: 'http://x/v1',
     model: 'm',
+    strict: true,
     fetch: async () => reply({ bio: 'ok' })
   })
   await source.generate([req])
   assert.equal(JSON.stringify(req.jsonSchema), before)
+  // A shallow copy at the top level only would leave nested objects shared
+  // by reference with the rebuilt/stripped tree, so a caller reading
+  // req.jsonSchema.properties.address.properties.city after generate() could
+  // see its minLength/pattern stripped out even though the top-level
+  // JSON.stringify comparison above still matched (a shallow copy that
+  // stripped in place would corrupt shared nested objects while the outer
+  // object reference itself stays swapped out, not stringified differently
+  // at the top until the shared nested node is actually inspected). Check
+  // the nested constraint directly so this can't pass by only inspecting a
+  // level the rebuild happened to leave alone.
+  const properties = req.jsonSchema.properties as Record<string, unknown>
+  const address = properties.address as Record<string, unknown>
+  const addressProperties = address.properties as Record<string, unknown>
+  const city = addressProperties.city as Record<string, unknown>
+  assert.deepEqual(city, { type: 'string', minLength: 1, pattern: '^[A-Z]' })
 })
 
 test('json_object mode sends the simpler format and carries the schema in the prompt', async () => {
