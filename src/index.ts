@@ -7,8 +7,28 @@ import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
 import { targetKey, failNextKey, outageKey } from './runtime/failure.ts'
 import type { Delivery } from './webhooks/deliver.ts'
+import { resolveLlm } from './fixtures/config.ts'
+import type { LlmConfig } from './fixtures/config.ts'
+import { createMemoryFixtureStore } from './fixtures/store.ts'
+import type { FixtureStore } from './fixtures/store.ts'
+import { createCompiler } from './schema/compile.ts'
+import { bake as bakeFixtures } from './fixtures/bake.ts'
+import type { BakeSummary } from './fixtures/bake.ts'
+import { warnOnStaleFixtures } from './fixtures/persist.ts'
+import { schemaHash } from './fixtures/source.ts'
+import { operationSlug } from './fixtures/key.ts'
 
-export type MockOptions = HandlerOptions
+const JSON_TYPE = 'application/json'
+
+export interface MockOptions extends Omit<HandlerOptions, 'llm'> {
+  /**
+   * The user-facing configuration surface — validated and resolved to a
+   * `ResolvedLlm` (a `ContentSource`, not raw provider options) before it
+   * reaches `createHandler`, which keeps provider modules out of the pure
+   * core. See `src/fixtures/config.ts`.
+   */
+  llm?: LlmConfig
+}
 
 export interface FailNextOptions {
   times?: number
@@ -34,6 +54,12 @@ export interface Mock {
   deliveries(): Delivery[]
   clearDeliveries(): void
   settled(): Promise<void>
+  /**
+   * Prewarms the fixture store by walking every operation the configured llm
+   * source can serve. Requires an llm source — either `llm.source` directly,
+   * or a provider block with `llm.mode` set to something other than `off`.
+   */
+  bake(): Promise<BakeSummary>
 }
 
 export function createMock(
@@ -41,7 +67,33 @@ export function createMock(
   options: MockOptions = {}
 ): Mock {
   const api = loadApi(doc)
-  const handler = createHandler(api, options)
+  // Constructed here, not left to the handler's own default, so bake() and
+  // the request path share the exact same store instance rather than the
+  // handler silently creating a second one when `fixtures.store` is omitted.
+  const fixtureStore = options.fixtures?.store ?? createMemoryFixtureStore()
+  const resolvedLlm = resolveLlm(options.llm, { fetch: options.fetch })
+  const compiler = createCompiler()
+
+  // A schemaHash mismatch means the document moved under a fixture `bake`
+  // generated earlier. This is diagnostic only — warnOnStaleFixtures never
+  // removes anything from `fixtureStore`, so a stale fixture keeps serving
+  // exactly as it did before this check ran. Design section 2.13.
+  warnOnStaleFixtures(
+    fixtureStore,
+    (operationId, status) => {
+      const operation = api.operations.find((candidate) => operationSlug(candidate) === operationId)
+      const response = operation?.responses.find((entry) => entry.status === status)
+      const media = response?.content[JSON_TYPE]
+      return media ? schemaHash(media.schema, compiler) : undefined
+    },
+    options.onWarn ?? ((message) => console.warn(message))
+  )
+
+  const handler = createHandler(api, {
+    ...options,
+    llm: resolvedLlm,
+    fixtures: { store: fixtureStore }
+  })
   const server = createNodeServer(handler.fetch)
 
   // Resolves a control-plane target to EVERY key the failure stage reads, so a
@@ -96,7 +148,29 @@ export function createMock(
     emit: (name, opts) => handler.emit(name, opts),
     deliveries: () => handler.deliveries(),
     clearDeliveries: () => handler.clearDeliveries(),
-    settled: () => handler.settled()
+    settled: () => handler.settled(),
+
+    async bake() {
+      if (!resolvedLlm?.source) {
+        throw new Error(
+          'mockingham: bake() requires an llm source. Set llm.mode to something ' +
+            'other than "off" and configure llm.openai (or another provider), or ' +
+            'pass llm.source directly.'
+        )
+      }
+      return bakeFixtures({
+        api,
+        store: fixtureStore,
+        source: resolvedLlm.source,
+        compiler,
+        persona: resolvedLlm.persona,
+        scope: resolvedLlm.scope,
+        budget: resolvedLlm.budget,
+        now: options.now ?? (() => Date.now()),
+        onWarn: options.onWarn,
+        onError: (error) => options.onError?.(error)
+      })
+    }
   }
 }
 
@@ -105,3 +179,6 @@ export type { Api, Operation, Schema } from './spec/types.ts'
 export type { HandlerOptions } from './server/handler.ts'
 export type { Delivery } from './webhooks/deliver.ts'
 export type { WebhookConfig } from './webhooks/emit.ts'
+export type { LlmConfig } from './fixtures/config.ts'
+export type { FixtureStore } from './fixtures/store.ts'
+export type { BakeSummary } from './fixtures/bake.ts'

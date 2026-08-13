@@ -90,3 +90,84 @@ test('rngFor differs across labels', () => {
 test('Prefer still selects a declared status', () => {
   assert.equal(build([spec(200), spec(404)], 'status=404').selection()?.spec.status, 404)
 })
+
+test('generate returns a whole-body fixture instead of generating', () => {
+  let calls = 0
+  const responders = createResponders({
+    operation: operation([spec(200)]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: (status) => {
+      calls += 1
+      return status === 200 ? { fixed: true } : undefined
+    }
+  })
+  assert.deepEqual(responders.generate(), { fixed: true })
+  assert.equal(calls, 1)
+})
+
+test('generate falls through to generation when the fixture hook returns undefined', () => {
+  const responders = createResponders({
+    operation: operation([spec(200)]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: () => undefined
+  })
+  const value = responders.generate() as Record<string, unknown>
+  assert.equal(typeof value['a'], 'string')
+})
+
+test('generate is unchanged when no fixture hook is supplied', () => {
+  const value = build([spec(200)]).generate() as Record<string, unknown>
+  assert.equal(typeof value['a'], 'string')
+})
+
+test('generate honors a falsy-but-defined fixture value rather than treating it as a miss', () => {
+  // null is a legitimate whole-body fixture; only undefined means "fall through".
+  const responders = createResponders({
+    operation: operation([spec(200)]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: (status) => (status === 200 ? null : undefined)
+  })
+  assert.equal(responders.generate(), null)
+})
+
+test('generate consults the fixture before the media-type lookup', () => {
+  // status 999 is not declared on the operation at all, so mediaFor(999)
+  // would find nothing — proof the fixture answers even where the media
+  // lookup could not have.
+  //
+  // This deliberately does NOT use a body-less (204-style) status anymore:
+  // resolve() itself now skips fixture resolution entirely for a status with
+  // no JSON content (design: "Responses with no body ... skip fixture
+  // resolution entirely"), so a real caller's `fixture` hook — wired to
+  // resolve()/peek() — never hands back a value for one. This test only
+  // pins createResponders' OWN call ordering (fixture before mediaFor),
+  // independent of what resolve() chooses to serve; an explicit status
+  // argument bypasses selectResponse entirely, so `999` never needs to be a
+  // status the operation could plausibly select on its own.
+  //
+  // Read plainly: after the body-less-response fix, no real caller can ever
+  // produce the shape this test exercises — a wired-up `fixture` hook never
+  // returns a value for a status `mediaFor` also can't find, since both now
+  // agree on "no JSON content means no fixture". The ordering this pins is
+  // therefore a short-circuit optimization inside `generate()`, not a
+  // reachable correctness case; do not read the synthetic status `999` below
+  // as a modeled real-world scenario.
+  const responders = createResponders({
+    operation: operation([spec(200)]),
+    request: new Request('http://mock/x'),
+    staticStatus: undefined,
+    key: 'k',
+    generateOptions: {},
+    fixture: (status) => (status === 999 ? { fixed: true } : undefined)
+  })
+  assert.deepEqual(responders.generate(999), { fixed: true })
+})

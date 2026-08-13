@@ -18,6 +18,12 @@ export interface RenderInput {
   ctx: Ctx
   chosen: ResponseSpec
   bodyOverrides: OverrideNode[]
+  /**
+   * A scoped fixture, applied BENEATH the user's layers. This is what makes
+   * `override > fixture > example > generated` fall out of the existing
+   * override machinery instead of a bespoke merge — design section 3.
+   */
+  fixtureLayer?: OverrideNode
   headerOverrides: Record<string, OverrideNode>
   globals?: Record<string, OverrideNode>
   resolvers: ResolverLookup
@@ -66,11 +72,16 @@ export async function renderResponse(input: RenderInput): Promise<Response> {
   // callback and the pipeline must never produce different bodies.
   if (body === undefined) body = input.generate(chosen.status)
 
-  if (input.bodyOverrides.length === 0) {
+  // The fixture goes first so the user's layers land on top of it.
+  const layers = input.fixtureLayer === undefined
+    ? input.bodyOverrides
+    : [input.fixtureLayer, ...input.bodyOverrides]
+
+  if (layers.length === 0) {
     // Still one pass: resolvers may have left promises in the tree.
     if (body !== undefined) body = await applyOverrides(body, undefined, input.ctx)
   } else {
-    for (const override of input.bodyOverrides) {
+    for (const override of layers) {
       body = await applyOverrides(body, override, input.ctx)
     }
   }

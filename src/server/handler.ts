@@ -29,6 +29,11 @@ import type { IdempotencyConfig } from '../runtime/idempotency.ts'
 import { emitWebhook, resolveWebhook, createDeliveryLog } from '../webhooks/emit.ts'
 import type { WebhookConfig, ResolvedWebhook } from '../webhooks/emit.ts'
 import type { Delivery } from '../webhooks/deliver.ts'
+import { createFixtureResolver } from '../fixtures/resolve.ts'
+import type { ResolvedLlm } from '../fixtures/resolve.ts'
+import { createMemoryFixtureStore } from '../fixtures/store.ts'
+import type { FixtureStore } from '../fixtures/store.ts'
+import { createCompiler } from '../schema/compile.ts'
 
 export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -120,6 +125,13 @@ export interface HandlerOptions {
   captureOnly?: boolean
   /** Injectable so the suite never reaches the network. */
   fetch?: typeof fetch
+  fixtures?: { store?: FixtureStore }
+  /**
+   * Already resolved — `createMock` validates the user-facing `LlmConfig` and
+   * constructs the source. The handler only ever sees a `ContentSource`, which
+   * keeps provider modules out of the pure core.
+   */
+  llm?: ResolvedLlm
 }
 
 // Module scope: a per-request TextEncoder would be one more allocation on
@@ -154,6 +166,15 @@ export function createHandler(
   const now = options.now ?? (() => Date.now())
   // One clock for the store and the log, so a fake clock in a test drives both.
   const store = options.store ?? createMemoryStore(now)
+  const fixtureStore = options.fixtures?.store ?? createMemoryFixtureStore()
+  const fixtureResolver = createFixtureResolver({
+    api,
+    store: fixtureStore,
+    compiler: createCompiler(),
+    llm: options.llm,
+    now,
+    onError: (error) => reportError(options.onError, error)
+  })
   const idempotency = resolveIdempotency(options.idempotency)
   const policies = compilePolicies(options.failure, api.operations)
   const chaosSeed = options.chaosSeed ?? seed
@@ -403,6 +424,12 @@ export function createHandler(
 
     const exampleName = preferred(request, 'example')
 
+    // Declared above `responders`; assigned after resolution (stage 7.5, once
+    // the status is known), read by the `fixture` hook at generation time —
+    // the same deferral the `ctx` getter above already uses.
+    let resolvedWhole: unknown
+    let selectedStatus: number | undefined
+
     const responders = createResponders({
       operation,
       request,
@@ -417,7 +444,15 @@ export function createHandler(
       // ctx is declared just below; this getter is only invoked later (inside
       // generateValue, at generation time), by which point the assignment has
       // already run — the same deferral the old inline closure relied on.
-      ctx: () => ctx
+      ctx: () => ctx,
+      // A response callback (stage 10, before status selection) calls this
+      // through `ctx.generate()` with no `resolvedWhole` set yet, so it always
+      // falls through to `peek` — a synchronous store read, never a fetch.
+      // The pipeline's own call, after status selection, hits the fast path.
+      fixture: (status) =>
+        resolvedWhole !== undefined && status === selectedStatus
+          ? resolvedWhole
+          : fixtureResolver.peek(operation, status, params)?.whole
     })
 
     const ordinal = (requestOrdinals.get(key) ?? 0) + 1
@@ -524,10 +559,17 @@ export function createHandler(
     }
     const chosen = selected.spec
 
+    // After selection, because the fixture key is per status. Awaited here so
+    // the generate seam below stays synchronous — design section 2.12.
+    const fixture = await fixtureResolver.resolve(operation, chosen.status, params)
+    resolvedWhole = fixture?.whole
+    selectedStatus = chosen.status
+
     return await renderResponse({
       ctx,
       chosen,
       bodyOverrides: config.bodies(chosen.status),
+      fixtureLayer: fixture?.layer as OverrideNode | undefined,
       headerOverrides: config.headers(chosen.status),
       globals: options.headers,
       resolvers,

@@ -87,3 +87,62 @@ test('a promise left in the generated tree is settled', async () => {
   const response = await render({ generate: () => ({ a: Promise.resolve('settled') }) })
   assert.deepEqual(await response.json(), { a: 'settled' })
 })
+
+test('a scoped fixture layer overlays the generated body', async () => {
+  const response = await render({
+    generate: () => ({ id: 1, bio: 'generated' }),
+    fixtureLayer: { bio: 'from the fixture' },
+    bodyOverrides: []
+  })
+  assert.deepEqual(await response.json(), { id: 1, bio: 'from the fixture' })
+})
+
+test('a user override beats the fixture layer', async () => {
+  const response = await render({
+    generate: () => ({ id: 1, bio: 'generated' }),
+    fixtureLayer: { bio: 'from the fixture' },
+    bodyOverrides: [{ bio: 'from the override' }]
+  })
+  assert.deepEqual(await response.json(), { id: 1, bio: 'from the override' })
+})
+
+test('the fixture layer beats a spec example', async () => {
+  const response = await render({
+    exampleName: 'sample',
+    example: () => ({ id: 1, bio: 'from the example' }),
+    fixtureLayer: { bio: 'from the fixture' },
+    bodyOverrides: []
+  })
+  assert.deepEqual(await response.json(), { id: 1, bio: 'from the fixture' })
+})
+
+test('no fixture layer leaves rendering unchanged', async () => {
+  const response = await render({
+    generate: () => ({ id: 1, bio: 'generated' }),
+    bodyOverrides: []
+  })
+  assert.deepEqual(await response.json(), { id: 1, bio: 'generated' })
+})
+
+test('swapping the layer order would let the fixture beat the override', async () => {
+  // Pins the ORDER, not just the outcome: a fixture-only test cannot catch a
+  // swap of [fixtureLayer, ...bodyOverrides] to [...bodyOverrides, fixtureLayer].
+  // Two overrides target the same key so only the winning layer's value survives.
+  const response = await render({
+    generate: () => ({ id: 1, bio: 'generated', tag: 'generated' }),
+    fixtureLayer: { bio: 'from the fixture', tag: 'from the fixture' },
+    bodyOverrides: [{ tag: 'from the override' }]
+  })
+  const result = await response.json() as { bio: string; tag: string }
+  assert.equal(result.bio, 'from the fixture')
+  assert.equal(result.tag, 'from the override')
+})
+
+test('a fixture layer with no user overrides still settles a promise', async () => {
+  const response = await render({
+    generate: () => ({ a: Promise.resolve('settled') }),
+    fixtureLayer: { bio: 'from the fixture' },
+    bodyOverrides: []
+  })
+  assert.deepEqual(await response.json(), { a: 'settled', bio: 'from the fixture' })
+})
