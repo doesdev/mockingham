@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import {
   overrideKey,
   assertSerializable,
+  assertValidOverrideKeys,
   overrideAsResolved,
   readOverride,
   EMPTY_OVERRIDE
 } from '../../src/runtime/overrides.ts'
+import type { RuntimeOverride } from '../../src/runtime/overrides.ts'
 import { createMemoryStore } from '../../src/runtime/store.ts'
 import { targetKey } from '../../src/runtime/failure.ts'
 import type { Operation } from '../../src/spec/types.ts'
@@ -63,6 +65,20 @@ test('undefined as an array element is rejected, naming its indexed path', () =>
 
 test('undefined as an object property value is accepted', () => {
   assertSerializable({ 200: { body: { a: undefined } } })
+})
+
+test('a non-status key is rejected, naming the offending key', () => {
+  assert.throws(
+    () => assertValidOverrideKeys(
+      { notAStatus: { body: {} } } as unknown as RuntimeOverride
+    ),
+    /notAStatus/
+  )
+})
+
+test('"status" and a numeric status key are both accepted', () => {
+  assertValidOverrideKeys({ status: 404 })
+  assertValidOverrideKeys({ 200: { body: {} } })
 })
 
 test('overrideAsResolved exposes body and headers scoped by status', () => {

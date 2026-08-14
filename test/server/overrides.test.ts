@@ -375,6 +375,44 @@ test('a non-serializable override is refused at the door', async () => {
   )
 })
 
+test('a non-status override key is refused at the door, naming the key', async () => {
+  // overrideAsResolved only ever reads `value.status` and `value[numericStatus]`
+  // — a key that is neither can never be read back, so accepting it would
+  // silently do nothing. The same "configuration error, not an empty result"
+  // shape `resolveTarget` already enforces for an unmatched target, one level
+  // down. Design amendment 2.2.
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await assert.rejects(
+    () => mock.override('showPetById', { notAStatus: { body: {} } } as never),
+    /notAStatus/
+  )
+})
+
+test('a rejected non-status key writes nothing', async () => {
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await assert.rejects(
+    () => mock.override('showPetById', { notAStatus: { body: {} } } as never),
+    /notAStatus/
+  )
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  assert.equal(
+    response.headers.get('x-mock-override'),
+    null,
+    'the rejected override must not have been written'
+  )
+})
+
+test('"status" and a numeric status key both still succeed through mock.override', async () => {
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('showPetById', { status: 404 })
+  await mock.override('showPetById', { 200: { body: { name: 'ok' } } })
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.equal(body.name, 'ok')
+})
+
 test('a rejected override writes nothing, not even for operations resolved before the failure', async () => {
   // Pins the ordering `override()` documents in its own comment:
   // assertSerializable runs BEFORE any store write, so a wildcard that

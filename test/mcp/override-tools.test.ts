@@ -61,6 +61,19 @@ test('an unmatched target surfaces as a tool error, not a silent no-op', async (
   )
 })
 
+test('a non-status override key surfaces as a tool error, not a silent success', async () => {
+  // Fix round 1: the tool delegates entirely to mock.override(), so this only
+  // needs to prove the module's rejection reaches the caller as a thrown tool
+  // error rather than an echoed-back { target, value } success.
+  await assert.rejects(
+    async () => toolNamed('set_override', { write: true }).handler(contextFor(), {
+      target: 'getOrder',
+      value: { notAStatus: { body: {} } }
+    }),
+    /notAStatus/
+  )
+})
+
 test('tools/call refuses set_override when the gate is closed', async () => {
   // The second half of the gate, modelled on the equivalent test in
   // write.test.ts: a gate that only hides the tools from tools/list is not a

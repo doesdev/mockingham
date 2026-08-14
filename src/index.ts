@@ -6,7 +6,7 @@ import { createNodeServer } from './server/node.ts'
 import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
 import { targetKey, failNextKey, outageKey } from './runtime/failure.ts'
-import { overrideKey, assertSerializable } from './runtime/overrides.ts'
+import { overrideKey, assertSerializable, assertValidOverrideKeys } from './runtime/overrides.ts'
 import type { RuntimeOverride } from './runtime/overrides.ts'
 import type { Delivery } from './webhooks/deliver.ts'
 import { resolveLlm } from './fixtures/config.ts'
@@ -159,6 +159,7 @@ export function createMock(
       // Checked before any write, so a partially-applied wildcard is
       // impossible: either every matching operation gets the override or none
       // does.
+      assertValidOverrideKeys(value)
       assertSerializable(value)
       for (const key of keysFor(target)) {
         await handler.store.set(overrideKey(key), value)

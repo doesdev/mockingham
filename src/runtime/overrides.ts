@@ -87,6 +87,28 @@ export function assertSerializable(
   seen.delete(object)
 }
 
+const STATUS_KEY = /^[0-9]+$/
+
+/**
+ * `overrideAsResolved` only ever reads `value.status` and `value[forStatus]`
+ * for a numeric `forStatus` — an own key that is neither `"status"` nor a run
+ * of digits can never be read back, so accepting it would silently do
+ * nothing. `resolveTarget` already treats a target matching no operation as a
+ * configuration error rather than an empty result; a status key that can
+ * never match is the same error one level down, and over MCP the caller would
+ * otherwise get a success response either way. Design amendment 2.2.
+ */
+export function assertValidOverrideKeys(value: RuntimeOverride): void {
+  for (const key of Object.keys(value)) {
+    if (key === 'status' || STATUS_KEY.test(key)) continue
+    throw new Error(
+      `mockingham: override key "${key}" is not a status. An override key ` +
+        'must be "status" or a numeric status code such as 200 — anything ' +
+        'else can never be read back and would silently do nothing.'
+    )
+  }
+}
+
 /**
  * The same shape `resolveConfigs` returns, so the handler composes a runtime
  * override with a config one without either side learning a new type.
