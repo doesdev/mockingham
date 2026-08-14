@@ -297,6 +297,14 @@ test('override then fetch changes the response through the public surface', asyn
 test('clearOverrides(target) restores the generated body', async () => {
   const mock = createMock(petstore, { seed: 'runtime' })
   await mock.override('showPetById', { 200: { body: { name: 'overridden' } } })
+
+  // Self-certifying: prove the override was actually live before proving
+  // clear removes it. Without this, the final assertion also passes if
+  // override() silently did nothing.
+  const before = await mock.fetch(new Request('http://mock/pets/7'))
+  const beforeBody = await before.json() as Record<string, unknown>
+  assert.equal(beforeBody.name, 'overridden')
+
   await mock.clearOverrides('showPetById')
 
   const response = await mock.fetch(new Request('http://mock/pets/7'))
@@ -311,6 +319,14 @@ test('clearOverrides() with no target clears every operation', async () => {
   // test/runtime/failure.test.ts for the same distinction asserted directly.
   const mock = createMock(petstore, { seed: 'runtime' })
   await mock.override('* /**', { 200: { body: { name: 'overridden' } } })
+
+  // Self-certifying: prove the override was actually live before proving
+  // clear removes it. Without this, the final assertion also passes if
+  // override() silently did nothing.
+  const before = await mock.fetch(new Request('http://mock/pets/7'))
+  const beforeBody = await before.json() as Record<string, unknown>
+  assert.equal(beforeBody.name, 'overridden')
+
   await mock.clearOverrides()
 
   const response = await mock.fetch(new Request('http://mock/pets/7'))
@@ -357,6 +373,31 @@ test('a non-serializable override is refused at the door', async () => {
     () => mock.override('showPetById', { 200: { body: { total: () => 1 } } as never }),
     /is a function/
   )
+})
+
+test('a rejected override writes nothing, not even for operations resolved before the failure', async () => {
+  // Pins the ordering `override()` documents in its own comment:
+  // assertSerializable runs BEFORE any store write, so a wildcard that
+  // resolves to several operations either applies to all of them or none.
+  // A comment claiming this is not the same as a test that would notice if
+  // it changed — this is that test. See task-3-report.md, Step 7, for the
+  // reordering evidence that motivated it.
+  const mock = createMock(petstore, { seed: 'runtime' })
+
+  await assert.rejects(
+    () => mock.override('* /**', { 200: { body: { total: () => 1 } } as never }),
+    /is a function/
+  )
+
+  for (const path of ['/pets/7', '/pets/mine']) {
+    const response = await mock.fetch(new Request(`http://mock${path}`))
+    const body = await response.json() as Record<string, unknown>
+    assert.notEqual(
+      body.total,
+      1,
+      `${path} must not carry any part of the rejected override`
+    )
+  }
 })
 
 test('the second override for one target replaces the first', async () => {
