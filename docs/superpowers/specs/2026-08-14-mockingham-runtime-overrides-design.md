@@ -231,19 +231,31 @@ an agent concludes the mock is broken.
 
 Each of these is a check doing its job, and each is required work, not cleanup:
 
-- `test/server/public-surface.test.ts` pins the exported API and the MCP tool
-  list. It fails until updated.
 - `MCP_USAGE` in `server/cli.ts` names the five write tools in its `--write`
   help text. Seven now.
-- **`docs/mcp.md` fails its own subtest.** It states twelve tools and drives real
-  `tools/list` frames whose output the docs harness compares byte-for-byte.
-  Adding two tools changes that output and the docs suite goes red.
-- `README.md`'s tour and `docs/mcp.md` both describe all three deferred tools as
-  not existing. Two of the three now exist.
+- `docs/mcp.md`'s "The twelve tools" heading and its closing section naming all
+  three deferred tools as absent. Two of the three now exist.
 - Master §1's `NOT IMPLEMENTED` marker on `override()` comes off.
+- `test/mcp/write.test.ts` lists the five gated names in two literal arrays.
+  A new write tool that is not added to them is simply untested at the gate.
 
-The phase 12 harness earns its cost on the very next cycle: a stale tool list is
-now a build failure rather than a thing someone notices months later.
+**Correction, made while planning against this spec.** An earlier draft of this
+section claimed `docs/mcp.md` would fail its own subtest because the docs
+harness compares `tools/list` output byte-for-byte. **That is false, and it was
+checked.** The guide's runnable block filters the listing for `fail_next` and
+prints only whether that one name is present plus its description, so adding two
+tools does not change a single byte of its expected output. The "twelve tools"
+heading is ordinary prose and nothing verifies it.
+
+`server/mcp/server.ts` does anticipate this correctly — its disabled-tool
+registration derives names from `WRITE_TOOLS` rather than a literal list,
+precisely so "a sixth write tool added later must not silently lose its refusal
+message." The gap is in the documentation, not the code.
+
+So this cycle **adds** the check that was assumed to exist: a test asserting the
+tool inventory `docs/mcp.md` documents matches `mcpTools({ write: true })`. A
+stale tool list becomes a build failure because we make it one here, not because
+phase 12 already had.
 
 ---
 
