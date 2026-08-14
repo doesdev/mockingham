@@ -34,7 +34,7 @@ import type { ResolvedLlm } from '../fixtures/resolve.ts'
 import { createMemoryFixtureStore } from '../fixtures/store.ts'
 import type { FixtureStore } from '../fixtures/store.ts'
 import { createCompiler } from '../schema/compile.ts'
-import { readOverride, EMPTY_OVERRIDE } from '../runtime/overrides.ts'
+import { readOverride } from '../runtime/overrides.ts'
 
 export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -570,16 +570,32 @@ export function createHandler(
     resolvedWhole = fixture?.whole
     selectedStatus = chosen.status
 
+    // Computed once, here, for both the composition below and the debug
+    // header: calling `runtime.bodies`/`runtime.headers` again just to answer
+    // "did it actually apply" would be a second read of the same layer.
+    const runtimeBodies = runtime.bodies(chosen.status)
+    const runtimeHeaders = runtime.headers(chosen.status)
+    // `runtime !== EMPTY_OVERRIDE` only proves a record exists for this
+    // operation, not that it did anything at the status that was actually
+    // selected — an override scoped to a different status, or an empty
+    // override object, would both stamp a false "applied". The header must
+    // instead reflect what actually contributed: a body layer, a header, or
+    // a runtime `status` that forced the selection that happened.
+    const runtimeApplied =
+      runtimeBodies.length > 0 ||
+      Object.keys(runtimeHeaders).length > 0 ||
+      (runtime.status !== undefined && runtime.status === chosen.status)
+
     return await renderResponse({
       ctx,
       chosen,
       // The runtime layer goes last so it refines the config layers rather
       // than erasing them, and the fixture stays beneath both.
-      bodyOverrides: [...config.bodies(chosen.status), ...runtime.bodies(chosen.status)],
+      bodyOverrides: [...config.bodies(chosen.status), ...runtimeBodies],
       fixtureLayer: fixture?.layer as OverrideNode | undefined,
       headerOverrides: {
         ...config.headers(chosen.status),
-        ...runtime.headers(chosen.status)
+        ...runtimeHeaders
       },
       globals: options.headers,
       resolvers,
@@ -593,7 +609,7 @@ export function createHandler(
             seed: String(fnv1a(key)),
             source: selected.source,
             operationId: operation.operationId,
-            override: runtime !== EMPTY_OVERRIDE ? 'applied' : undefined
+            override: runtimeApplied ? 'applied' : undefined
           }
         : undefined
     })

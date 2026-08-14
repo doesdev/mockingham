@@ -172,9 +172,17 @@ test('a runtime override layers on top of a config override', async () => {
   assert.equal(body.tag, 'kept', 'and refines rather than erases the config layer')
 })
 
-test('a runtime override forces the selected status', async () => {
+test('a runtime override forces the selected status, beating a config status', async () => {
+  // A config `status` of 200 is set on the same operation so this test can
+  // only pass if `runtime.status` genuinely wins over `config.status` — a
+  // test with no competing config value cannot distinguish
+  // `runtime.status ?? config.status` from the reverse.
   const store = createMemoryStore()
-  const handler = createHandler(api, { store, seed: 'runtime' })
+  const handler = createHandler(api, {
+    store,
+    seed: 'runtime',
+    operations: { showPetById: { status: 200 } }
+  })
 
   await store.set(overrideKey('showPetById'), { status: 404 })
 
@@ -219,6 +227,44 @@ test('debugHeaders reports that an override applied', async () => {
   await store.set(overrideKey('showPetById'), { 200: { body: { name: 'x' } } })
   const after = await handler.fetch(new Request('http://mock/pets/7'))
   assert.equal(after.headers.get('x-mock-override'), 'applied')
+})
+
+test('debugHeaders does not report an override scoped to a status that was not selected', async () => {
+  // A record exists for this operation, but it targets 404 while the request
+  // resolves to 200 — nothing about the response actually came from it, so
+  // the header must stay off. `runtime !== EMPTY_OVERRIDE` alone would get
+  // this wrong, since a record exists.
+  const store = createMemoryStore()
+  const handler = createHandler(api, { store, seed: 'runtime', debugHeaders: true })
+
+  await store.set(overrideKey('showPetById'), { 404: { body: { name: 'wrong-status' } } })
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('x-mock-override'), null)
+})
+
+test('debugHeaders does not report an empty override object', async () => {
+  const store = createMemoryStore()
+  const handler = createHandler(api, { store, seed: 'runtime', debugHeaders: true })
+
+  await store.set(overrideKey('showPetById'), {})
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(response.headers.get('x-mock-override'), null)
+})
+
+test('debugHeaders reports an override that only forced the status', async () => {
+  // The third arm of the condition: no body, no headers, only a `status`
+  // that matches the one actually selected.
+  const store = createMemoryStore()
+  const handler = createHandler(api, { store, seed: 'runtime', debugHeaders: true })
+
+  await store.set(overrideKey('showPetById'), { status: 404 })
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 404)
+  assert.equal(response.headers.get('x-mock-override'), 'applied')
 })
 
 test('a configured respond beats a runtime override', async () => {
