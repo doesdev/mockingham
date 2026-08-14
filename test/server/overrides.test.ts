@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { createHandler } from '../../src/server/handler.ts'
 import { loadApi } from '../../src/spec/load.ts'
 import { petstore } from '../fixtures/petstore.ts'
+import { createMemoryStore } from '../../src/runtime/store.ts'
+import { overrideKey } from '../../src/runtime/overrides.ts'
 
 const api = loadApi(petstore)
 
@@ -147,4 +149,91 @@ test('generation is unchanged when nothing is configured', async () => {
   const plain = await get({})
   const also = await get({})
   assert.deepEqual(plain.body, also.body)
+})
+
+test('a runtime override layers on top of a config override', async () => {
+  // All five layers present at once. A test with fewer proves nothing about
+  // ordering — it passes with the whole composition removed.
+  const store = createMemoryStore()
+  const handler = createHandler(api, {
+    store,
+    seed: 'runtime',
+    operations: {
+      showPetById: { 200: { body: { name: 'from-config', tag: 'kept' } } }
+    }
+  })
+
+  await store.set(overrideKey('showPetById'), { 200: { body: { name: 'from-runtime' } } })
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+
+  assert.equal(body.name, 'from-runtime', 'the runtime layer wins')
+  assert.equal(body.tag, 'kept', 'and refines rather than erases the config layer')
+})
+
+test('a runtime override forces the selected status', async () => {
+  const store = createMemoryStore()
+  const handler = createHandler(api, { store, seed: 'runtime' })
+
+  await store.set(overrideKey('showPetById'), { status: 404 })
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 404)
+})
+
+test('a runtime override contributes headers, and wins a collision', async () => {
+  const store = createMemoryStore()
+  const handler = createHandler(api, {
+    store,
+    seed: 'runtime',
+    operations: { showPetById: { 200: { headers: { 'x-a': 'config', 'x-b': 'config' } } } }
+  })
+
+  await store.set(overrideKey('showPetById'), { 200: { headers: { 'x-a': 'runtime' } } })
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(response.headers.get('x-a'), 'runtime')
+  assert.equal(response.headers.get('x-b'), 'config', 'untouched header survives')
+})
+
+test('an override for a different status contributes nothing', async () => {
+  const store = createMemoryStore()
+  const handler = createHandler(api, { store, seed: 'runtime' })
+
+  await store.set(overrideKey('showPetById'), { 404: { body: { name: 'wrong-status' } } })
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.equal(response.status, 200)
+  assert.notEqual(body.name, 'wrong-status')
+})
+
+test('debugHeaders reports that an override applied', async () => {
+  const store = createMemoryStore()
+  const handler = createHandler(api, { store, seed: 'runtime', debugHeaders: true })
+
+  const before = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(before.headers.get('x-mock-override'), null, 'absent when none is set')
+
+  await store.set(overrideKey('showPetById'), { 200: { body: { name: 'x' } } })
+  const after = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(after.headers.get('x-mock-override'), 'applied')
+})
+
+test('a configured respond beats a runtime override', async () => {
+  // Design section 4.2: respond returns before status selection and render,
+  // so a runtime override cannot reach it. Documented, not accidental.
+  const store = createMemoryStore()
+  const handler = createHandler(api, {
+    store,
+    seed: 'runtime',
+    operations: { showPetById: { respond: () => new Response('from-respond', { status: 200 }) } }
+  })
+
+  await store.set(overrideKey('showPetById'), { status: 404, 200: { body: { name: 'x' } } })
+
+  const response = await handler.fetch(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 200)
+  assert.equal(await response.text(), 'from-respond')
 })

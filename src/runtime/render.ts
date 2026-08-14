@@ -12,6 +12,7 @@ export interface RenderDebug {
   seed: string
   source: string
   operationId?: string
+  override?: string
 }
 
 export interface RenderInput {
@@ -61,6 +62,9 @@ export async function renderResponse(input: RenderInput): Promise<Response> {
     headers.set('x-mock-status-source', input.debug.source)
     if (input.debug.operationId) {
       headers.set('x-mock-operation', input.debug.operationId)
+    }
+    if (input.debug.override) {
+      headers.set('x-mock-override', input.debug.override)
     }
   }
 

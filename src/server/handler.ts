@@ -34,6 +34,7 @@ import type { ResolvedLlm } from '../fixtures/resolve.ts'
 import { createMemoryFixtureStore } from '../fixtures/store.ts'
 import type { FixtureStore } from '../fixtures/store.ts'
 import { createCompiler } from '../schema/compile.ts'
+import { readOverride, EMPTY_OVERRIDE } from '../runtime/overrides.ts'
 
 export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -397,6 +398,10 @@ export function createHandler(
 
     const { operation, params } = matched
     const config = resolveConfigs(operation, compiled)
+    // Read once, here, rather than at render: `config.status` feeds status
+    // selection below and selection runs well before the body is rendered, so
+    // one read serves both. Design section 4.
+    const runtime = await readOverride(store, operation)
     // Computed once — it was built twice per request before this refactor.
     const key = requestKey(operation, params, seed)
     const fail = failWith(operation, key)
@@ -433,7 +438,7 @@ export function createHandler(
     const responders = createResponders({
       operation,
       request,
-      staticStatus: config.status,
+      staticStatus: runtime.status ?? config.status,
       key,
       generateOptions: {
         maxDepth: options.maxDepth,
@@ -568,9 +573,14 @@ export function createHandler(
     return await renderResponse({
       ctx,
       chosen,
-      bodyOverrides: config.bodies(chosen.status),
+      // The runtime layer goes last so it refines the config layers rather
+      // than erasing them, and the fixture stays beneath both.
+      bodyOverrides: [...config.bodies(chosen.status), ...runtime.bodies(chosen.status)],
       fixtureLayer: fixture?.layer as OverrideNode | undefined,
-      headerOverrides: config.headers(chosen.status),
+      headerOverrides: {
+        ...config.headers(chosen.status),
+        ...runtime.headers(chosen.status)
+      },
       globals: options.headers,
       resolvers,
       rngFor: responders.rngFor,
@@ -582,7 +592,8 @@ export function createHandler(
         ? {
             seed: String(fnv1a(key)),
             source: selected.source,
-            operationId: operation.operationId
+            operationId: operation.operationId,
+            override: runtime !== EMPTY_OVERRIDE ? 'applied' : undefined
           }
         : undefined
     })
