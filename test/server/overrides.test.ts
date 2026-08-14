@@ -5,6 +5,7 @@ import { loadApi } from '../../src/spec/load.ts'
 import { petstore } from '../fixtures/petstore.ts'
 import { createMemoryStore } from '../../src/runtime/store.ts'
 import { overrideKey } from '../../src/runtime/overrides.ts'
+import { createMock } from '../../src/index.ts'
 
 const api = loadApi(petstore)
 
@@ -282,4 +283,118 @@ test('a configured respond beats a runtime override', async () => {
   const response = await handler.fetch(new Request('http://mock/pets/7'))
   assert.equal(response.status, 200)
   assert.equal(await response.text(), 'from-respond')
+})
+
+test('override then fetch changes the response through the public surface', async () => {
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('showPetById', { 200: { body: { name: 'overridden' } } })
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.equal(body.name, 'overridden')
+})
+
+test('clearOverrides(target) restores the generated body', async () => {
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('showPetById', { 200: { body: { name: 'overridden' } } })
+  await mock.clearOverrides('showPetById')
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.notEqual(body.name, 'overridden')
+})
+
+test('clearOverrides() with no target clears every operation', async () => {
+  // '* /**' is the documented match-everything wildcard (any method, any
+  // path). A bare '*' is not special-cased by compileTarget — with no space
+  // it is looked up as an operationId, so it matches nothing and throws; see
+  // test/runtime/failure.test.ts for the same distinction asserted directly.
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('* /**', { 200: { body: { name: 'overridden' } } })
+  await mock.clearOverrides()
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.notEqual(body.name, 'overridden')
+})
+
+test('a wildcard target overrides every operation it matches', async () => {
+  // /pets/7 (showPetById) and /pets/mine (myPet) both resolve a single Pet
+  // object. listPets (/pets) returns an array, and layering an object-shaped
+  // override over an array body is semantics this cycle never established —
+  // using it here would let the test fail for a reason unrelated to
+  // wildcards.
+  // '* /**' is the documented match-everything wildcard (any method, any
+  // path). A bare '*' is not special-cased by compileTarget — see the note
+  // above.
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('* /**', { 200: { body: { name: 'everywhere' } } })
+
+  for (const path of ['/pets/7', '/pets/mine']) {
+    const response = await mock.fetch(new Request(`http://mock${path}`))
+    if (response.status !== 200) continue
+    const body = await response.json()
+    const first = Array.isArray(body) ? body[0] : body
+    assert.equal(
+      (first as Record<string, unknown>).name,
+      'everywhere',
+      `${path} should carry the override`
+    )
+  }
+})
+
+test('a target matching no operation throws instead of arming nothing', async () => {
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await assert.rejects(
+    () => mock.override('GET /nope', { 200: { body: {} } }),
+    /matches no operation/
+  )
+})
+
+test('a non-serializable override is refused at the door', async () => {
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await assert.rejects(
+    () => mock.override('showPetById', { 200: { body: { total: () => 1 } } as never }),
+    /is a function/
+  )
+})
+
+test('the second override for one target replaces the first', async () => {
+  // Design section 2.3: runtime overrides do not layer against each other.
+  // A caller who cannot see what is already set gets a replacement they can
+  // predict rather than a merge they cannot inspect.
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('showPetById', { 200: { body: { name: 'first', keep: 'a' } } })
+  await mock.override('showPetById', { 200: { body: { name: 'second' } } })
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.equal(body.name, 'second')
+  assert.notEqual(body.keep, 'a', 'the first override is gone, not merged')
+})
+
+test('an off-contract override body is served, not rejected', async () => {
+  // Design section 5.2: an override body is NOT validated against the
+  // response schema. That is already true of config overrides, and a runtime
+  // override that behaved differently would be a second validation path — the
+  // divergence invariant 1 exists to prevent. `name` is declared a string and
+  // required; this replaces it with a number and the mock serves it.
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('showPetById', { 200: { body: { name: 42 } } })
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 200)
+  assert.equal((await response.json() as Record<string, unknown>).name, 42)
+})
+
+test('reset clears runtime overrides', async () => {
+  // Master section 1 has always claimed this; it is asserted rather than
+  // inferred from store.clear().
+  const mock = createMock(petstore, { seed: 'runtime' })
+  await mock.override('showPetById', { 200: { body: { name: 'overridden' } } })
+  await mock.reset()
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.notEqual(body.name, 'overridden')
 })
