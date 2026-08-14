@@ -168,6 +168,224 @@ tests passing, up from a 509-test baseline, typecheck clean.
     `clearTimeout` for `reset()` to be asymmetric with.
     **Status: documented deferral, plan 6.**
 
+27. **The missing `exports` map.** The docs — README, all four guides —
+    universally tell readers to `import { createMock } from 'mockingham'`.
+    That resolves today only because `package.json` declares no `exports`
+    map: `main` is `src/index.ts` and Node's default resolution falls through
+    to it for the bare specifier. Deciding what is public — one export
+    surface via a real `exports` map versus today's everything-resolves
+    looseness — is a packaging decision with permanent blast radius: an
+    `exports` map added later is a breaking change for anyone who found a
+    working deep import in the meantime. It is not a docs decision, and
+    phase 12's boundary is no `src/` or `package.json` changes.
+    **Status: deferred, phase 12 docs cycle.** Belongs to whichever cycle next
+    opens packaging. See docs-design delta §5.4.
+
+28. **`pattern` is silently ignored by value generation, while request
+    validation enforces it.** `pattern` appears nowhere in
+    `src/generate/values.ts` or `src/generate/constraints.ts` (confirmed by
+    grep — zero hits in either file); `src/schema/compile.ts`'s `patternOf`
+    compiles it into the zod validator incoming requests are checked against.
+    The two directions disagree: a mock can emit a response body it would
+    reject as a request body. Evidence, reproduced during Task 9 against
+    `docs/example.json`'s `Payment.currency` (`{ "type": "string", "pattern":
+    "^[A-Z]{3}$" }`): a bare `createMock` with no fixtures generates values
+    like `"ember"` and `"larch"` for that field, neither of which matches
+    `/^[A-Z]{3}$/`. No startup warning fires either — master §19 advertised
+    both "covers a documented subset" and "warned at startup" for this gap;
+    neither half was ever true. Master §19 has been corrected at the source
+    (2026-08-14, phase 12) to state the true, asymmetric behavior instead of
+    the false "covered subset, warned at startup" claim.
+    **Status: documented deferral, phase 12 docs cycle.** Fixing generation to
+    honor `pattern` (a real regex-to-string generator, or at minimum a startup
+    warning naming the schema path) belongs to whoever next opens
+    `generate/values.ts`; an override or fixture is the only present escape
+    hatch. See master §19 and README's Known limitations.
+
+29. **Three MCP read-tool residuals from plan 8, rediscovered during phase 12
+    rather than tracked.** All three were found and verified against
+    `src/mcp/tools/read.ts` while writing `docs/mcp.md` (Task 8) and are
+    documented in that guide, but plan 8 itself never recorded them here —
+    they lived only in a gitignored SDD ledger inside a now-gone worktree,
+    which is exactly the failure this file exists to prevent (see the file's
+    own header). Recording them here for the first time:
+    - **(a) `findOperation` ignores `method`/`path` when `operationId` is also
+      supplied.** The `operationId` branch (`findOperation`, lines ~21-30)
+      returns immediately on a match with no check that a co-supplied
+      `method`/`path` agrees with it — passing a mismatched pair alongside a
+      valid `operationId` raises nothing.
+    - **(b) `list_webhooks` drops a callback's declaring operation from
+      `emittedBy` when a configured emitter exists elsewhere.** `listWebhooks`
+      (lines ~341-359): `emittedBy: callback !== undefined && configured.length
+      === 0 ? [callback.owner] : configured`. The declaring operation
+      (`callback.owner`) is reported only when nothing is configured; the
+      moment any operation's `emits` config names the webhook, the declaring
+      operation is silently dropped from the list even if it is not among the
+      configured emitters.
+    - **(c) `list_webhooks`'s `payloadSchema` bypasses the `$comment` fallback
+      helper every other tool uses.** `jsonSchemaOf` (lines ~52-56) falls back
+      to `{ "$comment": "not expressible as JSON Schema; this operation is
+      generated only" }` when `toJsonSchema` refuses a schema (chiefly
+      recursive ones), and `describeOperation` and `contentSchemas` both route
+      through it. `listWebhooks` (line ~350) instead calls `toJsonSchema`
+      directly: `media ? toJsonSchema(media.schema, compiler) : undefined` — a
+      recursive webhook payload comes back as `payloadSchema: undefined`
+      rather than the `$comment` placeholder.
+    None of the three surface in `docs/mcp.md`'s own runnable examples —
+    `docs/example.json` has no scenario that naturally exercises any of them
+    without a contrived setup — so all three are documented in prose there,
+    with source citations, rather than demonstrated running.
+    **Status: documented deferral, phase 12 docs cycle.** None is a regression
+    from plan 8; all three are pre-existing and merely went unrecorded until
+    now. Fix belongs to whoever next opens `src/mcp/tools/read.ts`.
+
+30. **`durationMs` is unobservable — not merely stable — under an injected
+    fixed clock.** `src/server/handler.ts`: `startedAt = now()` (line 653) and
+    `durationMs: now() - startedAt` (line 736) both read the same injectable
+    `now` (`options.now ?? (() => Date.now())`, line 166). Pinning the clock
+    for determinism, which every doc program and most of the test suite does,
+    makes `durationMs` compute to exactly `0` on every request, not merely a
+    repeatable non-zero value. Confirmed during Task 7 while writing
+    `docs/logging-datadog.md`: with a frozen `now`, `durationMs` came back `0`
+    across repeated requests in the same run. The guide deliberately omits
+    `durationMs` from every `console` fence rather than showing the degenerate
+    `0`, with a prose note explaining why a reader who tries it themselves
+    under a real clock will see something else.
+    **Status: documented deferral, phase 12 docs cycle.** Not a defect —
+    `now() - startedAt` is the correct implementation for a real clock — but
+    any test or document that pins the clock cannot use `durationMs` to prove
+    anything about timing, and should not be written as though it can.
+
+31. **The cross-process half of the determinism invariant has no automated
+    coverage.** `scripts/determinism.ts` exists to be run twice, as two
+    separate `node` processes, and diffed by hand — but no test and no npm
+    script ever does that. Confirmed: `grep -rln 'determinism.ts' test
+    package.json` returns nothing. `test/fixtures/determinism.test.ts` is a
+    real, passing test, but it proves a narrower claim — a baked fixture store
+    serves the stored value byte-identically across independently constructed
+    `Handler` instances, all within one process — not the cross-process case.
+    Determinism is invariant 2, the README leans on it by name, and it is also
+    the load-bearing assumption behind the entire phase-12 docs harness
+    (docs-design §2.2: "this is only possible because of invariant 2 ... a doc
+    can promise exact bytes"). The stronger cross-process claim the harness's
+    own design rationale depends on is asserted nowhere in `npm test`.
+    Found and corrected in prose during Task 9 (README no longer claims a test
+    proves it) and in the docs-design spec §3.2 during Task 10 (which had
+    itself claimed "the test that runs it" — see that document's 2026-08-14
+    correction note).
+    **Status: documented deferral, phase 12 docs cycle.** Wiring
+    `scripts/determinism.ts` into `npm test` — spawning it twice as real child
+    processes and diffing stdout — is real, buildable coverage; phase 12's
+    no-code-change boundary is why it wasn't done here.
+
+33. **`4XX`/`5XX` range response keys are silently mis-parsed.**
+    `src/spec/load.ts:34` uses `Number.parseInt(code, 10)` on every response
+    status key, so a status key of `'4XX'` parses to `4` rather than being
+    recognized as an OpenAPI range key (`Number.parseInt('4XX', 10) === 4`).
+    An operation's declared error contract ends up loaded under status `4`,
+    which no real request status can ever match, so the built-in error
+    envelope is served instead — silently downgrading a declared contract to
+    the generic fallback. OpenAPI 3.x permits `1XX`–`5XX` range keys for
+    exactly this case. Found correcting README.md's error-contract guarantee
+    during the phase 12 fix wave. This is a source defect; the fix wave's
+    boundary is no `src/` changes.
+    **Status: documented deferral, phase 12 docs cycle.** Fix belongs to
+    whichever cycle next opens `src/spec/load.ts`.
+
+34. **`process.stdout.write(util.inspect(x))` bypasses `assertPrintableLogs`
+    entirely.** `test/docs/fence-checks.ts`'s `assertPrintableLogs` only scans
+    a `ts` fence for the literal substring `console.log(` — any other route to
+    stdout (`process.stdout.write`, `console.error`, a helper that wraps
+    `util.inspect` under a different name) is invisible to it. The
+    determinism amendment the check exists to enforce — stable,
+    cross-Node-version-printable output — can be sidestepped by writing to
+    stdout through any path other than a literal `console.log(`.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+35. **Three quote-tracking loops in `test/docs/fence-checks.ts` disagree on
+    backslash escapes.** `assertPrintableLogs` and `checkShellFence` both
+    treat a quote character preceded by a backslash as escaped
+    (`rest[i - 1] !== '\\'` / `withComment[i - 1] !== '\\'`); `splitArgs` has
+    no escape handling at all — a backslash is an ordinary character to it.
+    Confirmed by tracing `assertPrintableLogs` against
+    `console.log('a\\', payload)`: the doubled backslash before the closing
+    `'` is misread as an escaped quote, the tracker never exits the string,
+    the paren-depth/comma-at-depth-1 check that would catch the second
+    argument only runs outside a quote and so never fires, and the call is
+    accepted despite passing two arguments.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+36. **Nothing enforces that a `console` fence follows the `ts` block that
+    produces its output.** `assembleProgram` and `expectedOutput`
+    (`test/docs/harness.ts`) each filter the fence list independently by
+    language and join in document order — only the relative order *within*
+    each language survives. Nothing checks that a `console` fence sits next
+    to, or even after, the `ts` fence whose output it claims to show; a
+    document that prints an expected block above unrelated prose, or above
+    the code that produces it, passes exactly the same as one that doesn't.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+37. **A `txt` fence is inert, so fabricated program output placed in one is
+    never checked.** `runDocument`'s per-language dispatch
+    (`test/docs/harness.ts`) branches on `ts`, `sh`, `json`, and `jsonc`; a
+    `txt` fence passes `assertKnownFences` but has no branch at all, so its
+    content is never run, never diffed, and never checked in any way — matching
+    the docs-design spec's own §2.3 table, which lists `txt` as "inert —
+    directory listings and file trees" by design. `docs/mcp.md:23-28`
+    legitimately uses one for the "needs `@modelcontextprotocol/sdk`" message
+    the CLI actually prints — verified by hand against `src/mcp/`'s lazy-load
+    path — but the harness has no way to distinguish that from a document
+    author simply typing whatever they want.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+38. **`checkJsonFence` only inspects a `mcpServers` key.**
+    `test/docs/fence-checks.ts`'s `checkJsonFence` reads
+    `(parsed as McpClientConfig).mcpServers` and returns immediately when it
+    is `undefined` — a client config shaped for a host that uses a different
+    top-level key (a bare `servers` map, say) receives no argument checking
+    at all, even though the docs-design spec's §2.3 table states the check
+    ("an MCP client config's `args` array is additionally fed through the
+    real `mockingham mcp` parser") as if it applied to any JSON fence holding
+    a client config, unconditionally.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+39. **A child process writing more than 1 MB to stdout fails opaquely, though
+    not via the timeout path.** `runDocument` (`test/docs/harness.ts`) calls
+    `execFile` with no `maxBuffer` override, so Node's 1 MB default applies.
+    Verified against this repo's Node (v24.18.0): exceeding it does not set
+    `error.killed` — it stays `undefined`, not `true` — so `runChild`'s
+    `error.killed === true` timeout check never fires; `error.code` is
+    instead the string `'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'`, which
+    `runChild`'s `typeof error.code === 'number' ? error.code : 1` folds into
+    an ordinary `code: 1`. `assertDocument` then reports a plain "exited 1"
+    failure with the entire truncated ~1 MB of stdout dumped into the error
+    message and no mention of `maxBuffer` anywhere — unhelpful, but a
+    different failure shape than a `killed`-driven timeout misdiagnosis would
+    be.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+40. **The coverage sweep only walks `docs/` non-recursively, with
+    `README.md` hardcoded.** `test/docs/docs.test.ts`'s coverage test calls
+    `readdir(join(REPO, 'docs'))` with no `recursive` option, so a guide
+    placed in a subdirectory of `docs/` would never be discovered by the
+    sweep. `README.md` is not discovered at all — it is simply one of the
+    four literal entries in `DOCUMENTS`, exercised only because its own
+    subtest runs, never verified to exist by the coverage assertion itself. A
+    future top-level reader-facing markdown file outside `docs/` (a
+    `CONTRIBUTING.md`, say) would be silently uncovered either way.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+41. **Citation style drifts across the guides.** Some name the source
+    document — `docs/logging-datadog.md:38`: "phases 7-9 design §2.1";
+    `docs/mcp.md:206`: "master §17" — others cite a bare section symbol with
+    nothing naming which document it belongs to —
+    `docs/webhooks.md:163`: "the same layering §4 applies". Every citation
+    resolves to a real section in a real spec today, so nothing is broken,
+    but the docs-design spec (§4) asks a guide that states a rule to cite
+    "the invariant or spec section the rule comes from," and a bare `§4`
+    does not say which of this repo's three specs that is.
+    **Status: documented deferral, phase 12 docs cycle.**
+
 ---
 
 ## Polish
@@ -215,6 +433,21 @@ tests passing, up from a 509-test baseline, typecheck clean.
     leak in the classic sense — worth a line if `closedSignal` ever gains a
     reason to reset itself (for instance, if `reset()` is taught to be
     symmetric with `close()`, per item 25).
+32. `src/mcp/server.ts:6-9`'s `McpOptions.transport` JSDoc says `'stdio'`
+    "connects immediately." It does not: `createMcpServer` (`src/mcp/server.ts`)
+    only branches on `options.transport === 'http'` when building `path`;
+    nothing there or in `mcp()` (`src/index.ts`) reads `'stdio'` at all. A
+    `'stdio'` handle only starts talking JSON-RPC once the caller separately
+    awaits `handle.connectStdio()` — which is exactly what the `mockingham mcp`
+    CLI subcommand does on the caller's behalf
+    (`src/server/cli.ts:540-541`: `mock.mcp({ transport: 'stdio', ... })`
+    immediately followed by `await server.connectStdio()`). Found during
+    phase 12 docs (Task 10) while correcting the same false claim, inherited
+    from this JSDoc, that had leaked into `docs/mcp.md:76`. The guide was
+    corrected at the source; this comment is source under `src/`, which is out
+    of scope for the docs cycle's no-code-change boundary.
+    **Status: documented deferral, phase 12 docs cycle.** Fix belongs to
+    whichever cycle next opens `src/mcp/server.ts`.
 
 ---
 

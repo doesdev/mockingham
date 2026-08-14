@@ -90,7 +90,7 @@ A project without that invariant could not have this harness.
 |---|---|
 | `ts` | executed, per §2.1 |
 | `console` | the expectation for the run |
-| `sh` | each `mockingham …` line is parsed by the real CLI parser; every other line must match a small allow-set (`npm install`, `ollama pull`, `ollama serve`) |
+| `sh` | each `mockingham …` line is parsed by the real CLI parser; every other line must match a small allow-set (`npm install`, `ollama pull`, `ollama serve`, `npm test`, `npx tsc --noEmit`) |
 | `json` / `jsonc` | parsed; an MCP client config's `args` array is additionally fed through the real `mockingham mcp` parser |
 | `txt` | inert — directory listings and file trees |
 | anything else | **test failure** |
@@ -150,8 +150,9 @@ and webhooks are self-evidently motivated there rather than contrived:
 - A top-level `paymentFailed` webhook.
 
 Schema content worth generating: `uuid`, `date-time`, a `number` with
-`minimum`/`multipleOf`, an `enum` status, and a `pattern` inside the documented
-subset of §19. Tags on every operation, so `list_operations` and
+`minimum`/`multipleOf`, an `enum` status, and a `pattern` field that
+demonstrates master §19's known limitation — generation does not honor
+`pattern` at all. Tags on every operation, so `list_operations` and
 `search_operations` have something real to return.
 
 It also makes `CLAUDE.md`'s own run command work for the first time (§5).
@@ -171,17 +172,25 @@ someone, so it goes near the top.
 
 The tour's determinism claim is demonstrated rather than asserted. The runnable
 block builds two mocks on the same seed and prints that their bytes match; the
-prose then points at `scripts/determinism.ts` and the test that runs it, which
-is where the stronger cross-process claim is actually proven. The README does
-not spawn a subprocess of its own to prove it — that would duplicate an
-existing check inside a document, which §4 exists to prevent.
+prose then points at `scripts/determinism.ts` for the stronger cross-process
+claim — **corrected 2026-08-14 (Task 9/10): no test spawns or imports that
+script.** Nothing in `test/` does either; `test/fixtures/determinism.test.ts`
+is a real, passing test, but it proves a narrower claim (a baked fixture store
+serves the stored value byte-identically across independently constructed
+handlers, all within one process), not the cross-process case. The README
+says what is true — run the script, run it again, and diff the two runs by
+hand — rather than claiming an automated test covers it. The README does not
+spawn a subprocess of its own to prove it — that would duplicate an existing
+check inside a document, which §4 exists to prevent. See
+`docs/superpowers/deferred-items.md` (item 31, phase 12).
 
 ### 3.3 `docs/logging-datadog.md`
 
-The `LogRecord` field table, then a batching `onLog` sink that flushes on size,
-on an interval, and on close, posting to
+The `LogRecord` field table, then an `onLog` sink that shapes each record and
+posts a batch, in one shot, to
 `https://http-intake.logs.datadoghq.com/api/v2/logs` with a `DD-API-KEY`
-header.
+header. Flushing on size, on an interval, and on close is described in
+prose, not built as runnable code.
 
 The point the recipe exists to make: **`route` is the templated path and is
 safe as a tag; `path` is resolved, high-cardinality, and must never be one.**

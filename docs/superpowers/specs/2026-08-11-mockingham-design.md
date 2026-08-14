@@ -113,6 +113,8 @@ interface Mock {
   close(): Promise<void>
 
   // control plane
+  // NOT IMPLEMENTED — deferred to the runtime-override cycle. See the phase 10
+  // MCP delta section 1 and the phase 12 docs delta section 5.2.
   override(target: string, value: Override): void
   failNext(target: string, opts: FailNextOptions): void
   outage(target: string, opts: OutageOptions): void
@@ -895,8 +897,15 @@ Each phase leaves the project in a working, tested state.
 
 ## 19. Known limitations, stated up front
 
-- Regex `pattern` generation covers a documented subset; outside it, an override
-  or fixture is required (warned at startup).
+- **Corrected 2026-08-14 (phase 12 docs).** Regex `pattern` is not honored by
+  value generation at all — not "a documented subset, warned at startup" as
+  this bullet originally claimed. `pattern` appears nowhere in
+  `src/generate/values.ts` or `src/generate/constraints.ts`, and no startup
+  warning fires for it. Incoming requests ARE validated against a declared
+  `pattern` (`src/schema/compile.ts`), so the two directions disagree: a mock
+  can emit a body it would reject as a request. An override or fixture is the
+  only way to get a pattern-conforming generated value. See
+  `docs/superpowers/deferred-items.md` (item 28, phase 12).
 - Recursive schemas terminate at `maxDepth` and are excluded from LLM generation.
 - No stateful CRUD: writes do not affect later reads.
 - YAML documents must be parsed by the caller and passed in as objects.
