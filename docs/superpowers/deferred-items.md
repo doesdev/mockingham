@@ -59,12 +59,17 @@ tests passing, up from a 509-test baseline, typecheck clean.
 
 6. **`override()` is absent from `Mock`** although phases 4–6 design §7.3 and §1.3
    both specify it. Decide deliberately and record the outcome; it was never
-   consciously dropped, it was simply never planned in.
-   **Status: decided deferral, plan 5.** The scope question was put to the user
-   during plan 5 and they ruled it out of this plan's scope — a deliberate
-   deferral, not an oversight. It was expected to land in plan 6, but plan 6
-   turned out to be webhooks alone; it is now unscheduled, to be picked up when
-   someone next opens the override surface.
+   consciously dropped, it was simply never planned in. The scope question was
+   put to the user during plan 5 and they ruled it out of that plan's scope — a
+   deliberate deferral, not an oversight. It was expected to land in plan 6, but
+   plan 6 turned out to be webhooks alone, leaving it unscheduled until plan 10
+   opened the override surface.
+   **Status: DONE, plan 10 (runtime-override cycle), commits `c8e8ecc..d70a1db`
+   plus the phase-12 docs task.** `Mock.override(target, value)` and
+   `Mock.clearOverrides(target?)` now ship, with `set_override` and
+   `clear_overrides` as the corresponding MCP write tools — see
+   `docs/superpowers/specs/2026-08-14-mockingham-runtime-overrides-design.md`.
+   The MCP guide's third deferred item, `regenerate_fixture`, remains open.
 
 7. **Cookie parameters cannot validate.** `Parameter['location']` includes
    `'cookie'` and `src/runtime/validate.ts` handles only path/query/header.

@@ -79,7 +79,7 @@ an explicit `await handle.connectStdio()` before it talks JSON-RPC — which is
 exactly what the `mockingham mcp` subcommand does on your behalf
 (`src/server/cli.ts`). Only `'http'` writes anything into the mount slot.
 
-## The twelve tools
+## The fourteen tools
 
 Seven read tools, always available:
 
@@ -99,14 +99,21 @@ Seven read tools, always available:
 - `list_deliveries` — webhook deliveries recorded so far, oldest first,
   filterable by webhook name and outcome.
 
-Five write tools, gated behind `--write` (see below):
+Seven write tools, gated behind `--write` (see below):
 
 - `fail_next` — make the next request(s) to a target fail.
 - `outage` — fail every request to a target for a window of time.
 - `emit_webhook` — fire a declared webhook now, optionally at a chosen URL.
 - `set_seed` — reshuffle every generated value, deterministically.
 - `reset` — restore the configured baseline: armed failures, idempotency
-  keys, counters, captured deliveries.
+  keys, counters, captured deliveries. Also clears runtime overrides.
+- `set_override` — pin what an operation returns at runtime, without editing
+  config. Layers over any configured override the same way `mock.override()`
+  does. Target is a control-plane string: `"POST /orders"`, an operationId,
+  or `"* /**"` for every operation.
+- `clear_overrides` — remove runtime overrides set by `set_override`. With no
+  target, clears every operation. Never touches the overrides in your config
+  file.
 
 `describe_operation`, `sample_response`, and `get_auth_requirements` all
 identify an operation by `operationId`, or by `method` and `path` together.
@@ -152,11 +159,12 @@ const demoMock = createMock(doc, { seed: 'docs' })
 const demo = demoMock.mcp({ transport: 'http', path: '/mcp' })
 ```
 
-**First: `--write` gates the five write tools because they change the mock's
-runtime state.** `fail_next`, `outage`, `emit_webhook`, `set_seed`, and
-`reset` all mutate something a second caller would observe — an armed
-failure, a reseeded generator, a cleared store. Read tools never do, so only
-the five are behind the flag, and the flag is off by default.
+**First: `--write` gates the seven write tools because they change the mock's
+runtime state.** `fail_next`, `outage`, `emit_webhook`, `set_seed`, `reset`,
+`set_override`, and `clear_overrides` all mutate something a second caller
+would observe — an armed failure, a reseeded generator, a cleared store, a
+runtime override. Read tools never do, so only the seven are behind the flag,
+and the flag is off by default.
 
 **Second: closing the gate does not hide the tools — it disables them, and
 says so.** An agent that already knows a write tool's name still sees it in
@@ -310,11 +318,8 @@ tooling against a document that has one.
 
 ## What isn't here yet
 
-`set_override`, `clear_overrides`, and `regenerate_fixture` are not part of
-this server. They need a runtime-override mechanism that doesn't exist
-anywhere in mockingham yet, not only in the MCP layer — overrides are
-compiled once at construction, and there is no path to mutate them
-afterward. Master §1's `Mock.override(target, value)`, which those three
-tools would sit on top of, has never existed at any point in this project
-either. Both land together, in whatever cycle next opens the override
-surface — nothing here is a commitment to when.
+`regenerate_fixture` is not part of this server. `set_override` and
+`clear_overrides` — listed above — now ship on top of `Mock.override()` and
+`Mock.clearOverrides()`, both of which exist and are tested elsewhere in this
+project. `regenerate_fixture` remains deferred: nothing here is a commitment
+to when it lands.

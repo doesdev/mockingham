@@ -113,9 +113,10 @@ interface Mock {
   close(): Promise<void>
 
   // control plane
-  // NOT IMPLEMENTED — deferred to the runtime-override cycle. See the phase 10
-  // MCP delta section 1 and the phase 12 docs delta section 5.2.
-  override(target: string, value: Override): void
+  // Async, against this section's own `void` — the runtime-override cycle's
+  // amendment 2.1 follows the code (the Store is async), the same drift §1
+  // already had for failNext/outage below.
+  override(target: string, value: RuntimeOverride): Promise<void>
   failNext(target: string, opts: FailNextOptions): void
   outage(target: string, opts: OutageOptions): void
   setSeed(seed: string): void

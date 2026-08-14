@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { createMock } from '../../src/index.ts'
 import { mcpTools } from '../../src/mcp/tools/index.ts'
 import { toolNamed, contextFor } from './helpers.ts'
@@ -110,4 +111,23 @@ test('tools/call refuses set_override when the gate is closed', async () => {
   const check = await mock.fetch(new Request('http://mock.local/orders/abc', { headers: AUTH }))
   const body = await check.json() as Record<string, unknown>
   assert.notEqual(body.note, 'via-mcp')
+})
+
+test('every shipped tool is named in docs/mcp.md, and none is stale', async () => {
+  // The guide's inventory is prose, so nothing but this test relates it to the
+  // code. A tool added without documenting it, or documented after removal,
+  // fails here.
+  const guide = await readFile(new URL('../../docs/mcp.md', import.meta.url), 'utf8')
+  const shipped = mcpTools({ write: true }).map((tool) => tool.name).sort()
+
+  const missing = shipped.filter((name) => !guide.includes(name))
+  assert.deepEqual(missing, [], 'these tools ship but are undocumented')
+
+  const notShipped = ['regenerate_fixture']
+  for (const name of notShipped) {
+    assert.ok(
+      !shipped.includes(name),
+      `${name} is listed as deferred but now ships — update the guide and this list`
+    )
+  }
 })
