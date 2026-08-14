@@ -77,14 +77,15 @@ const SHELL_ALLOW = [
   'ollama pull'
 ] as const
 
-function splitArgs(line: string): string[] {
+export function splitArgs(input: string, file?: string, line?: number): string[] {
   const tokens: string[] = []
   let current = ''
+  let tokenStarted = false
   let inQuote: string | undefined
   let i = 0
 
-  while (i < line.length) {
-    const char = line[i] as string
+  while (i < input.length) {
+    const char = input[i] as string
     if (inQuote) {
       if (char === inQuote) {
         inQuote = undefined
@@ -93,20 +94,30 @@ function splitArgs(line: string): string[] {
       }
     } else {
       if (char === '"' || char === "'") {
+        tokenStarted = true
         inQuote = char
       } else if (/\s/.test(char)) {
-        if (current !== '') {
+        if (tokenStarted) {
           tokens.push(current)
           current = ''
+          tokenStarted = false
         }
       } else {
+        tokenStarted = true
         current += char
       }
     }
     i++
   }
 
-  if (current !== '') {
+  if (inQuote !== undefined) {
+    const context = file && line ? `${file}:${line}` : ''
+    throw new Error(
+      `${context}: unterminated quoted string`.replace(/^:\s*/, '')
+    )
+  }
+
+  if (tokenStarted) {
     tokens.push(current)
   }
 
@@ -155,7 +166,7 @@ export function checkShellFence(content: string, file: string, line: number): vo
     }
 
     if (withoutNpx === 'mockingham' || withoutNpx.startsWith('mockingham ')) {
-      checkMockinghamArgs(splitArgs(withoutNpx).slice(1))
+      checkMockinghamArgs(splitArgs(withoutNpx, file, line).slice(1))
       continue
     }
 

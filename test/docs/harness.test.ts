@@ -68,7 +68,8 @@ import {
   assertPrintableLogs,
   assertBareSpecifier,
   checkShellFence,
-  checkJsonFence
+  checkJsonFence,
+  splitArgs
 } from './fence-checks.ts'
 
 test('a console.log of a raw object is rejected', () => {
@@ -167,4 +168,41 @@ test('console.log with multiple arguments throws', () => {
 
 test('npx -y mockingham subcommand passes', () => {
   checkShellFence('npx -y mockingham mcp ./openapi.json --write', 'doc.md', 3)
+})
+
+test('splitArgs tokenizes a double-quoted value with spaces', () => {
+  const tokens = splitArgs('--persona "A friendly banking API"')
+  assert.deepEqual(tokens, ['--persona', 'A friendly banking API'])
+})
+
+test('splitArgs tokenizes a single-quoted value with spaces', () => {
+  const tokens = splitArgs("--persona 'A friendly API'")
+  assert.deepEqual(tokens, ['--persona', 'A friendly API'])
+})
+
+test('splitArgs preserves # inside a quoted value', () => {
+  const tokens = splitArgs('--persona "API #1"')
+  assert.deepEqual(tokens, ['--persona', 'API #1'])
+})
+
+test('splitArgs preserves an empty quoted value', () => {
+  const tokens = splitArgs('--persona "" --model llama3.3')
+  assert.deepEqual(tokens, ['--persona', '', '--model', 'llama3.3'])
+})
+
+test('splitArgs tokenizes flag=value with spaces', () => {
+  const tokens = splitArgs('--persona="value with spaces"')
+  assert.deepEqual(tokens, ['--persona=value with spaces'])
+})
+
+test('splitArgs tokenizes correctly with complex quoting including # and spaces', () => {
+  const tokens = splitArgs('mockingham bake ./openapi.json --model llama3.3 --persona "API #1: friendly"')
+  assert.deepEqual(tokens, ['mockingham', 'bake', './openapi.json', '--model', 'llama3.3', '--persona', 'API #1: friendly'])
+})
+
+test('an unterminated quoted value throws', () => {
+  assert.throws(
+    () => splitArgs('--persona "unterminated', 'doc.md', 3),
+    /unterminated quoted string/
+  )
 })
