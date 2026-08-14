@@ -15,7 +15,10 @@ const AUTH = { authorization: 'Bearer test' }
 
 test('write tools are absent from the default tool list', () => {
   const names = mcpTools().map((tool) => tool.name)
-  for (const name of ['fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset']) {
+  for (const name of [
+    'fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset',
+    'set_override', 'clear_overrides'
+  ]) {
     assert.ok(!names.includes(name), `${name} must not be exposed without write: true`)
   }
 })
@@ -23,9 +26,15 @@ test('write tools are absent from the default tool list', () => {
 test('write tools appear when write is enabled', () => {
   const names = mcpTools({ write: true }).map((tool) => tool.name)
   assert.deepEqual(
-    ['fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset']
+    [
+      'fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset',
+      'set_override', 'clear_overrides'
+    ]
       .filter((name) => names.includes(name)),
-    ['fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset']
+    [
+      'fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset',
+      'set_override', 'clear_overrides'
+    ]
   )
 })
 

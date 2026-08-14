@@ -3,6 +3,7 @@ import type { ZodType } from 'zod'
 import type { Delivery } from '../webhooks/deliver.ts'
 import type { EmitOptions } from '../server/handler.ts'
 import type { CompiledConfig } from '../runtime/config.ts'
+import type { RuntimeOverride } from '../runtime/overrides.ts'
 
 export interface McpFailNextOptions {
   times?: number
@@ -25,6 +26,8 @@ export interface McpContext {
   fetch(request: Request): Promise<Response>
   failNext(target: string, opts?: McpFailNextOptions): Promise<void>
   outage(target: string, opts?: McpOutageOptions): Promise<void>
+  override(target: string, value: RuntimeOverride): Promise<void>
+  clearOverrides(target?: string): Promise<void>
   setSeed(seed: string): Promise<void>
   reset(): Promise<void>
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
@@ -40,7 +43,7 @@ export interface McpContext {
 }
 
 /**
- * The eight members of `McpContext` a `Mock` supplies directly. Typed
+ * The ten members of `McpContext` a `Mock` supplies directly. Typed
  * structurally rather than as `Mock` on purpose: `../index.ts` imports this
  * module, so naming its type here would close a cycle. It is also the whole
  * point of the narrowing — this is every part of a `Mock` a tool may reach.
@@ -50,6 +53,8 @@ export interface McpContextSource {
   fetch(request: Request): Promise<Response>
   failNext(target: string, opts?: McpFailNextOptions): Promise<void>
   outage(target: string, opts?: McpOutageOptions): Promise<void>
+  override(target: string, value: RuntimeOverride): Promise<void>
+  clearOverrides(target?: string): Promise<void>
   setSeed(seed: string): Promise<void>
   reset(): Promise<void>
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
@@ -72,6 +77,8 @@ export function createMcpContext(
     fetch: (request) => source.fetch(request),
     failNext: (target, opts) => source.failNext(target, opts),
     outage: (target, opts) => source.outage(target, opts),
+    override: (target, value) => source.override(target, value),
+    clearOverrides: (target) => source.clearOverrides(target),
     setSeed: (seed) => source.setSeed(seed),
     reset: () => source.reset(),
     emit: (name, opts) => source.emit(name, opts),
