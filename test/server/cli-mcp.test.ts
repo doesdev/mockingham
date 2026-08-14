@@ -1,0 +1,161 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { writeFile, mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { parseMcpArgs } from '../../src/server/cli.ts'
+import { mcpDoc } from '../mcp/doc.ts'
+
+test('parseMcpArgs reads the document, seed, fixtures, and write flag', () => {
+  const args = parseMcpArgs(['./doc.json', '--seed', 's', '--write'])
+  assert.equal(args.document, './doc.json')
+  assert.equal(args.seed, 's')
+  assert.equal(args.write, true)
+
+  assert.equal(parseMcpArgs(['./doc.json']).write, false)
+})
+
+test('a real MCP client can list and call tools over stdio', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mockingham-mcp-'))
+  const docPath = join(dir, 'doc.json')
+  await writeFile(docPath, JSON.stringify(mcpDoc), 'utf8')
+
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [join(import.meta.dirname, '../../src/server/cli.ts'), 'mcp', docPath]
+  })
+  const client = new Client({ name: 'test', version: '1' })
+
+  // A stray non-JSON-RPC line on stdout does not itself hang or reject the
+  // round trip: the SDK's ReadBuffer is newline-delimited, so a bad line is
+  // skipped and the next well-formed message still parses. It does, however,
+  // reach the transport's onerror callback as a JSON parse (or schema) error.
+  // That is the actual, reliable signal that something wrote to stdout that
+  // should not have — asserting on it is what makes this test fail under the
+  // console.log mutation instead of passing despite the corruption.
+  const streamErrors: unknown[] = []
+  client.onerror = (error) => {
+    streamErrors.push(error)
+  }
+
+  try {
+    await client.connect(transport)
+
+    const listed = await client.listTools()
+    const names = listed.tools.map((tool) => tool.name)
+    assert.ok(names.includes('list_operations'), `got ${names.join(', ')}`)
+
+    // Design §3.7: with the gate closed the five write tools DO appear in
+    // tools/list — registering them is what makes a named refusal possible —
+    // each carrying a `Disabled. …` description that names the enabling flag.
+    for (const name of ['fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset']) {
+      const tool = listed.tools.find((entry) => entry.name === name)
+      assert.ok(tool, `${name} must be listed even with the gate closed; got ${names.join(', ')}`)
+      const description = tool.description ?? ''
+      assert.ok(
+        description.startsWith('Disabled.'),
+        `${name} must be described as disabled, got ${JSON.stringify(description)}`
+      )
+      assert.ok(
+        description.includes('--write'),
+        `${name}'s description must name the enabling flag, got ${JSON.stringify(description)}`
+      )
+    }
+
+    const called = await client.callTool({
+      name: 'list_operations',
+      arguments: { tag: 'ops' }
+    }) as { content: Array<{ type: string; text: string }> }
+    const operations = JSON.parse(called.content[0]!.text) as Array<{ operationId?: string }>
+    assert.deepEqual(operations.map((entry) => entry.operationId), ['health'])
+
+    assert.deepEqual(
+      streamErrors,
+      [],
+      'the stdio transport reported a parse error, meaning something wrote a ' +
+        'non-JSON-RPC line to stdout'
+    )
+  } finally {
+    await client.close()
+  }
+})
+
+test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands on stderr', async () => {
+  // Spawned directly with node:child_process rather than through the SDK
+  // client, so this test watches the raw byte streams instead of trusting
+  // the SDK to notice pollution. The onerror assertion above is indirect —
+  // it depends on how a future SDK version happens to report a malformed
+  // line — this one is not: it fails on a nonzero stdout byte count, full
+  // stop, regardless of what any client-side parser does with it.
+  const dir = await mkdtemp(join(tmpdir(), 'mockingham-mcp-stdout-'))
+  const docPath = join(dir, 'doc.json')
+  await writeFile(docPath, JSON.stringify(mcpDoc), 'utf8')
+
+  const child = spawn(process.execPath, [
+    join(import.meta.dirname, '../../src/server/cli.ts'),
+    'mcp',
+    docPath
+  ])
+
+  const stdoutChunks: Buffer[] = []
+  const stderrChunks: Buffer[] = []
+  child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk))
+  child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk))
+
+  try {
+    // Wait for the first byte on EITHER stream, rather than assuming stderr
+    // — the whole point of this test is that under the console.log mutation
+    // the readiness line lands on the wrong one, and a test that only ever
+    // watched stderr would just hang forever on that mutation instead of
+    // failing. Whichever stream produces output first is the answer to
+    // "where did the ready line actually go".
+    const firstStream = await new Promise<'stdout' | 'stderr'>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('mcp subprocess produced no output within 5s')),
+        5000
+      )
+      child.stdout.once('data', () => {
+        clearTimeout(timer)
+        resolve('stdout')
+      })
+      child.stderr.once('data', () => {
+        clearTimeout(timer)
+        resolve('stderr')
+      })
+    })
+
+    // A grace period after the first byte, so a second write racing just
+    // behind the first (e.g. a trailing flush) is still caught rather than
+    // only checking the instant the very first chunk arrives.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    const stdoutText = Buffer.concat(stdoutChunks).toString('utf8')
+    const stderrText = Buffer.concat(stderrChunks).toString('utf8')
+
+    assert.equal(
+      firstStream,
+      'stderr',
+      `expected the first subprocess output on stderr, got ${firstStream} — ` +
+        `stdout was: ${JSON.stringify(stdoutText)}`
+    )
+    assert.equal(
+      stdoutText,
+      '',
+      `stdout must stay empty until JSON-RPC traffic begins, got: ${JSON.stringify(stdoutText)}`
+    )
+    assert.ok(
+      stderrText.includes('MCP server ready for'),
+      `expected the ready message on stderr, got: ${JSON.stringify(stderrText)}`
+    )
+    assert.ok(
+      stderrText.includes(docPath),
+      'the ready message should name the document path'
+    )
+  } finally {
+    child.kill()
+    await new Promise((resolve) => child.once('exit', resolve))
+  }
+})

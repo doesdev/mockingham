@@ -9,7 +9,7 @@ function res(status: number): ResponseSpec {
 
 function op(responses: ResponseSpec[], defaultResponse?: ResponseSpec): Operation {
   return {
-    method: 'get', path: '/x', parameters: [], responses, defaultResponse, callbacks: []
+    method: 'get', path: '/x', tags: [], parameters: [], responses, defaultResponse, callbacks: []
   }
 }
 

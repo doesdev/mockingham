@@ -4,7 +4,7 @@ import { createRouter } from '../../src/spec/routes.ts'
 import type { Operation } from '../../src/spec/types.ts'
 
 function op(method: Operation['method'], path: string, id: string): Operation {
-  return { method, path, operationId: id, parameters: [], responses: [], callbacks: [] }
+  return { method, path, operationId: id, tags: [], parameters: [], responses: [], callbacks: [] }
 }
 
 test('matches a static path', () => {

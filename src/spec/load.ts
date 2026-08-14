@@ -125,6 +125,12 @@ export function loadApi(doc: Record<string, unknown>): Api {
         operationId: op['operationId'] as string | undefined,
         summary: op['summary'] as string | undefined,
         description: op['description'] as string | undefined,
+        // Non-strings are dropped rather than coerced — same treatment every
+        // other array in this loader gives a malformed entry. A tag is a
+        // filter key; a coerced "7" would match nothing and look like a bug.
+        tags: Array.isArray(op['tags'])
+          ? (op['tags'] as unknown[]).filter((tag): tag is string => typeof tag === 'string')
+          : [],
         parameters: merged,
         requestBody: op['requestBody']
           ? toContent(asRecord(op['requestBody'])['content'])

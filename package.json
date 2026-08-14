@@ -27,6 +27,14 @@
   "dependencies": {
     "zod": "^4.4.3"
   },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.30.0",
+    "@modelcontextprotocol/sdk": ">=1.30.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": { "optional": true },
+    "@modelcontextprotocol/sdk": { "optional": true }
+  },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/node": "^24.0.0",

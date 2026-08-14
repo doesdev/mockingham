@@ -6,7 +6,7 @@ import {
   createDiskFixtureStore,
   createRecordedSource
 } from '../../src/index.ts'
-import type { ContentSource, FixtureRequest, FixtureResult } from '../../src/index.ts'
+import type { ContentSource, FixtureRequest, FixtureResult, McpOptions, McpServerHandle } from '../../src/index.ts'
 
 /**
  * The bake-commit-serve loop is what this subsystem exists for, and until now
@@ -94,4 +94,14 @@ test('a caller can write a source against the exported types alone', async () =>
 
 test('the disk store factory is reachable from the package root', () => {
   assert.equal(typeof createDiskFixtureStore, 'function')
+})
+
+test('the package exposes the MCP server surface', () => {
+  const mock = createMock(doc)
+  assert.equal(typeof mock.mcp, 'function')
+
+  const handle = mock.mcp({ transport: 'inline' })
+  assert.equal(typeof handle.handleRequest, 'function')
+  assert.equal(typeof handle.connectStdio, 'function')
+  assert.equal(handle.path, undefined, 'inline transport mounts nothing')
 })

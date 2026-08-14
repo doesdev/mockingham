@@ -379,10 +379,30 @@ mock.mcp({ transport: 'http', path: '/mcp', write: true })
 mockingham mcp ./openapi.json --write
 ```
 
-`write` defaults to `false`. With it off, the five write tools are absent from
-`tools/list` **and** `tools/call` on one of them returns a tool error naming
-the flag that would enable it. Both halves matter: a gate that only hides the
-tools from the listing is not a gate.
+`write` defaults to `false`. With it off, `mcpTools()` omits the five write
+tools **and** `tools/call` on one of them returns a tool error naming the flag
+that would enable it. Both halves matter: a gate that only hides the tools is
+not a gate — an agent can still call one by name, and a bare "tool not found"
+reads like the feature does not exist.
+
+**Correction, made during implementation.** An earlier draft of this section
+required the write tools to be *absent from `tools/list`* as well. Hiding them
+is achievable, but not together with a refusal that **names the flag**, and the
+implementation is right where the draft was wrong. `registerTool` sets
+`enabled: true` and `tools/list` filters on that flag, so a listed tool is a
+registered, enabled one. Calling `.disable()` would hide a tool and still
+refuse a call on it — the SDK's `server/mcp.js` distinguishes "Tool X not
+found" from "Tool X disabled" — but that refusal is the SDK's own text and
+cannot say `--write`. So the choice is between hiding the tool and telling the
+caller how to turn it on. The implementation takes the second: over the wire
+the five names **do** appear when the gate is closed, each carrying a
+`Disabled. …` description that names the flag.
+
+This is a better outcome than the draft demanded, not a concession: an agent
+discovers the capability exists and is told exactly how to enable it, and
+nothing leaks, because the effect is genuinely prevented (the stub's body is
+only a throw and never touches the context) and the existence of a control
+plane is public knowledge anyway.
 
 ### 3.8 A document operation may collide with the mount path (Amendment 3.8)
 
@@ -582,6 +602,15 @@ lands as soon as one read tool and the transport exist.
   the transport, not the thing it controls.
 - **Resumability and `Last-Event-ID` are unavailable.** They require an
   `EventStore` and SSE, and §3.4 serves JSON.
+- **`sample_response` does not bypass auth, and will 401 without credentials.**
+  Because the tool *is* `mock.fetch` (§3.3), a request to an operation the
+  document protects returns 401 unless the caller passes credentials in
+  `headers` — auth is pipeline stage 3, ahead of everything interesting. This is
+  honest, since it is exactly what the agent's own client will get, and
+  `get_auth_requirements` says what is needed. An auth shortcut inside the tool
+  would reintroduce the second code path §3.3 exists to prevent, so it will not
+  be added. Discovered while implementing, where it briefly made a test pass by
+  comparing two identical 401 responses.
 - **`sample_response` cannot express every request.** No multipart bodies, no
   binary bodies, no cookie parameters. JSON, form-encoded, and text bodies
   only, matching what master §2's body parsing supports.
