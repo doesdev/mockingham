@@ -41,3 +41,25 @@ test('assertKnownFences accepts every language the harness handles', () => {
   ].join('\n')
   assertKnownFences(extractFences(md), 'doc.md')
 })
+
+test('a four-backtick block containing a nested triple-backtick fence extracts as one fence', () => {
+  const md = ['````markdown', '```ts', 'const a = 1', '```', '````', ''].join('\n')
+  const fences = extractFences(md)
+  assert.equal(fences.length, 1)
+  assert.equal(fences[0]?.lang, 'markdown')
+  assert.equal(fences[0]?.content, '```ts\nconst a = 1\n```')
+})
+
+test('a closing line with fewer backticks than the opener does not close the fence', () => {
+  const md = ['````ts', 'const a = 1', '```', 'still in fence', '````', ''].join('\n')
+  const fences = extractFences(md)
+  assert.equal(fences.length, 1)
+  assert.equal(fences[0]?.content, 'const a = 1\n```\nstill in fence')
+})
+
+test('a fence indented two spaces extracts with the indent stripped from content', () => {
+  const md = ['  ```ts', '  const a = 1', '  const b = 2', '  ```', ''].join('\n')
+  const fences = extractFences(md)
+  assert.equal(fences.length, 1)
+  assert.equal(fences[0]?.content, 'const a = 1\nconst b = 2')
+})
