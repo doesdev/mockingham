@@ -22,6 +22,33 @@ export function assertPrintableLogs(block: string, file: string, line: number): 
           'across Node versions.'
       )
     }
+
+    // Check for multiple arguments: scan to the matching close parenthesis,
+    // tracking depth and quoted runs, and reject if a comma appears at depth 0.
+    let depth = 1
+    let i = 0
+    let inQuote: string | undefined
+    while (i < rest.length && depth > 0) {
+      const char = rest[i] as string
+      if (inQuote) {
+        if (char === inQuote && rest[i - 1] !== '\\') inQuote = undefined
+      } else {
+        if (char === '"' || char === "'" || char === '`') {
+          inQuote = char
+        } else if (char === '(') {
+          depth++
+        } else if (char === ')') {
+          depth--
+        } else if (char === ',' && depth === 1) {
+          throw new Error(
+            `${file}:${line}: console.log must receive a single argument — ` +
+              'only strings, template literals, and JSON.stringify are portable ' +
+              'across readers.'
+          )
+        }
+      }
+      i++
+    }
   }
 }
 
@@ -31,7 +58,7 @@ export function assertPrintableLogs(block: string, file: string, line: number): 
  * to catch.
  */
 export function assertBareSpecifier(block: string, file: string, line: number): void {
-  const pattern = /from\s+'([^']+)'/g
+  const pattern = /from\s+["']([^"']+)["']/g
   for (const match of block.matchAll(pattern)) {
     const specifier = match[1] as string
     if (specifier.startsWith('node:') || specifier === 'mockingham') continue
@@ -51,10 +78,39 @@ const SHELL_ALLOW = [
 ] as const
 
 function splitArgs(line: string): string[] {
-  return line
-    .split(/\s+/)
-    .filter((token) => token !== '')
-    .map((token) => token.replace(/^["']|["']$/g, ''))
+  const tokens: string[] = []
+  let current = ''
+  let inQuote: string | undefined
+  let i = 0
+
+  while (i < line.length) {
+    const char = line[i] as string
+    if (inQuote) {
+      if (char === inQuote) {
+        inQuote = undefined
+      } else {
+        current += char
+      }
+    } else {
+      if (char === '"' || char === "'") {
+        inQuote = char
+      } else if (/\s/.test(char)) {
+        if (current !== '') {
+          tokens.push(current)
+          current = ''
+        }
+      } else {
+        current += char
+      }
+    }
+    i++
+  }
+
+  if (current !== '') {
+    tokens.push(current)
+  }
+
+  return tokens
 }
 
 /** Routes to the same parser the running CLI uses, subcommand included. */
@@ -66,12 +122,37 @@ function checkMockinghamArgs(argv: string[]): void {
 
 export function checkShellFence(content: string, file: string, line: number): void {
   for (const raw of content.split('\n')) {
-    const command = raw.trim()
-    if (command === '' || command.startsWith('#')) continue
+    const withComment = raw.trim()
+    if (withComment === '' || withComment.startsWith('#')) continue
 
-    const withoutNpx = command.startsWith('npx mockingham ')
-      ? command.slice('npx '.length)
-      : command
+    // Strip trailing comments: an unquoted # and everything after.
+    let command = ''
+    let inQuote: string | undefined
+    for (let i = 0; i < withComment.length; i++) {
+      const char = withComment[i] as string
+      if (inQuote) {
+        command += char
+        if (char === inQuote && withComment[i - 1] !== '\\') inQuote = undefined
+      } else {
+        if (char === '"' || char === "'") {
+          inQuote = char
+          command += char
+        } else if (char === '#') {
+          break
+        } else {
+          command += char
+        }
+      }
+    }
+    command = command.trim()
+
+    // Handle "npx mockingham" or "npx -y mockingham"
+    let withoutNpx = command
+    if (command.startsWith('npx mockingham ')) {
+      withoutNpx = command.slice('npx '.length)
+    } else if (command.startsWith('npx -y mockingham ')) {
+      withoutNpx = command.slice('npx -y '.length)
+    }
 
     if (withoutNpx === 'mockingham' || withoutNpx.startsWith('mockingham ')) {
       checkMockinghamArgs(splitArgs(withoutNpx).slice(1))

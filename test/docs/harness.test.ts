@@ -138,3 +138,33 @@ test('a valid MCP client config passes', () => {
 test('malformed JSON in a json fence fails', () => {
   assert.throws(() => checkJsonFence('{ nope', 'doc.md', 3), /JSON/)
 })
+
+test('a --persona flag value containing spaces passes', () => {
+  checkShellFence('mockingham bake ./openapi.json --model llama3.3 --persona "A friendly banking API"', 'doc.md', 3)
+})
+
+test('a quoted value containing # is not truncated', () => {
+  checkShellFence('mockingham bake ./openapi.json --model llama3.3 --persona "API #1"', 'doc.md', 3)
+})
+
+test('a trailing # comment on a valid mockingham line passes', () => {
+  checkShellFence('mockingham ./openapi.json --port 4000  # start the mock', 'doc.md', 3)
+})
+
+test('a double-quoted relative import into src throws', () => {
+  assert.throws(
+    () => assertBareSpecifier('import { createMock } from "../src/index.ts"', 'doc.md', 3),
+    /bare specifier/
+  )
+})
+
+test('console.log with multiple arguments throws', () => {
+  assert.throws(
+    () => assertPrintableLogs("console.log('Result:', payment)", 'doc.md', 3),
+    /single argument/
+  )
+})
+
+test('npx -y mockingham subcommand passes', () => {
+  checkShellFence('npx -y mockingham mcp ./openapi.json --write', 'doc.md', 3)
+})
