@@ -63,3 +63,78 @@ test('a fence indented two spaces extracts with the indent stripped from content
   assert.equal(fences.length, 1)
   assert.equal(fences[0]?.content, 'const a = 1\nconst b = 2')
 })
+
+import {
+  assertPrintableLogs,
+  assertBareSpecifier,
+  checkShellFence,
+  checkJsonFence
+} from './fence-checks.ts'
+
+test('a console.log of a raw object is rejected', () => {
+  // util.inspect formatting is not a cross-version contract; asserting on it
+  // would fail on a reader's Node for reasons unrelated to mockingham.
+  // Design section 2.5.
+  assert.throws(
+    () => assertPrintableLogs('console.log(payment)', 'doc.md', 3),
+    /JSON.stringify/
+  )
+})
+
+test('strings, template literals and JSON.stringify are accepted', () => {
+  assertPrintableLogs("console.log('hi')", 'doc.md', 3)
+  assertPrintableLogs('console.log(`hi ${name}`)', 'doc.md', 3)
+  assertPrintableLogs('console.log(JSON.stringify(payment, null, 2))', 'doc.md', 3)
+})
+
+test('a relative import into src is rejected — a reader cannot write one', () => {
+  assert.throws(
+    () => assertBareSpecifier("import { createMock } from '../src/index.ts'", 'doc.md', 3),
+    /bare specifier/
+  )
+})
+
+test('the bare package specifier is accepted', () => {
+  assertBareSpecifier("import { createMock } from 'mockingham'", 'doc.md', 3)
+})
+
+test('a shell fence flag that the CLI does not accept fails', () => {
+  assert.throws(
+    () => checkShellFence('mockingham ./openapi.json --prot 4000', 'doc.md', 3),
+    /unknown option --prot/
+  )
+})
+
+test('a shell fence the CLI does accept passes, including subcommands', () => {
+  checkShellFence('mockingham ./openapi.json --port 4000', 'doc.md', 3)
+  checkShellFence('mockingham bake ./openapi.json --model llama3.3', 'doc.md', 3)
+  checkShellFence('mockingham mcp ./openapi.json --write', 'doc.md', 3)
+  checkShellFence('npm install', 'doc.md', 3)
+  checkShellFence('# a comment is skipped', 'doc.md', 3)
+})
+
+test('a shell command outside the allow-set fails', () => {
+  assert.throws(() => checkShellFence('curl http://example.com', 'doc.md', 3), /allow/)
+})
+
+test('an MCP client config with a bad flag fails', () => {
+  const config = JSON.stringify({
+    mcpServers: {
+      mockingham: { command: 'npx', args: ['mockingham', 'mcp', './openapi.json', '--writes'] }
+    }
+  })
+  assert.throws(() => checkJsonFence(config, 'doc.md', 3), /unknown option --writes/)
+})
+
+test('a valid MCP client config passes', () => {
+  const config = JSON.stringify({
+    mcpServers: {
+      mockingham: { command: 'npx', args: ['mockingham', 'mcp', './openapi.json', '--write'] }
+    }
+  })
+  checkJsonFence(config, 'doc.md', 3)
+})
+
+test('malformed JSON in a json fence fails', () => {
+  assert.throws(() => checkJsonFence('{ nope', 'doc.md', 3), /JSON/)
+})
