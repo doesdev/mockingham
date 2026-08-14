@@ -1,0 +1,185 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Example Payments API", "version": "1.0.0" },
+  "paths": {
+    "/payments": {
+      "get": {
+        "operationId": "listPayments",
+        "tags": ["payments"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "type": "array", "items": { "type": "string", "enum": ["pending", "succeeded", "failed"] } }
+          },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of payments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Payment" } },
+                    "nextCursor": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createPayment",
+        "tags": ["payments"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["amount", "currency"],
+                "properties": {
+                  "amount": { "type": "number", "minimum": 0.01, "multipleOf": 0.01 },
+                  "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+                  "description": { "type": "string" },
+                  "callbackUrl": { "type": "string", "format": "uri" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payment" } } }
+          },
+          "422": {
+            "description": "Invalid",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        },
+        "callbacks": {
+          "paymentSucceeded": {
+            "{$request.body#/callbackUrl}": {
+              "post": {
+                "operationId": "paymentSucceededCallback",
+                "requestBody": {
+                  "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payment" } } }
+                },
+                "responses": { "200": { "description": "ack" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/payments/{id}": {
+      "get": {
+        "operationId": "getPayment",
+        "tags": ["payments"],
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "The payment",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payment" } } }
+          },
+          "404": {
+            "description": "No such payment",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/refunds": {
+      "post": {
+        "operationId": "createRefund",
+        "tags": ["refunds"],
+        "security": [{ "apiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["paymentId"],
+                "properties": {
+                  "paymentId": { "type": "string", "format": "uuid" },
+                  "amount": { "type": "number", "minimum": 0.01, "multipleOf": 0.01 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "status"],
+                  "properties": {
+                    "id": { "type": "string", "format": "uuid" },
+                    "status": { "type": "string", "enum": ["pending", "succeeded", "failed"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "paymentFailed": {
+      "post": {
+        "operationId": "paymentFailedWebhook",
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payment" } } }
+        },
+        "responses": { "200": { "description": "ack" } }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" },
+      "apiKeyAuth": { "type": "apiKey", "in": "header", "name": "X-Api-Key" }
+    },
+    "schemas": {
+      "Payment": {
+        "type": "object",
+        "required": ["id", "amount", "currency", "status", "createdAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "amount": { "type": "number", "minimum": 0.01, "multipleOf": 0.01 },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "status": { "type": "string", "enum": ["pending", "succeeded", "failed"] },
+          "description": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "requestId": { "type": "string" }
+        }
+      }
+    }
+  }
+}
