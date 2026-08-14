@@ -55,7 +55,19 @@ export function assertSerializable(
   seen.add(object)
 
   if (Array.isArray(value)) {
-    value.forEach((item, index) => assertSerializable(item, `${path}[${index}]`, seen))
+    // Object keys holding `undefined` are dropped by `JSON.stringify`, which
+    // preserves "absent"; array elements holding `undefined` become `null`,
+    // which changes the value. Reject it.
+    value.forEach((item, index) => {
+      if (item === undefined) {
+        throw new Error(
+          `mockingham: override ${path}[${index}] is undefined. JSON serialization ` +
+            'converts array holes to null, changing the value. Use null instead if ' +
+            'that is what you intend.'
+        )
+      }
+      assertSerializable(item, `${path}[${index}]`, seen)
+    })
     seen.delete(object)
     return
   }

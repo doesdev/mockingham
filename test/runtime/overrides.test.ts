@@ -54,6 +54,17 @@ test('a cyclic value throws rather than hanging', () => {
   assert.throws(() => assertSerializable(cyclic), /cycle/)
 })
 
+test('undefined as an array element is rejected, naming its indexed path', () => {
+  assert.throws(
+    () => assertSerializable({ 200: { body: { list: [1, undefined, 3] } } }),
+    /value\.200\.body\.list\[1\]/
+  )
+})
+
+test('undefined as an object property value is accepted', () => {
+  assertSerializable({ 200: { body: { a: undefined } } })
+})
+
 test('overrideAsResolved exposes body and headers scoped by status', () => {
   const resolved = overrideAsResolved({
     status: 201,
