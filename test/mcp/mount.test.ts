@@ -109,8 +109,54 @@ test('paths other than the mount still reach the mock', async () => {
 
   const response = await mock.fetch(new Request('http://mock.local/health'))
   assert.equal(response.status, 200)
-  const body = await response.json() as { ok?: boolean }
-  assert.equal(typeof body.ok, 'boolean')
+  // Asserted on the envelope, not on a field: every property of /health's
+  // schema is optional, so pinning one would hold only under today's seed.
+  assert.ok((response.headers.get('content-type') ?? '').includes('json'))
+  const body = await response.json() as unknown
+  assert.equal(typeof body, 'object')
+  assert.notEqual(body, null)
+})
+
+test('close() unmounts, so the mount path stops reaching MCP', async () => {
+  const mock = createMock(mcpDoc, { onWarn: () => {} })
+  const handle = mock.mcp({ transport: 'http', path: '/mcp', write: true })
+
+  const before = await mock.fetch(
+    rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+  )
+  assert.equal(before.status, 200)
+
+  await handle.close()
+
+  // The document declares no /mcp operation, so with the mount gone this must
+  // be the mock's own 404 rather than a JSON-RPC reply.
+  const after = await mock.fetch(
+    rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+  )
+  assert.equal(after.status, 404, 'close() must unmount the /mcp handler')
+  const body = await after.json() as { result?: unknown; error?: { code?: string } }
+  assert.equal(body.result, undefined, 'MCP must not answer after close()')
+})
+
+test('closing an older handle does not unmount the one that replaced it', async () => {
+  const mock = createMock(mcpDoc, { onWarn: () => {} })
+  const first = mock.mcp({ transport: 'http', path: '/mcp' })
+  const second = mock.mcp({ transport: 'http', path: '/mcp' })
+
+  await first.close()
+
+  const response = await mock.fetch(
+    rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+  )
+  assert.equal(response.status, 200, 'the newer mount must still serve')
+  const payload = await response.json() as { result: { tools: Array<{ name: string }> } }
+  assert.ok(payload.result.tools.length > 0)
+
+  await second.close()
+  const gone = await mock.fetch(
+    rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+  )
+  assert.equal(gone.status, 404)
 })
 
 test('a document operation at the mount path is shadowed, with a warning', async () => {

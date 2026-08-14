@@ -43,6 +43,18 @@ export function findOperation(
   )
 }
 
+/**
+ * Design §5.1: a schema the converter refuses is reported as a `$comment`
+ * rather than omitted, so an agent is told the shape exists and why it is not
+ * shown. One helper, because three copies of the sentence would drift and a
+ * fourth call site would forget it entirely.
+ */
+function jsonSchemaOf(schema: Schema): Record<string, unknown> {
+  return toJsonSchema(schema, compiler) ?? {
+    $comment: 'not expressible as JSON Schema; this operation is generated only'
+  }
+}
+
 function contentSchemas(
   content: Record<string, { schema: Schema; example?: unknown }> | undefined
 ): Record<string, unknown> | undefined {
@@ -53,9 +65,7 @@ function contentSchemas(
   for (const mediaType of Object.keys(content).sort()) {
     const media = content[mediaType]!
     out[mediaType] = {
-      schema: toJsonSchema(media.schema, compiler) ?? {
-        $comment: 'not expressible as JSON Schema; this operation is generated only'
-      },
+      schema: jsonSchemaOf(media.schema),
       example: media.example
     }
   }
@@ -86,7 +96,7 @@ const describeOperation: McpTool = {
         name: parameter.name,
         location: parameter.location,
         required: parameter.required,
-        schema: toJsonSchema(parameter.schema, compiler)
+        schema: jsonSchemaOf(parameter.schema)
       })),
       requestBody: operation.requestBody
         ? {
@@ -104,7 +114,7 @@ const describeOperation: McpTool = {
           // lifted out of `content` so an agent does not have to know the
           // media-type key to find it.
           schema: response.content['application/json']
-            ? toJsonSchema(response.content['application/json']!.schema, compiler)
+            ? jsonSchemaOf(response.content['application/json']!.schema)
             : undefined
         })),
       security: operation.security
@@ -115,9 +125,10 @@ const describeOperation: McpTool = {
 const getAuthRequirements: McpTool = {
   name: 'get_auth_requirements',
   description:
-    'Security schemes this API declares, and the requirements that apply — ' +
-    'for one operation when operationId is given, for the document otherwise. ' +
-    'An empty requirements array means the operation needs no auth.',
+    'The security schemes this API declares, plus — when operationId is given ' +
+    '— that operation\'s own security requirements. Without operationId only ' +
+    'the schemes are returned, not a document-level default. An empty ' +
+    'requirements array means the operation needs no auth.',
   inputSchema: { operationId: z.string().optional() },
   handler(ctx: McpContext, args: Record<string, unknown>) {
     const scoped = args.operationId !== undefined ? findOperation(ctx, args) : undefined

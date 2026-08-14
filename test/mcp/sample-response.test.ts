@@ -96,10 +96,13 @@ test('sample_response honors a requested status', async () => {
     status: 400,
     body: { id: 'x', total: 1 },
     headers: API_KEY
-  })) as { status: number; body: Record<string, unknown> }
+  })) as { status: number; body: unknown }
 
+  // The status is the point: `message` is optional in the 400 schema, so
+  // asserting on it would hold only under today's seed.
   assert.equal(sample.status, 400)
-  assert.equal(typeof sample.body.message, 'string')
+  assert.equal(typeof sample.body, 'object')
+  assert.notEqual(sample.body, null)
 })
 
 test('sample_response passes query parameters through', async () => {

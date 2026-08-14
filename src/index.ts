@@ -194,7 +194,21 @@ export function createMock(
         mockRef,
         compileConfigs(options.operations, api.operations)
       )
-      const handle = createMcpServer(context, mcpOptions)
+      const inner = createMcpServer(context, mcpOptions)
+
+      // Design §3.5: close() unmounts an http server as well as closing any
+      // attached transport. The unmount lives here because the mount slot does
+      // — mcp/server.ts knows nothing about the dispatcher.
+      //
+      // Guarded on identity: a later mcp({ transport: 'http' }) call replaces
+      // the slot, and closing the older handle must not unmount the newer one.
+      const handle: McpServerHandle = {
+        ...inner,
+        async close(): Promise<void> {
+          if (mount?.handle === handle) mount = undefined
+          await inner.close()
+        }
+      }
 
       if (mcpOptions.transport === 'http') {
         const path = mcpOptions.path ?? '/mcp'

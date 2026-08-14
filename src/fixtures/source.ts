@@ -1,7 +1,7 @@
 import type { ZodType } from 'zod'
 import { classify } from '../schema/walk.ts'
 import type { Compiler } from '../schema/compile.ts'
-import { toJsonSchema } from '../schema/json-schema.ts'
+import { toJsonSchema, fromZod } from '../schema/json-schema.ts'
 import { fnv1a } from '../generate/rng.ts'
 import type { Api, Operation, Schema } from '../spec/types.ts'
 import { operationSlug } from './key.ts'
@@ -154,9 +154,11 @@ export interface BuildRequestInput {
 /** Returns undefined when the schema cannot be sent to a source at all. */
 export function buildRequest(input: BuildRequestInput): FixtureRequest | undefined {
   if (isRecursive(input.schema)) return undefined
+  // Compiled once and converted from that result: toJsonSchema(schema, compiler)
+  // would compile a second time for the identical (cached) output.
   const zodSchema = input.compiler.compile(input.schema)
   // A schema zod cannot express as JSON Schema is a miss, not an error.
-  const jsonSchema = toJsonSchema(input.schema, input.compiler)
+  const jsonSchema = fromZod(zodSchema)
   if (jsonSchema === undefined) return undefined
   // An undiscriminated `oneOf` compiles to `z.unknown().superRefine(...)`
   // (compile.ts's shared interpretation, deliberately not changed here — see

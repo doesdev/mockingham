@@ -386,14 +386,17 @@ not a gate — an agent can still call one by name, and a bare "tool not found"
 reads like the feature does not exist.
 
 **Correction, made during implementation.** An earlier draft of this section
-required the write tools to be *absent from `tools/list`* as well. That cannot
-hold together with the named refusal, and the implementation is right where the
-draft was wrong. Producing a named refusal requires registering the tool, and
-the SDK lists every registered tool — `registerTool` sets `enabled: true`, and
-`tools/list` filters on that flag. So over the wire the five names **do** appear
-when the gate is closed, each carrying a `Disabled. …` description that names
-the flag. Calling `.disable()` on them would hide them from the listing but
-forfeit the named refusal, which is the more useful half.
+required the write tools to be *absent from `tools/list`* as well. Hiding them
+is achievable, but not together with a refusal that **names the flag**, and the
+implementation is right where the draft was wrong. `registerTool` sets
+`enabled: true` and `tools/list` filters on that flag, so a listed tool is a
+registered, enabled one. Calling `.disable()` would hide a tool and still
+refuse a call on it — the SDK's `server/mcp.js` distinguishes "Tool X not
+found" from "Tool X disabled" — but that refusal is the SDK's own text and
+cannot say `--write`. So the choice is between hiding the tool and telling the
+caller how to turn it on. The implementation takes the second: over the wire
+the five names **do** appear when the gate is closed, each carrying a
+`Disabled. …` description that names the flag.
 
 This is a better outcome than the draft demanded, not a concession: an agent
 discovers the capability exists and is told exactly how to enable it, and

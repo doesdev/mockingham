@@ -47,9 +47,23 @@ test('a real MCP client can list and call tools over stdio', async () => {
     const listed = await client.listTools()
     const names = listed.tools.map((tool) => tool.name)
     assert.ok(names.includes('list_operations'), `got ${names.join(', ')}`)
-    assert.ok(!names.includes('fail_next') ||
-      listed.tools.find((tool) => tool.name === 'fail_next')?.description?.includes('Disabled'),
-      'write tools must be disabled without --write')
+
+    // Design §3.7: with the gate closed the five write tools DO appear in
+    // tools/list — registering them is what makes a named refusal possible —
+    // each carrying a `Disabled. …` description that names the enabling flag.
+    for (const name of ['fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset']) {
+      const tool = listed.tools.find((entry) => entry.name === name)
+      assert.ok(tool, `${name} must be listed even with the gate closed; got ${names.join(', ')}`)
+      const description = tool.description ?? ''
+      assert.ok(
+        description.startsWith('Disabled.'),
+        `${name} must be described as disabled, got ${JSON.stringify(description)}`
+      )
+      assert.ok(
+        description.includes('--write'),
+        `${name}'s description must name the enabling flag, got ${JSON.stringify(description)}`
+      )
+    }
 
     const called = await client.callTool({
       name: 'list_operations',
