@@ -73,8 +73,11 @@ mounted at /mcp
 
 `transport` defaults to `'inline'` — a server with no transport attached at
 all, which is what a unit test wants and what the two tool-call examples
-below build for themselves. `'stdio'` connects immediately, the way the CLI
-subcommand above does. Only `'http'` writes anything into the mount slot.
+below build for themselves. `'stdio'` does not connect by itself: `mcp()`
+only branches on `'http'` (`src/index.ts`), so a `'stdio'` handle still needs
+an explicit `await handle.connectStdio()` before it talks JSON-RPC — which is
+exactly what the `mockingham mcp` subcommand does on your behalf
+(`src/server/cli.ts`). Only `'http'` writes anything into the mount slot.
 
 ## The twelve tools
 

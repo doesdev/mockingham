@@ -90,7 +90,7 @@ A project without that invariant could not have this harness.
 |---|---|
 | `ts` | executed, per §2.1 |
 | `console` | the expectation for the run |
-| `sh` | each `mockingham …` line is parsed by the real CLI parser; every other line must match a small allow-set (`npm install`, `ollama pull`, `ollama serve`) |
+| `sh` | each `mockingham …` line is parsed by the real CLI parser; every other line must match a small allow-set (`npm install`, `ollama pull`, `ollama serve`, `npm test`, `npx tsc --noEmit`) |
 | `json` / `jsonc` | parsed; an MCP client config's `args` array is additionally fed through the real `mockingham mcp` parser |
 | `txt` | inert — directory listings and file trees |
 | anything else | **test failure** |
@@ -171,10 +171,17 @@ someone, so it goes near the top.
 
 The tour's determinism claim is demonstrated rather than asserted. The runnable
 block builds two mocks on the same seed and prints that their bytes match; the
-prose then points at `scripts/determinism.ts` and the test that runs it, which
-is where the stronger cross-process claim is actually proven. The README does
-not spawn a subprocess of its own to prove it — that would duplicate an
-existing check inside a document, which §4 exists to prevent.
+prose then points at `scripts/determinism.ts` for the stronger cross-process
+claim — **corrected 2026-08-14 (Task 9/10): no test spawns or imports that
+script.** Nothing in `test/` does either; `test/fixtures/determinism.test.ts`
+is a real, passing test, but it proves a narrower claim (a baked fixture store
+serves the stored value byte-identically across independently constructed
+handlers, all within one process), not the cross-process case. The README
+says what is true — run the script, run it again, and diff the two runs by
+hand — rather than claiming an automated test covers it. The README does not
+spawn a subprocess of its own to prove it — that would duplicate an existing
+check inside a document, which §4 exists to prevent. See
+`docs/superpowers/deferred-items.md` (finding B6, phase 12).
 
 ### 3.3 `docs/logging-datadog.md`
 
