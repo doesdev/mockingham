@@ -6,6 +6,7 @@ import { loadApi } from '../spec/load.ts'
 import { createHandler } from './handler.ts'
 import type { Handler } from './handler.ts'
 import { createNodeServer } from './node.ts'
+import { createMock } from '../index.ts'
 import { bake } from '../fixtures/bake.ts'
 import type { BakeSummary } from '../fixtures/bake.ts'
 import { resolveLlm } from '../fixtures/config.ts'
@@ -26,6 +27,9 @@ export const USAGE = `mockingham — OpenAPI driven HTTP mock server
 
   mockingham bake <document.json> [options]   Generate fixture files
                                                (see: mockingham bake --help)
+
+  mockingham mcp <document.json> [options]    Serve the MCP tools over stdio
+                                               (see: mockingham mcp --help)
 
 Bake once, review and commit the JSON it writes, then serve it back:
 
@@ -420,6 +424,131 @@ export async function startBake(
   }
 }
 
+export const MCP_USAGE = `mockingham mcp — serve the MCP tools over stdio
+
+  mockingham mcp <document.json> [options]
+
+  --seed <s>        Generation seed (default: mockingham)
+  --fixtures <dir>  Serve committed fixture files from this directory
+  --write           Expose the write tools (fail_next, outage, emit_webhook,
+                     set_seed, reset). Off by default: they change the mock's
+                     runtime state.
+  --help, -h        Show this message
+
+YAML is not parsed. Convert the document to JSON first.
+`
+
+export interface McpArgs {
+  document?: string
+  seed?: string
+  fixtures?: string
+  write: boolean
+  help: boolean
+}
+
+const MCP_NEEDS_VALUE = new Set(['--seed', '--fixtures'])
+
+export function parseMcpArgs(argv: string[]): McpArgs {
+  const args: McpArgs = {
+    document: undefined,
+    seed: undefined,
+    fixtures: undefined,
+    write: false,
+    help: false
+  }
+
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i] as string
+
+    if (token === '--help' || token === '-h') {
+      args.help = true
+      continue
+    }
+    if (token === '--write') {
+      args.write = true
+      continue
+    }
+
+    if (token.startsWith('--')) {
+      const split = token.indexOf('=')
+      const name = split === -1 ? token : token.slice(0, split)
+      if (!MCP_NEEDS_VALUE.has(name)) {
+        throw new Error(`mockingham: unknown option ${name}\n\n${MCP_USAGE}`)
+      }
+      const value = split === -1 ? argv[++i] : token.slice(split + 1)
+      if (value === undefined) {
+        throw new Error(`mockingham: ${name} needs a value`)
+      }
+      if (name === '--seed') args.seed = value
+      else args.fixtures = value
+      continue
+    }
+
+    if (args.document !== undefined) {
+      throw new Error(`mockingham: unexpected argument "${token}"`)
+    }
+    args.document = token
+  }
+
+  return args
+}
+
+export interface McpCliDeps {
+  readFile: (path: string) => Promise<string>
+  /**
+   * stderr, NOT stdout. stdout is the JSON-RPC channel over stdio, and one
+   * stray log line corrupts the stream for the whole session. This is the one
+   * place the project's `log` convention bends, and it bends for a protocol
+   * requirement rather than a preference.
+   */
+  log: (message: string) => void
+}
+
+export async function startMcp(
+  argv: string[],
+  deps: Partial<McpCliDeps> = {}
+): Promise<{ close(): Promise<void> }> {
+  const readFile = deps.readFile ?? ((path: string) => readFileFromDisk(path, 'utf8'))
+  const log = deps.log ?? ((message: string) => console.error(message))
+
+  const args = parseMcpArgs(argv)
+  if (args.help) {
+    log(MCP_USAGE)
+    throw new Error('mockingham: nothing to serve')
+  }
+  if (args.document === undefined) {
+    throw new Error(`mockingham: a document path is required\n\n${MCP_USAGE}`)
+  }
+  if (args.document.endsWith('.yaml') || args.document.endsWith('.yml')) {
+    throw new Error(
+      'mockingham: YAML documents are not parsed. Convert to JSON, or call ' +
+        'createMock() from a script with the document already parsed.'
+    )
+  }
+
+  const text = await readFile(args.document)
+  // createMock, not createHandler: the write tools need failNext, outage, and
+  // emit, which live on Mock rather than Handler.
+  const mock = createMock(JSON.parse(text) as Record<string, unknown>, {
+    seed: args.seed,
+    fixtures: args.fixtures !== undefined
+      ? { store: await createDiskFixtureStore({ dir: args.fixtures, onWarn: log }) }
+      : undefined,
+    onWarn: log
+  })
+
+  const server = mock.mcp({ transport: 'stdio', write: args.write })
+  await server.connectStdio()
+  log(`mockingham: MCP server ready for ${args.document}`)
+
+  return {
+    async close() {
+      await server.close()
+      await mock.close()
+    }
+  }
+}
+
 if (import.meta.main) {
   try {
     // `--help` is not misuse — `mockingham --help` must exit 0, and this is
@@ -431,7 +560,14 @@ if (import.meta.main) {
     // top-level module evaluation instead of this catch — a stack trace
     // instead of the same one clean line every other CLI misuse gets.
     const argv = process.argv.slice(2)
-    if (argv[0] === 'bake') {
+    if (argv[0] === 'mcp') {
+      const mcpArgv = argv.slice(1)
+      if (parseMcpArgs(mcpArgv).help) {
+        console.error(MCP_USAGE)
+      } else {
+        await startMcp(mcpArgv)
+      }
+    } else if (argv[0] === 'bake') {
       const bakeArgv = argv.slice(1)
       if (parseBakeArgs(bakeArgv).help) {
         console.log(BAKE_USAGE)
