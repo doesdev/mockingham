@@ -114,6 +114,11 @@ const REPO = fileURLToPath(new URL('../../', import.meta.url))
 const ENTRY = join(REPO, 'src', 'index.ts')
 const EXAMPLE_DOC = join(REPO, 'docs', 'example.json')
 
+/** The default: generous enough for a real document, short enough that a
+ * hung program does not stall a test run for long. Callers exercising the
+ * timeout path pass a much smaller value explicitly. */
+const DEFAULT_TIMEOUT_MS = 30_000
+
 export function assembleProgram(fences: Fence[], entryPath: string): string {
   return fences
     .filter((fence) => fence.lang === 'ts')
@@ -128,19 +133,63 @@ export function expectedOutput(fences: Fence[]): string {
     .join('\n')
 }
 
-function runChild(
-  program: string,
-  cwd: string
-): Promise<{ stdout: string; stderr: string; code: number }> {
+/**
+ * Markdown read from disk goes through here on every path that reads a
+ * document, so a CRLF-terminated file (a Windows editor, `core.autocrlf`)
+ * normalizes exactly once rather than twice, or once-and-forgotten.
+ * `extractFences`'s opening-fence regex uses `.` and `$` without `/m`, and
+ * `.` never matches `\r` — an un-normalized CRLF document silently extracts
+ * zero fences.
+ */
+async function readDocument(docPath: string): Promise<string> {
+  const raw = await readFile(docPath, 'utf8')
+  return raw.replace(/\r\n/g, '\n')
+}
+
+/**
+ * A document that extracts zero `ts` fences would otherwise sail through
+ * every check that follows vacuously: nothing unknown to reject, an empty
+ * assembled program, a child that prints nothing, output that trivially
+ * matches an equally empty expectation. "This document claims nothing" must
+ * be a failure, not a pass — and it is also what catches a CRLF document
+ * losing its fences even if the normalization above were ever skipped on
+ * some other read path.
+ */
+function assertHasTsFence(fences: Fence[], file: string): void {
+  if (!fences.some((fence) => fence.lang === 'ts')) {
+    throw new Error(
+      `${file}: no ts fence found — a document with zero runnable blocks ` +
+        'would otherwise pass vacuously, which is worse than failing loudly.'
+    )
+  }
+}
+
+interface ChildResult {
+  stdout: string
+  stderr: string
+  code: number
+  /** True when the child was killed for exceeding the timeout, rather than
+   * exiting on its own. A killed child's `error.code` is not numeric, so
+   * without this flag it is indistinguishable from an ordinary exit 1 —
+   * hiding that the real cause is usually a `listen()` with no matching
+   * `close()`. */
+  timedOut: boolean
+}
+
+function runChild(program: string, cwd: string, timeoutMs: number): Promise<ChildResult> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [program],
-      { cwd, env: { ...process.env, NO_COLOR: '1' }, timeout: 30_000 },
+      { cwd, env: { ...process.env, NO_COLOR: '1' }, timeout: timeoutMs },
       (error, stdout, stderr) => {
+        if (error !== null && error.killed === true) {
+          resolve({ stdout, stderr, code: -1, timedOut: true })
+          return
+        }
         const code =
           error === null ? 0 : typeof error.code === 'number' ? error.code : 1
-        resolve({ stdout, stderr, code })
+        resolve({ stdout, stderr, code, timedOut: false })
       }
     )
   })
@@ -153,11 +202,13 @@ function runChild(
  * and still resolve here.
  */
 export async function runDocument(
-  docPath: string
-): Promise<{ stdout: string; stderr: string; code: number }> {
-  const markdown = await readFile(docPath, 'utf8')
+  docPath: string,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
+): Promise<ChildResult> {
+  const markdown = await readDocument(docPath)
   const fences = extractFences(markdown)
   assertKnownFences(fences, docPath)
+  assertHasTsFence(fences, docPath)
 
   for (const fence of fences) {
     if (fence.lang === 'ts') {
@@ -181,18 +232,34 @@ export async function runDocument(
   const programPath = join(sandbox, 'program.ts')
   await writeFile(programPath, assembleProgram(fences, ENTRY), 'utf8')
 
-  return runChild(programPath, sandbox)
+  return runChild(programPath, sandbox, timeoutMs)
 }
 
-export async function assertDocument(docPath: string): Promise<void> {
-  const markdown = await readFile(docPath, 'utf8')
+function section(label: string, content: string): string {
+  return `--- ${label} ---\n${content === '' ? '(empty)' : content}`
+}
+
+export async function assertDocument(
+  docPath: string,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
+): Promise<void> {
+  const markdown = await readDocument(docPath)
   const expected = expectedOutput(extractFences(markdown))
-  const result = await runDocument(docPath)
+  const result = await runDocument(docPath, timeoutMs)
+
+  if (result.timedOut) {
+    throw new Error(
+      `${docPath}: the document's program did not exit within ${timeoutMs}ms ` +
+        'and was killed. This usually means a mock was never shut down — a ' +
+        'listen() without a matching close().\n\n' +
+        `${section('stderr', result.stderr)}\n${section('stdout', result.stdout)}`
+    )
+  }
 
   if (result.code !== 0) {
     throw new Error(
       `${docPath}: the document's program exited ${result.code}\n\n` +
-        `--- stderr ---\n${result.stderr}\n--- stdout ---\n${result.stdout}`
+        `${section('stderr', result.stderr)}\n${section('stdout', result.stdout)}`
     )
   }
 
@@ -200,7 +267,8 @@ export async function assertDocument(docPath: string): Promise<void> {
   if (actual !== expected) {
     throw new Error(
       `${docPath}: output does not match the console fences\n\n` +
-        `--- expected ---\n${expected}\n\n--- actual ---\n${actual}`
+        `--- expected ---\n${expected}\n\n--- actual ---\n${actual}\n\n` +
+        section('stderr', result.stderr)
     )
   }
 }

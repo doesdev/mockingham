@@ -207,7 +207,7 @@ test('an unterminated quoted value throws', () => {
   )
 })
 
-import { assembleProgram, expectedOutput, assertDocument } from './harness.ts'
+import { assembleProgram, expectedOutput, assertDocument, runDocument } from './harness.ts'
 
 test('assembleProgram rewrites the bare specifier to the entry path', () => {
   const fences = extractFences(
@@ -247,5 +247,37 @@ test('a document whose program throws fails with the child stderr attached', asy
   await assert.rejects(
     assertDocument(new URL('./fixtures/throws.md', import.meta.url).pathname),
     /nope is not a function/
+  )
+})
+
+// Fix round 1: a CRLF-terminated document must not extract zero fences and
+// pass vacuously. Checking `result.stdout` directly (rather than only that
+// assertDocument resolves) is deliberate — with the bug present, both the
+// expected output and the actual output degrade to the empty string, so
+// "does not throw" alone cannot distinguish a real pass from a vacuous one.
+test('a CRLF document normalizes line endings and its fences still run', async () => {
+  const result = await runDocument(new URL('./fixtures/crlf.md', import.meta.url).pathname)
+  assert.equal(result.code, 0)
+  assert.equal(result.stdout.trim(), 'operations: 4')
+})
+
+test('a document with no ts fence throws naming the file', async () => {
+  await assert.rejects(
+    runDocument(new URL('./fixtures/no-ts.md', import.meta.url).pathname),
+    /no-ts\.md.*no ts fence/s
+  )
+})
+
+test('a program that never exits is reported as a timeout, not a false exit code', async () => {
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/hangs.md', import.meta.url).pathname, 2000),
+    /did not exit within 2000ms/
+  )
+})
+
+test('a mismatch error includes a stderr section, marked empty when there is none', async () => {
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/mismatch.md', import.meta.url).pathname),
+    /--- stderr ---\n\(empty\)/
   )
 })
