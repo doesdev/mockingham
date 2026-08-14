@@ -87,6 +87,10 @@ console.log(JSON.stringify({ webhook: manual.webhook, url: manual.url, outcome: 
 headers? }`, and `RetryConfig` is `{ attempts?, backoff?: 'exponential',
 baseMs?, maxDelayMs? }` — `'exponential'` is the only backoff strategy, and a
 one-value union documents that as deliberate rather than an oversight.
+`attempts` is the TOTAL number of attempts, including the first — not
+additional retries on top of it — and defaults to `3`; `baseMs` (default
+`250`) and `maxDelayMs` (default `10_000`) bound the exponential backoff
+between attempts (`src/webhooks/deliver.ts`).
 
 A callback has no `url` to configure the same way, because its destination
 is not static — it comes from a request. Emitting `paymentSucceeded` with
@@ -192,9 +196,9 @@ nothing else to reach for.
 
 ## The testing loop
 
-`mock.settled()` is what reaches for. It drains every pending emission — from
-either trigger — so a test has something to await instead of polling
-`deliveries()` with a timeout:
+`mock.settled()` is what a test reaches for. It drains every pending
+emission — from either trigger — so a test has something to await instead
+of polling `deliveries()` with a timeout:
 
 ```ts
 await loopMock.settled()

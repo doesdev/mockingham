@@ -27,9 +27,9 @@ things as contracts, not happy accidents:
   they're one, read two ways. (One documented exception: see
   [Known limitations](#known-limitations).)
 - **Errors stay on-contract.** When an operation declares its own error
-  schema — a `422` with a body shape, a typed `4xx` — that's what mockingham
-  emits for it. The built-in error envelope is a fallback for operations that
-  declare nothing, not the default for every failure.
+  schema — a `422` with a body shape — that's what mockingham emits for it.
+  The built-in error envelope is a fallback for operations that declare
+  nothing, not the default for every failure.
 - **A control plane built for a machine, not just a human.** Failure
   injection, reseeding, webhook emission, and fixture baking are all methods
   and MCP tools first, with the CLI as one caller among several — the same
@@ -161,10 +161,12 @@ Incoming requests are validated against the operation's declared parameter
 and body schemas by default — the same compiled schema generation reads, per
 the one-schema-interpretation guarantee above. A request that fails
 validation gets a `400` on the operation's own error contract when it
-declares one. Every security scheme named in the document's `security` is
-enforced: a missing or malformed credential is a `401`; wire a `verify`
-callback per scheme to check the credential's actual value and grant scopes,
-and an unmet scope becomes a `403` rather than a bare rejection.
+declares one. `security` follows OpenAPI's own semantics: the array is OR —
+satisfying any one requirement object is enough — and within a single
+requirement object every named scheme is AND, all of them required. A
+missing or malformed credential is a `401`; wire a `verify` callback per
+scheme to check the credential's actual value and grant scopes, and an
+unmet scope becomes a `403` rather than a bare rejection.
 
 ### Failure simulation
 
@@ -173,10 +175,11 @@ outright; `mock.outage(target, { forMs, status })` fails every matching
 request for a window of time. Both are also driven declaratively through a
 `failure` policy list — a match pattern, a failure rate, injected latency
 (applied even when the request succeeds), and an optional circuit breaker
-that opens after a run of failures within a window, answers every matching
-request with a fixed status while open, and closes again on its own once
-that window expires. `target` is method-and-path or an operation id, the
-same resolution the MCP write tools share.
+that opens after a run of failures within an accumulation window, answers
+every matching request with a fixed status while open, and closes again on
+its own once its own open duration — a separate window from the one
+failures accumulated in — expires. `target` is method-and-path or an
+operation id, the same resolution the MCP write tools share.
 
 ### Idempotency
 

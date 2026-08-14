@@ -119,10 +119,21 @@ const EXAMPLE_DOC = join(REPO, 'docs', 'example.json')
  * timeout path pass a much smaller value explicitly. */
 const DEFAULT_TIMEOUT_MS = 30_000
 
+/**
+ * Only the import specifier is rewritten — `from 'mockingham'` or
+ * `from "mockingham"` — never a bare occurrence of the literal `mockingham`
+ * elsewhere in the fence. `mockingham` is also the CLI's own documented
+ * default seed (see cli.ts's USAGE strings), so `seed: 'mockingham'` is a
+ * plausible thing for a guide to write, and rewriting it into a file path
+ * would make the harness record output for a seed no reader could
+ * reproduce.
+ */
+const IMPORT_SPECIFIER = /from\s+(['"])mockingham\1/g
+
 export function assembleProgram(fences: Fence[], entryPath: string): string {
   return fences
     .filter((fence) => fence.lang === 'ts')
-    .map((fence) => fence.content.replaceAll("'mockingham'", JSON.stringify(entryPath)))
+    .map((fence) => fence.content.replace(IMPORT_SPECIFIER, `from ${JSON.stringify(entryPath)}`))
     .join('\n\n')
 }
 

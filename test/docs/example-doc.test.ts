@@ -18,7 +18,7 @@ test('the example document loads and declares the operations the guides use', ()
   ])
 })
 
-test('it declares both security schemes the auth guide shows', () => {
+test('it declares both security schemes the README\'s auth section shows', () => {
   const api = loadApi(doc)
   assert.deepEqual(Object.keys(api.securitySchemes).sort(), [
     'apiKeyAuth',
@@ -43,7 +43,7 @@ test('a top-level webhook is declared for the failure path', () => {
   // has one place to look rather than two" (see load.ts around the webhooks
   // merge loop). So api.webhooks holds both the top-level paymentFailed
   // webhook and the paymentSucceeded callback contributed by createPayment —
-  // it is not top-level-only. See task-1-report.md for the full finding.
+  // it is not top-level-only.
   assert.deepEqual(Object.keys(api.webhooks).sort(), [
     'paymentFailed',
     'paymentSucceeded'

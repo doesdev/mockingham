@@ -218,6 +218,34 @@ test('assembleProgram rewrites the bare specifier to the entry path', () => {
   assert.doesNotMatch(program, /'mockingham'/)
 })
 
+test('assembleProgram rewrites a double-quoted specifier to the entry path', () => {
+  const fences = extractFences(
+    ['```ts', 'import { createMock } from "mockingham"', '```', ''].join('\n')
+  )
+  const program = assembleProgram(fences, '/repo/src/index.ts')
+  assert.match(program, /from "\/repo\/src\/index\.ts"/)
+  assert.doesNotMatch(program, /"mockingham"/)
+})
+
+test('assembleProgram leaves a same-named seed literal untouched', () => {
+  // 'mockingham' is the CLI's own documented default seed (cli.ts USAGE and
+  // the mcp USAGE), so a guide writing `seed: 'mockingham'` is plausible —
+  // and must not be rewritten into a file path, which would make the
+  // harness record output for a seed no reader could reproduce.
+  const fences = extractFences(
+    [
+      '```ts',
+      "import { createMock } from 'mockingham'",
+      "const mock = createMock(doc, { seed: 'mockingham' })",
+      '```',
+      ''
+    ].join('\n')
+  )
+  const program = assembleProgram(fences, '/repo/src/index.ts')
+  assert.match(program, /seed: 'mockingham'/)
+  assert.match(program, /from "\/repo\/src\/index\.ts"/)
+})
+
 test('assembleProgram concatenates ts blocks in order and drops the rest', () => {
   const fences = extractFences(
     ['```ts', 'const a = 1', '```', '```console', 'ignored', '```', '```ts', 'const b = 2', '```', ''].join('\n')

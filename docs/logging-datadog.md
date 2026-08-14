@@ -2,10 +2,11 @@
 
 Every request the mock answers can produce one structured log record —
 `onLog` receives it after the response is final, and nothing about receiving
-it can change what the caller got back. This guide builds the recipe most
-teams actually want: a batching sink that shapes each record for Datadog's
-Logs API, flushes it on size, on an interval, and on close, and survives the
-sink itself misbehaving.
+it can change what the caller got back. This guide builds a sink that shapes
+each record for Datadog's Logs API, posts a batch to it in one shot, and
+survives the sink itself misbehaving; it also describes — in prose, not as
+runnable code — how a real batching sink adds triggers to flush on size, on
+an interval, and on close.
 
 ## The `LogRecord` fields
 

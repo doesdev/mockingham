@@ -172,15 +172,12 @@ tests passing, up from a 509-test baseline, typecheck clean.
     universally tell readers to `import { createMock } from 'mockingham'`.
     That resolves today only because `package.json` declares no `exports`
     map: `main` is `src/index.ts` and Node's default resolution falls through
-    to it for the bare specifier, and the same absence is also what lets
-    `docs/webhooks.md` and `docs/fixtures.md` import subpaths like
-    `mockingham/fixtures/store` that no `exports` map currently blesses or
-    forbids. Deciding what is public — one export surface via a real `exports`
-    map versus today's everything-resolves looseness — is a packaging
-    decision with permanent blast radius: an `exports` map added later is a
-    breaking change for anyone who found a working deep import in the
-    meantime. It is not a docs decision, and phase 12's boundary is no `src/`
-    or `package.json` changes.
+    to it for the bare specifier. Deciding what is public — one export
+    surface via a real `exports` map versus today's everything-resolves
+    looseness — is a packaging decision with permanent blast radius: an
+    `exports` map added later is a breaking change for anyone who found a
+    working deep import in the meantime. It is not a docs decision, and
+    phase 12's boundary is no `src/` or `package.json` changes.
     **Status: deferred, phase 12 docs cycle.** Belongs to whichever cycle next
     opens packaging. See docs-design delta §5.4.
 
@@ -280,6 +277,114 @@ tests passing, up from a 509-test baseline, typecheck clean.
     `scripts/determinism.ts` into `npm test` — spawning it twice as real child
     processes and diffing stdout — is real, buildable coverage; phase 12's
     no-code-change boundary is why it wasn't done here.
+
+33. **`4XX`/`5XX` range response keys are silently mis-parsed.**
+    `src/spec/load.ts:34` uses `Number.parseInt(code, 10)` on every response
+    status key, so a status key of `'4XX'` parses to `4` rather than being
+    recognized as an OpenAPI range key (`Number.parseInt('4XX', 10) === 4`).
+    An operation's declared error contract ends up loaded under status `4`,
+    which no real request status can ever match, so the built-in error
+    envelope is served instead — silently downgrading a declared contract to
+    the generic fallback. OpenAPI 3.x permits `1XX`–`5XX` range keys for
+    exactly this case. Found correcting README.md's error-contract guarantee
+    during the phase 12 fix wave. This is a source defect; the fix wave's
+    boundary is no `src/` changes.
+    **Status: documented deferral, phase 12 docs cycle.** Fix belongs to
+    whichever cycle next opens `src/spec/load.ts`.
+
+34. **`process.stdout.write(util.inspect(x))` bypasses `assertPrintableLogs`
+    entirely.** `test/docs/fence-checks.ts`'s `assertPrintableLogs` only scans
+    a `ts` fence for the literal substring `console.log(` — any other route to
+    stdout (`process.stdout.write`, `console.error`, a helper that wraps
+    `util.inspect` under a different name) is invisible to it. The
+    determinism amendment the check exists to enforce — stable,
+    cross-Node-version-printable output — can be sidestepped by writing to
+    stdout through any path other than a literal `console.log(`.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+35. **Three quote-tracking loops in `test/docs/fence-checks.ts` disagree on
+    backslash escapes.** `assertPrintableLogs` and `checkShellFence` both
+    treat a quote character preceded by a backslash as escaped
+    (`rest[i - 1] !== '\\'` / `withComment[i - 1] !== '\\'`); `splitArgs` has
+    no escape handling at all — a backslash is an ordinary character to it.
+    Confirmed by tracing `assertPrintableLogs` against
+    `console.log('a\\', payload)`: the doubled backslash before the closing
+    `'` is misread as an escaped quote, the tracker never exits the string,
+    the paren-depth/comma-at-depth-1 check that would catch the second
+    argument only runs outside a quote and so never fires, and the call is
+    accepted despite passing two arguments.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+36. **Nothing enforces that a `console` fence follows the `ts` block that
+    produces its output.** `assembleProgram` and `expectedOutput`
+    (`test/docs/harness.ts`) each filter the fence list independently by
+    language and join in document order — only the relative order *within*
+    each language survives. Nothing checks that a `console` fence sits next
+    to, or even after, the `ts` fence whose output it claims to show; a
+    document that prints an expected block above unrelated prose, or above
+    the code that produces it, passes exactly the same as one that doesn't.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+37. **A `txt` fence is inert, so fabricated program output placed in one is
+    never checked.** `runDocument`'s per-language dispatch
+    (`test/docs/harness.ts`) branches on `ts`, `sh`, `json`, and `jsonc`; a
+    `txt` fence passes `assertKnownFences` but has no branch at all, so its
+    content is never run, never diffed, and never checked in any way — matching
+    the docs-design spec's own §2.3 table, which lists `txt` as "inert —
+    directory listings and file trees" by design. `docs/mcp.md:23-28`
+    legitimately uses one for the "needs `@modelcontextprotocol/sdk`" message
+    the CLI actually prints — verified by hand against `src/mcp/`'s lazy-load
+    path — but the harness has no way to distinguish that from a document
+    author simply typing whatever they want.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+38. **`checkJsonFence` only inspects a `mcpServers` key.**
+    `test/docs/fence-checks.ts`'s `checkJsonFence` reads
+    `(parsed as McpClientConfig).mcpServers` and returns immediately when it
+    is `undefined` — a client config shaped for a host that uses a different
+    top-level key (a bare `servers` map, say) receives no argument checking
+    at all, even though the docs-design spec's §2.3 table states the check
+    ("an MCP client config's `args` array is additionally fed through the
+    real `mockingham mcp` parser") as if it applied to any JSON fence holding
+    a client config, unconditionally.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+39. **A child process writing more than 1 MB to stdout fails opaquely, though
+    not via the timeout path.** `runDocument` (`test/docs/harness.ts`) calls
+    `execFile` with no `maxBuffer` override, so Node's 1 MB default applies.
+    Verified against this repo's Node (v24.18.0): exceeding it does not set
+    `error.killed` — it stays `undefined`, not `true` — so `runChild`'s
+    `error.killed === true` timeout check never fires; `error.code` is
+    instead the string `'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'`, which
+    `runChild`'s `typeof error.code === 'number' ? error.code : 1` folds into
+    an ordinary `code: 1`. `assertDocument` then reports a plain "exited 1"
+    failure with the entire truncated ~1 MB of stdout dumped into the error
+    message and no mention of `maxBuffer` anywhere — unhelpful, but a
+    different failure shape than a `killed`-driven timeout misdiagnosis would
+    be.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+40. **The coverage sweep only walks `docs/` non-recursively, with
+    `README.md` hardcoded.** `test/docs/docs.test.ts`'s coverage test calls
+    `readdir(join(REPO, 'docs'))` with no `recursive` option, so a guide
+    placed in a subdirectory of `docs/` would never be discovered by the
+    sweep. `README.md` is not discovered at all — it is simply one of the
+    four literal entries in `DOCUMENTS`, exercised only because its own
+    subtest runs, never verified to exist by the coverage assertion itself. A
+    future top-level reader-facing markdown file outside `docs/` (a
+    `CONTRIBUTING.md`, say) would be silently uncovered either way.
+    **Status: documented deferral, phase 12 docs cycle.**
+
+41. **Citation style drifts across the guides.** Some name the source
+    document — `docs/logging-datadog.md:38`: "phases 7-9 design §2.1";
+    `docs/mcp.md:206`: "master §17" — others cite a bare section symbol with
+    nothing naming which document it belongs to —
+    `docs/webhooks.md:163`: "the same layering §4 applies". Every citation
+    resolves to a real section in a real spec today, so nothing is broken,
+    but the docs-design spec (§4) asks a guide that states a rule to cite
+    "the invariant or spec section the rule comes from," and a bare `§4`
+    does not say which of this repo's three specs that is.
+    **Status: documented deferral, phase 12 docs cycle.**
 
 ---
 

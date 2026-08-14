@@ -150,8 +150,9 @@ and webhooks are self-evidently motivated there rather than contrived:
 - A top-level `paymentFailed` webhook.
 
 Schema content worth generating: `uuid`, `date-time`, a `number` with
-`minimum`/`multipleOf`, an `enum` status, and a `pattern` inside the documented
-subset of §19. Tags on every operation, so `list_operations` and
+`minimum`/`multipleOf`, an `enum` status, and a `pattern` field that
+demonstrates master §19's known limitation — generation does not honor
+`pattern` at all. Tags on every operation, so `list_operations` and
 `search_operations` have something real to return.
 
 It also makes `CLAUDE.md`'s own run command work for the first time (§5).
@@ -185,10 +186,11 @@ check inside a document, which §4 exists to prevent. See
 
 ### 3.3 `docs/logging-datadog.md`
 
-The `LogRecord` field table, then a batching `onLog` sink that flushes on size,
-on an interval, and on close, posting to
+The `LogRecord` field table, then an `onLog` sink that shapes each record and
+posts a batch, in one shot, to
 `https://http-intake.logs.datadoghq.com/api/v2/logs` with a `DD-API-KEY`
-header.
+header. Flushing on size, on an interval, and on close is described in
+prose, not built as runnable code.
 
 The point the recipe exists to make: **`route` is the templated path and is
 safe as a tag; `path` is resolved, high-cardinality, and must never be one.**
