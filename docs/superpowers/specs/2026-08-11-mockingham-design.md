@@ -905,7 +905,7 @@ Each phase leaves the project in a working, tested state.
   `pattern` (`src/schema/compile.ts`), so the two directions disagree: a mock
   can emit a body it would reject as a request. An override or fixture is the
   only way to get a pattern-conforming generated value. See
-  `docs/superpowers/deferred-items.md` (finding B2, phase 12).
+  `docs/superpowers/deferred-items.md` (item 28, phase 12).
 - Recursive schemas terminate at `maxDepth` and are excluded from LLM generation.
 - No stateful CRUD: writes do not affect later reads.
 - YAML documents must be parsed by the caller and passed in as objects.

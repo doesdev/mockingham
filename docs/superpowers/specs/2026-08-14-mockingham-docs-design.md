@@ -181,7 +181,7 @@ says what is true — run the script, run it again, and diff the two runs by
 hand — rather than claiming an automated test covers it. The README does not
 spawn a subprocess of its own to prove it — that would duplicate an existing
 check inside a document, which §4 exists to prevent. See
-`docs/superpowers/deferred-items.md` (finding B6, phase 12).
+`docs/superpowers/deferred-items.md` (item 31, phase 12).
 
 ### 3.3 `docs/logging-datadog.md`
 
