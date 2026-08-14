@@ -206,3 +206,46 @@ test('an unterminated quoted value throws', () => {
     /unterminated quoted string/
   )
 })
+
+import { assembleProgram, expectedOutput, assertDocument } from './harness.ts'
+
+test('assembleProgram rewrites the bare specifier to the entry path', () => {
+  const fences = extractFences(
+    ['```ts', "import { createMock } from 'mockingham'", '```', ''].join('\n')
+  )
+  const program = assembleProgram(fences, '/repo/src/index.ts')
+  assert.match(program, /from "\/repo\/src\/index\.ts"/)
+  assert.doesNotMatch(program, /'mockingham'/)
+})
+
+test('assembleProgram concatenates ts blocks in order and drops the rest', () => {
+  const fences = extractFences(
+    ['```ts', 'const a = 1', '```', '```console', 'ignored', '```', '```ts', 'const b = 2', '```', ''].join('\n')
+  )
+  assert.equal(assembleProgram(fences, '/x.ts'), 'const a = 1\n\nconst b = 2')
+})
+
+test('expectedOutput joins the console fences in order', () => {
+  const fences = extractFences(
+    ['```console', 'one', '```', '```ts', 'code', '```', '```console', 'two', '```', ''].join('\n')
+  )
+  assert.equal(expectedOutput(fences), 'one\ntwo')
+})
+
+test('a document whose output matches passes', async () => {
+  await assertDocument(new URL('./fixtures/good.md', import.meta.url).pathname)
+})
+
+test('a document whose expected output is wrong fails, showing both sides', async () => {
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/mismatch.md', import.meta.url).pathname),
+    /operations: 5[\s\S]*operations: 4|operations: 4[\s\S]*operations: 5/
+  )
+})
+
+test('a document whose program throws fails with the child stderr attached', async () => {
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/throws.md', import.meta.url).pathname),
+    /nope is not a function/
+  )
+})

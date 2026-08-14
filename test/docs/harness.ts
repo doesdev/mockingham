@@ -97,3 +97,110 @@ export function assertKnownFences(fences: Fence[], file: string): void {
     }
   }
 }
+
+import { mkdtemp, writeFile, copyFile, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { execFile } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import {
+  assertPrintableLogs,
+  assertBareSpecifier,
+  checkShellFence,
+  checkJsonFence
+} from './fence-checks.ts'
+
+const REPO = fileURLToPath(new URL('../../', import.meta.url))
+const ENTRY = join(REPO, 'src', 'index.ts')
+const EXAMPLE_DOC = join(REPO, 'docs', 'example.json')
+
+export function assembleProgram(fences: Fence[], entryPath: string): string {
+  return fences
+    .filter((fence) => fence.lang === 'ts')
+    .map((fence) => fence.content.replaceAll("'mockingham'", JSON.stringify(entryPath)))
+    .join('\n\n')
+}
+
+export function expectedOutput(fences: Fence[]): string {
+  return fences
+    .filter((fence) => fence.lang === 'console')
+    .map((fence) => fence.content.replace(/\s+$/, ''))
+    .join('\n')
+}
+
+function runChild(
+  program: string,
+  cwd: string
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [program],
+      { cwd, env: { ...process.env, NO_COLOR: '1' }, timeout: 30_000 },
+      (error, stdout, stderr) => {
+        const code =
+          error === null ? 0 : typeof error.code === 'number' ? error.code : 1
+        resolve({ stdout, stderr, code })
+      }
+    )
+  })
+}
+
+/**
+ * Each document runs in its own sandbox holding a copy of the example document
+ * named `openapi.json`, with the child's cwd set to it. That is what lets a
+ * guide write `readFile('./openapi.json')` — the path a reader actually has —
+ * and still resolve here.
+ */
+export async function runDocument(
+  docPath: string
+): Promise<{ stdout: string; stderr: string; code: number }> {
+  const markdown = await readFile(docPath, 'utf8')
+  const fences = extractFences(markdown)
+  assertKnownFences(fences, docPath)
+
+  for (const fence of fences) {
+    if (fence.lang === 'ts') {
+      assertPrintableLogs(fence.content, docPath, fence.line)
+      assertBareSpecifier(fence.content, docPath, fence.line)
+    } else if (fence.lang === 'sh') {
+      checkShellFence(fence.content, docPath, fence.line)
+    } else if (fence.lang === 'json') {
+      checkJsonFence(fence.content, docPath, fence.line)
+    } else if (fence.lang === 'jsonc') {
+      checkJsonFence(
+        fence.content.replace(/^\s*\/\/.*$/gm, ''),
+        docPath,
+        fence.line
+      )
+    }
+  }
+
+  const sandbox = await mkdtemp(join(tmpdir(), 'mockingham-docs-'))
+  await copyFile(EXAMPLE_DOC, join(sandbox, 'openapi.json'))
+  const programPath = join(sandbox, 'program.ts')
+  await writeFile(programPath, assembleProgram(fences, ENTRY), 'utf8')
+
+  return runChild(programPath, sandbox)
+}
+
+export async function assertDocument(docPath: string): Promise<void> {
+  const markdown = await readFile(docPath, 'utf8')
+  const expected = expectedOutput(extractFences(markdown))
+  const result = await runDocument(docPath)
+
+  if (result.code !== 0) {
+    throw new Error(
+      `${docPath}: the document's program exited ${result.code}\n\n` +
+        `--- stderr ---\n${result.stderr}\n--- stdout ---\n${result.stdout}`
+    )
+  }
+
+  const actual = result.stdout.replace(/\s+$/, '')
+  if (actual !== expected) {
+    throw new Error(
+      `${docPath}: output does not match the console fences\n\n` +
+        `--- expected ---\n${expected}\n\n--- actual ---\n${actual}`
+    )
+  }
+}
