@@ -64,10 +64,10 @@ tests passing, up from a 509-test baseline, typecheck clean.
    deliberate deferral, not an oversight. It was expected to land in plan 6, but
    plan 6 turned out to be webhooks alone, leaving it unscheduled until plan 10
    opened the override surface.
-   **Status: DONE, plan 10 (runtime-override cycle), commits `c8e8ecc..d70a1db`
-   plus the phase-12 docs task.** `Mock.override(target, value)` and
-   `Mock.clearOverrides(target?)` now ship, with `set_override` and
-   `clear_overrides` as the corresponding MCP write tools — see
+   **Status: DONE, plan 10 (runtime-override cycle), commits `c8e8ecc` through
+   `d70a1db` inclusive, plus the phase-12 docs task.** `Mock.override(target,
+   value)` and `Mock.clearOverrides(target?)` now ship, with `set_override`
+   and `clear_overrides` as the corresponding MCP write tools — see
    `docs/superpowers/specs/2026-08-14-mockingham-runtime-overrides-design.md`.
    The MCP guide's third deferred item, `regenerate_fixture`, remains open.
 

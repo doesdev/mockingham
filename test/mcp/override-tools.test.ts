@@ -113,15 +113,48 @@ test('tools/call refuses set_override when the gate is closed', async () => {
   assert.notEqual(body.note, 'via-mcp')
 })
 
-test('every shipped tool is named in docs/mcp.md, and none is stale', async () => {
+/**
+ * Extracts the tool names listed as `- \`name\` — ...` bullets in the section
+ * that runs from `heading` to the next `## ` heading (or end of file).
+ */
+function bulletedToolNames(guide: string, heading: string): string[] {
+  const start = guide.indexOf(heading)
+  assert.ok(start !== -1, `heading ${JSON.stringify(heading)} not found in docs/mcp.md`)
+  const afterHeading = guide.slice(start + heading.length)
+  const nextHeading = afterHeading.indexOf('\n## ')
+  const section = nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading)
+  return [...section.matchAll(/^- `([a-zA-Z0-9_]+)` — /gm)].map((match) => match[1] as string)
+}
+
+test('every shipped tool is named exactly once in the guide inventory, and nowhere in "what isn\'t here yet"', async () => {
   // The guide's inventory is prose, so nothing but this test relates it to the
-  // code. A tool added without documenting it, or documented after removal,
-  // fails here.
+  // code. This asserts two things a plain substring search cannot: the
+  // inventory list under "## The fourteen tools" names exactly the shipped
+  // set (set equality both ways — a tool added without listing it there, or
+  // listed there after removal, fails), and no shipped tool's name still
+  // appears under "## What isn't here yet" (a tool documented as absent
+  // while it in fact ships, which is what a plain substring check would miss
+  // — that section named `set_override` and `clear_overrides` for a full
+  // cycle before this test existed).
   const guide = await readFile(new URL('../../docs/mcp.md', import.meta.url), 'utf8')
   const shipped = mcpTools({ write: true }).map((tool) => tool.name).sort()
 
-  const missing = shipped.filter((name) => !guide.includes(name))
-  assert.deepEqual(missing, [], 'these tools ship but are undocumented')
+  const listed = bulletedToolNames(guide, '## The fourteen tools').sort()
+  assert.deepEqual(
+    listed,
+    shipped,
+    'the "## The fourteen tools" bullet list must name exactly the shipped tools'
+  )
+
+  const deferredStart = guide.indexOf('## What isn\'t here yet')
+  assert.ok(deferredStart !== -1, '"## What isn\'t here yet" section not found in docs/mcp.md')
+  const deferredSection = guide.slice(deferredStart)
+  for (const name of shipped) {
+    assert.ok(
+      !deferredSection.includes(name),
+      `${name} ships but is still named in "what isn't here yet"`
+    )
+  }
 
   const notShipped = ['regenerate_fixture']
   for (const name of notShipped) {

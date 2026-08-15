@@ -318,8 +318,6 @@ tooling against a document that has one.
 
 ## What isn't here yet
 
-`regenerate_fixture` is not part of this server. `set_override` and
-`clear_overrides` — listed above — now ship on top of `Mock.override()` and
-`Mock.clearOverrides()`, both of which exist and are tested elsewhere in this
-project. `regenerate_fixture` remains deferred: nothing here is a commitment
-to when it lands.
+`regenerate_fixture` — a tool to save a live-generated response as a
+committed fixture — is not part of this server. Nothing here is a
+commitment to when it lands.
