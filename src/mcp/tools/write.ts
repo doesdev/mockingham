@@ -1,12 +1,13 @@
 import { z } from 'zod'
 import type { McpContext, McpTool } from '../context.ts'
+import type { RuntimeOverride } from '../../runtime/overrides.ts'
 
 const failNext: McpTool = {
   name: 'fail_next',
   description:
     'Make the next request(s) to a target fail, so you can exercise your error ' +
     'handling without waiting for a real outage. Target is a control-plane ' +
-    'string: "POST /orders", an operationId, or "*".',
+    'string: "POST /orders", an operationId, or "* /**" for every operation.',
   inputSchema: {
     target: z.string(),
     times: z.number().int().positive().optional().describe('Default 1'),
@@ -86,4 +87,53 @@ const reset: McpTool = {
   }
 }
 
-export const WRITE_TOOLS: McpTool[] = [failNext, outage, emitWebhook, setSeed, reset]
+const setOverride: McpTool = {
+  name: 'set_override',
+  description:
+    'Pin what an operation returns, without editing config. The override ' +
+    'layers over any configured one, so a partial body refines rather than ' +
+    'replaces it. Target is a control-plane string: "POST /orders", an ' +
+    'operationId, or "* /**" for every operation. JSON data only. An ' +
+    'object-shaped body against an operation that returns an array is a ' +
+    'silent no-op — use { "*": { ... } } to reach every element, or a ' +
+    'literal JSON array.',
+  inputSchema: {
+    target: z.string(),
+    value: z
+      .record(z.string(), z.unknown())
+      .describe('{ status?, [status]: { body?, headers? } }')
+  },
+  async handler(ctx: McpContext, args: Record<string, unknown>) {
+    await ctx.override(String(args.target), args.value as RuntimeOverride)
+    return { target: args.target, value: args.value }
+  }
+}
+
+const clearOverrides: McpTool = {
+  name: 'clear_overrides',
+  description:
+    'Remove runtime overrides. With no target, clears them for every ' +
+    'operation. Never touches the overrides in your config file.',
+  inputSchema: {
+    target: z.string().optional().describe('Omit to clear every operation')
+  },
+  async handler(ctx: McpContext, args: Record<string, unknown>) {
+    const target = args.target === undefined ? undefined : String(args.target)
+    await ctx.clearOverrides(target)
+    // `null` rather than a placeholder like '*' for the no-target case: '*'
+    // alone is not a valid target (resolveTarget reads a spaceless target as
+    // an operationId, so it throws), and echoing it back would teach a caller
+    // a string that fails on its next call.
+    return { cleared: target ?? null }
+  }
+}
+
+export const WRITE_TOOLS: McpTool[] = [
+  failNext,
+  outage,
+  emitWebhook,
+  setSeed,
+  reset,
+  setOverride,
+  clearOverrides
+]

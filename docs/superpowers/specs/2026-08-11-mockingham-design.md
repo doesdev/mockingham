@@ -113,9 +113,13 @@ interface Mock {
   close(): Promise<void>
 
   // control plane
-  // NOT IMPLEMENTED — deferred to the runtime-override cycle. See the phase 10
-  // MCP delta section 1 and the phase 12 docs delta section 5.2.
-  override(target: string, value: Override): void
+  // Async, against this section's own `void` — the runtime-override cycle's
+  // amendment 2.1 follows the code (the Store is async), the same drift §1
+  // already had for failNext/outage below.
+  override(target: string, value: RuntimeOverride): Promise<void>
+  // No target clears every operation in the document — the runtime-override
+  // delta §2, §3.1.
+  clearOverrides(target?: string): Promise<void>
   failNext(target: string, opts: FailNextOptions): void
   outage(target: string, opts: OutageOptions): void
   setSeed(seed: string): void
@@ -198,8 +202,13 @@ total and avoid a dependency for something this small.
 ### Precedence within a single value
 
 ```
-override > fixture > spec example/examples > default > enum pick > format producer > type default
+runtime override > config override > fixture > spec example/examples > default > enum pick > format producer > type default
 ```
+
+The runtime-override delta §4 is what gives "runtime override" its own tier,
+distinct from the config override that has always lived here — a live
+`mock.override()`/`set_override` call wins over `operations` in `createMock`'s
+options, which wins over everything below it.
 
 `preferExamples` (default `true`) is what puts spec examples above generation: if
 the API author wrote an example, honor it. Set `false` to always generate.
@@ -601,7 +610,7 @@ real responses are other sources.
 Resolution order (from §3):
 
 ```
-override > fixture > spec example > seeded generator
+runtime override > config override > fixture > spec example > seeded generator
 ```
 
 **A fixture miss is never an error.** It falls through to seeded generation. The

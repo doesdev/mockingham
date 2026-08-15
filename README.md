@@ -31,9 +31,9 @@ things as contracts, not happy accidents:
   The built-in error envelope is a fallback for operations that declare
   nothing, not the default for every failure.
 - **A control plane built for a machine, not just a human.** Failure
-  injection, reseeding, webhook emission, and fixture baking are all methods
-  and MCP tools first, with the CLI as one caller among several — the same
-  surface an agent drives is the one a test drives.
+  injection, reseeding, webhook emission, runtime overrides, and fixture
+  baking are all methods and MCP tools first, with the CLI as one caller
+  among several — the same surface an agent drives is the one a test drives.
 
 ## Requirements and install
 
@@ -150,10 +150,28 @@ override on top of what generation would have produced, add response
 headers, or replace an operation's response handling outright with a
 `respond(ctx)` callback that gets `ctx.generate()`, `ctx.respond()`, and a
 mutable `ctx.log` for structured logging (see [Logging](#logging) below).
-Resolution for a response body is layered: an explicit override wins over a
-served fixture, which wins over a declared OpenAPI example, which falls back
-to seeded generation — nothing downstream needs to know which tier a body
-actually came from.
+
+`mock.override(target, value)` sets the same shape of override at runtime,
+after construction, with no config edit and no restart — `target` is the
+same method-and-path-or-operation-id resolution the failure tools use, and
+`"* /**"` matches every operation. `mock.clearOverrides(target?)` removes
+what `override()` set; called with no target it clears every operation. Both
+are exposed as MCP write tools (`set_override`, `clear_overrides`) — see
+[docs/mcp.md](docs/mcp.md). A runtime override does not layer against
+another runtime override: setting the same target twice replaces the value,
+and two different targets that resolve to the same operation collide there,
+with the later write winning. Setting a `status` the document doesn't
+declare falls through to normal status selection rather than erroring. An
+object-shaped body override applied to an operation whose response is an
+array is a silent no-op — the array comes back byte-identical, with
+`x-mock-override: applied` stamped anyway, since a body layer did exist even
+though nothing in it matched. Use `{ '*': { ... } }` to reach every element,
+or supply a literal JSON array instead.
+
+Resolution for a response body is layered: a runtime override wins over a
+config override, which wins over a served fixture, which wins over a
+declared OpenAPI example, which falls back to seeded generation — nothing
+downstream needs to know which tier a body actually came from.
 
 ### Validation and auth
 
@@ -216,9 +234,10 @@ available as an optional hosted alternative. See
 `mock.mcp()` exposes read tools (list and describe operations, sample a live
 response, inspect webhooks and deliveries) and, behind an explicit
 `--write` flag, write tools that mutate the mock's runtime state (arm a
-failure, reseed, emit a webhook, reset). `sample_response` runs through the
-exact same `fetch()` every other caller uses, so it can't drift from what a
-real client gets. See [docs/mcp.md](docs/mcp.md).
+failure, reseed, emit a webhook, reset, set or clear a runtime override).
+`sample_response` runs through the exact same `fetch()` every other caller
+uses, so it can't drift from what a real client gets. See
+[docs/mcp.md](docs/mcp.md).
 
 ### Logging
 
@@ -252,7 +271,7 @@ mockingham mcp ./openapi.json --write
 ```
 
 Serves the MCP tools over stdio. `--seed` and `--fixtures` behave the same
-as the plain server; `--write` exposes the five tools that mutate runtime
+as the plain server; `--write` exposes the seven tools that mutate runtime
 state (off by default, since read tools never do).
 
 Every subcommand accepts `--help`/`-h`, and none of them parse YAML — convert

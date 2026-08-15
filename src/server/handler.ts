@@ -34,6 +34,7 @@ import type { ResolvedLlm } from '../fixtures/resolve.ts'
 import { createMemoryFixtureStore } from '../fixtures/store.ts'
 import type { FixtureStore } from '../fixtures/store.ts'
 import { createCompiler } from '../schema/compile.ts'
+import { readOverride } from '../runtime/overrides.ts'
 
 export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
@@ -397,6 +398,10 @@ export function createHandler(
 
     const { operation, params } = matched
     const config = resolveConfigs(operation, compiled)
+    // Read once, here, rather than at render: `config.status` feeds status
+    // selection below and selection runs well before the body is rendered, so
+    // one read serves both. Design section 4.
+    const runtime = await readOverride(store, operation)
     // Computed once — it was built twice per request before this refactor.
     const key = requestKey(operation, params, seed)
     const fail = failWith(operation, key)
@@ -433,7 +438,7 @@ export function createHandler(
     const responders = createResponders({
       operation,
       request,
-      staticStatus: config.status,
+      staticStatus: runtime.status ?? config.status,
       key,
       generateOptions: {
         maxDepth: options.maxDepth,
@@ -565,12 +570,33 @@ export function createHandler(
     resolvedWhole = fixture?.whole
     selectedStatus = chosen.status
 
+    // Computed once, here, for both the composition below and the debug
+    // header: calling `runtime.bodies`/`runtime.headers` again just to answer
+    // "did it actually apply" would be a second read of the same layer.
+    const runtimeBodies = runtime.bodies(chosen.status)
+    const runtimeHeaders = runtime.headers(chosen.status)
+    // `runtime !== EMPTY_OVERRIDE` only proves a record exists for this
+    // operation, not that it did anything at the status that was actually
+    // selected — an override scoped to a different status, or an empty
+    // override object, would both stamp a false "applied". The header must
+    // instead reflect what actually contributed: a body layer, a header, or
+    // a runtime `status` that forced the selection that happened.
+    const runtimeApplied =
+      runtimeBodies.length > 0 ||
+      Object.keys(runtimeHeaders).length > 0 ||
+      (runtime.status !== undefined && runtime.status === chosen.status)
+
     return await renderResponse({
       ctx,
       chosen,
-      bodyOverrides: config.bodies(chosen.status),
+      // The runtime layer goes last so it refines the config layers rather
+      // than erasing them, and the fixture stays beneath both.
+      bodyOverrides: [...config.bodies(chosen.status), ...runtimeBodies],
       fixtureLayer: fixture?.layer as OverrideNode | undefined,
-      headerOverrides: config.headers(chosen.status),
+      headerOverrides: {
+        ...config.headers(chosen.status),
+        ...runtimeHeaders
+      },
       globals: options.headers,
       resolvers,
       rngFor: responders.rngFor,
@@ -582,7 +608,8 @@ export function createHandler(
         ? {
             seed: String(fnv1a(key)),
             source: selected.source,
-            operationId: operation.operationId
+            operationId: operation.operationId,
+            override: runtimeApplied ? 'applied' : undefined
           }
         : undefined
     })

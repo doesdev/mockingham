@@ -6,6 +6,8 @@ import { createNodeServer } from './server/node.ts'
 import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
 import { targetKey, failNextKey, outageKey } from './runtime/failure.ts'
+import { overrideKey, assertSerializable, assertValidOverrideKeys } from './runtime/overrides.ts'
+import type { RuntimeOverride } from './runtime/overrides.ts'
 import type { Delivery } from './webhooks/deliver.ts'
 import { resolveLlm } from './fixtures/config.ts'
 import type { LlmConfig } from './fixtures/config.ts'
@@ -49,6 +51,13 @@ export interface Mock {
   close(): Promise<void>
   failNext(target: string, opts?: FailNextOptions): Promise<void>
   outage(target: string, opts?: OutageOptions): Promise<void>
+  /**
+   * Layers a runtime override over any configured one for every operation the
+   * target resolves to. JSON data only — see `assertSerializable`.
+   */
+  override(target: string, value: RuntimeOverride): Promise<void>
+  /** No target clears every operation in the document. */
+  clearOverrides(target?: string): Promise<void>
   setSeed(seed: string): Promise<void>
   reset(): Promise<void>
   store: Store
@@ -146,6 +155,39 @@ export function createMock(
       }
     },
 
+    async override(target, value) {
+      // Checked before any write, so a partially-applied wildcard is
+      // impossible: either every matching operation gets the override or none
+      // does.
+      assertValidOverrideKeys(value)
+      assertSerializable(value)
+      // `assertSerializable` just proved this value can survive a serializing
+      // Store — it does not prove the Store keeps a copy. An in-process Store
+      // keeps the live reference by default, so storing `value` itself would
+      // let the caller mutate what the mock serves after the call returns, or
+      // inject something that never passed the door above. One copy, made
+      // once here rather than per operation, is what makes what the mock
+      // serves a snapshot instead of a window onto the caller's object.
+      const stored = JSON.parse(JSON.stringify(value)) as RuntimeOverride
+      for (const key of keysFor(target)) {
+        await handler.store.set(overrideKey(key), stored)
+      }
+    },
+
+    async clearOverrides(target) {
+      // No enumeration on `Store`, so a clear-all deletes the key for every
+      // operation the document declares. The operation list is finite and is
+      // already the authority for what a target can resolve to — this avoids
+      // both an index entry to keep consistent and `store.clear()`, which
+      // would also discard idempotency keys and chaos state. Design 3.1.
+      const keys = target === undefined
+        ? api.operations.map(targetKey)
+        : keysFor(target)
+      for (const key of keys) {
+        await handler.store.delete(overrideKey(key))
+      }
+    },
+
     async setSeed(next) {
       handler.setSeed(next)
     },
@@ -236,6 +278,7 @@ export type { HandlerOptions } from './server/handler.ts'
 export type { Delivery } from './webhooks/deliver.ts'
 export type { WebhookConfig } from './webhooks/emit.ts'
 export type { LlmConfig } from './fixtures/config.ts'
+export type { RuntimeOverride } from './runtime/overrides.ts'
 export type { BakeSummary } from './fixtures/bake.ts'
 
 // The bake-commit-serve loop needs these at the package root. Exporting only
