@@ -27,6 +27,22 @@ export function findOperation(
           'Call list_operations to see what this document declares.'
       )
     }
+    // Every supplied field must agree. This branch used to return on the
+    // operationId match alone, so a caller passing a mismatched method/path
+    // alongside a valid id was silently answered about a different operation
+    // than the one they named — deferred item 29a. `bake`'s scope filter
+    // already refuses that; the two now behave the same way.
+    if (
+      (method !== undefined && found.method !== method) ||
+      (path !== undefined && found.path !== path)
+    ) {
+      throw new Error(
+        `mockingham: operationId "${operationId}" is ` +
+          `${found.method.toUpperCase()} ${found.path}, which disagrees with the ` +
+          `supplied ${method?.toUpperCase() ?? '(any method)'} ` +
+          `${path ?? '(any path)'}. Supply one or the other, or make them agree.`
+      )
+    }
     return found
   }
   if (method !== undefined && path !== undefined) {
@@ -352,13 +368,24 @@ const listWebhooks: McpTool = {
         name,
         kind: callback === undefined ? 'webhook' : 'callback',
         method: webhook.method.toUpperCase(),
-        payloadSchema: media ? toJsonSchema(media.schema, compiler) : undefined,
+        // Through the shared helper, so a schema the converter refuses comes
+        // back as the `$comment` placeholder every other tool reports rather
+        // than as `undefined` — deferred item 29c. A recursive webhook payload
+        // was the case that exposed it.
+        payloadSchema: media ? jsonSchemaOf(media.schema) : undefined,
         // A callback's owning operation is declared in the document, so it is
         // reported whether or not anything is configured to emit it. A
         // top-level webhook has no declared owner — only config can link it.
-        emittedBy: callback !== undefined && configured.length === 0
-          ? [callback.owner]
-          : configured,
+        //
+        // The UNION, not a choice between the two: reporting the declaring
+        // operation only when nothing was configured meant the moment any
+        // operation's `emits` named this webhook, the operation that declares
+        // it vanished from the list — even when it was not among the
+        // configured emitters. Deferred item 29b.
+        emittedBy:
+          callback === undefined
+            ? configured
+            : [callback.owner, ...configured.filter((entry) => entry !== callback.owner)],
         expression: callback?.expression
       }
     })

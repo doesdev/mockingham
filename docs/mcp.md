@@ -126,17 +126,15 @@ Eight write tools, gated behind `--write` (see below):
 
 `describe_operation`, `sample_response`, and `get_auth_requirements` all
 identify an operation by `operationId`, or by `method` and `path` together.
-Worth knowing before you rely on it: when `operationId` is supplied, it wins
-outright — `method` and `path` are silently ignored rather than checked for
-agreement with it, so passing an `operationId` alongside a mismatched
-`method`/`path` pair does not raise anything (`src/mcp/tools/read.ts`,
-`findOperation`).
+**Every field you supply is checked**, so passing an `operationId` alongside a
+`method`/`path` pair that names a different operation raises rather than
+quietly answering about one of them. Supply one form or the other, or make them
+agree.
 
-`regenerate_fixture` does **not** share that behavior. It checks every field
-you supply and raises when they disagree, and it raises when the operation or
-status does not exist rather than reporting a summary of zeroes — an agent
-handed `{"generated": 0}` for a typo has been told it succeeded at doing
-nothing.
+`regenerate_fixture` behaves the same way, and additionally raises when the
+operation or status does not exist rather than reporting a summary of zeroes —
+an agent handed `{"generated": 0}` for a typo has been told it succeeded at
+doing nothing.
 
 **`regenerate_fixture` can write to disk.** With a disk-backed fixture store
 (`--fixtures <dir>`, or `createDiskFixtureStore`), storing a fixture writes it
@@ -317,24 +315,19 @@ await demoMock.close()
 ```
 
 `paymentSucceeded`'s `emittedBy` names `POST /payments` because that is where
-the callback is declared and nothing here is configured to emit it, so
-`list_webhooks` falls back to the declaring operation (design §3.6). That
-fallback only applies when nothing is configured: if some *other* operation's
-`emits` config names a callback's webhook while its own declaring operation
-has none, `emittedBy` reports only the configured operation and quietly drops
-the declaring one — worth knowing if you configure `emits` yourself, though
-nothing in this document does, so it does not show up above.
+the callback is declared (design §3.6). **`emittedBy` is the union of the
+declaring operation and every configured emitter**, deduplicated, with the
+declaring operation first. Configuring some other operation's `emits` to fire a
+callback's webhook adds that operation to the list rather than replacing the
+one that declares it — which it did until the ledger-clearing cycle, quietly
+dropping the declaring operation the moment any config named the webhook.
 
-`payloadSchema` has a related sharp edge. Every other schema this server
-emits — in `describe_operation`, for instance — falls back to
-`{ "$comment": "not expressible as JSON Schema; this operation is generated
-only" }` when the converter can't turn a schema into JSON Schema (a recursive
-one, mainly). `list_webhooks`'s `payloadSchema` calls the converter directly
-rather than through that fallback, so a recursive webhook payload comes back
-as `payloadSchema: undefined` instead of the `$comment` placeholder
-(`src/mcp/tools/read.ts`). Neither webhook in `docs/example.json` is
-recursive, so it never appears above — it is worth knowing before you build
-tooling against a document that has one.
+`payloadSchema` routes through the same fallback every other schema on this
+server does: `{ "$comment": "not expressible as JSON Schema; this operation is
+generated only" }` when the converter cannot turn a schema into JSON Schema.
+In practice that placeholder is hard to provoke — **recursion is not such a
+case**, contrary to what an earlier revision of this guide said. A recursive
+payload is expressed with `$defs` and `$ref` and comes back in full.
 
 ## Every declared tool now ships
 
