@@ -69,7 +69,35 @@ tests passing, up from a 509-test baseline, typecheck clean.
    value)` and `Mock.clearOverrides(target?)` now ship, with `set_override`
    and `clear_overrides` as the corresponding MCP write tools — see
    `docs/superpowers/specs/2026-08-14-mockingham-runtime-overrides-design.md`.
-   The MCP guide's third deferred item, `regenerate_fixture`, remains open.
+
+   **The third deferred item, `regenerate_fixture`, is DONE too — regenerate
+   cycle (2026-08-15).** With it, **nothing is deferred**: every tool master
+   §15 declares now ships, and every numbered phase is complete. What is left
+   in this file below is the non-blocking list (items 15, 16, 17, 19, 22, 24,
+   25, 27, 29a–c, 34–41), none of which is a contract violation.
+
+   Three things that cycle established, worth keeping:
+   - **The sources disagreed about what the tool was.** Master §15 said
+     "re-run the LLM for one operation"; `docs/mcp.md` said "a tool to save a
+     live-generated response as a committed fixture" — a different tool
+     needing no LLM. The MCP delta §9 settled it by naming "the scoped
+     re-bake", and the user confirmed. `docs/mcp.md` had described a tool that
+     was never specified, for a full cycle, and is corrected.
+   - **It is `bake()` with a filter, not a second entry point.**
+     `BakeOptions.only` narrows inside the planning loop that already runs, so
+     chunking, persona, scope narrowing, hashing and the store write are all
+     reached by the same code a full bake reaches them by.
+   - **A scope matching nothing throws**, following `compileTarget`. A scope
+     matching an operation with nothing bakeable is reported as `skipped`.
+     Naming something that does not exist and asking for something that cannot
+     be baked are different answers, and an agent handed `{generated: 0}` for
+     a typo has been told it succeeded at doing nothing.
+
+   Also settled there: **a write tool may reach disk.** With a disk-backed
+   fixture store, `regenerate_fixture` writes to the fixture directory exactly
+   as `bake()` does. Master §15's "Write tools mutate only runtime state" was
+   too broad and is corrected at the source; the promise that holds is that no
+   tool edits the user's *config*, and `write: true` is the gate.
 
 7. **Cookie parameters cannot validate.** `Parameter['location']` includes
    `'cookie'` and `src/runtime/validate.ts` handles only path/query/header.

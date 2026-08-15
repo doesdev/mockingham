@@ -226,17 +226,23 @@ walks every operation and writes what a content source returns; serving
 falls through fixture → declared example → seeded generation whenever the
 store misses, so an absent, slow, or refusing LLM never turns into a broken
 mock. The default source talks to a local Ollama instance; Claude is
-available as an optional hosted alternative. See
+available as an optional hosted alternative. `mock.bake({ only: { … } })`
+narrows a run to one operation, so refreshing a single response after the
+document moves does not re-run the whole document against a paid model, and
+`mock.fixtures()` shows what is stored. See
 [docs/fixtures.md](docs/fixtures.md).
 
 ### MCP
 
 `mock.mcp()` exposes read tools (list and describe operations, sample a live
-response, inspect webhooks and deliveries) and, behind an explicit
-`--write` flag, write tools that mutate the mock's runtime state (arm a
-failure, reseed, emit a webhook, reset, set or clear a runtime override).
-`sample_response` runs through the exact same `fetch()` every other caller
-uses, so it can't drift from what a real client gets. See
+response, inspect webhooks and deliveries, see what is in the fixture store)
+and, behind an explicit `--write` flag, write tools that mutate the mock's
+state (arm a failure, reseed, emit a webhook, reset, set or clear a runtime
+override, regenerate a fixture). `sample_response` runs through the exact
+same `fetch()` every other caller uses, so it can't drift from what a real
+client gets. `regenerate_fixture` is the one tool that can reach disk — with
+a fixture directory configured it writes there, exactly as `bake()` does,
+which is part of what the `--write` gate is protecting. See
 [docs/mcp.md](docs/mcp.md).
 
 ### Logging

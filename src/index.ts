@@ -12,10 +12,10 @@ import type { Delivery } from './webhooks/deliver.ts'
 import { resolveLlm } from './fixtures/config.ts'
 import type { LlmConfig } from './fixtures/config.ts'
 import { createMemoryFixtureStore } from './fixtures/store.ts'
-import type { FixtureStore } from './fixtures/store.ts'
+import type { FixtureStore, FixtureRecord } from './fixtures/store.ts'
 import { createCompiler } from './schema/compile.ts'
 import { bake as bakeFixtures } from './fixtures/bake.ts'
-import type { BakeSummary } from './fixtures/bake.ts'
+import type { BakeSummary, BakeScope } from './fixtures/bake.ts'
 import { warnOnStaleFixtures } from './fixtures/persist.ts'
 import { schemaHashLookup } from './fixtures/source.ts'
 import { createMcpServer } from './mcp/server.ts'
@@ -70,8 +70,18 @@ export interface Mock {
    * Prewarms the fixture store by walking every operation the configured llm
    * source can serve. Requires an llm source — either `llm.source` directly,
    * or a provider block with `llm.mode` set to something other than `off`.
+   *
+   * `only` narrows the walk to one operation, and optionally one status — the
+   * scoped re-bake `regenerate_fixture` is built on. A filter that matches no
+   * operation throws rather than reporting a summary of zeroes.
    */
-  bake(): Promise<BakeSummary>
+  bake(options?: { only?: BakeScope }): Promise<BakeSummary>
+  /**
+   * Everything currently in the fixture store, sorted. This is what
+   * `list_fixtures` reports, and what a caller needs to see whether a bake
+   * landed or a fixture has gone stale.
+   */
+  fixtures(): FixtureRecord[]
   /**
    * Builds an MCP server over this mock. `transport: 'http'` mounts it on the
    * mock's own fetch surface, so it works before or after `listen()`.
@@ -206,7 +216,11 @@ export function createMock(
     clearDeliveries: () => handler.clearDeliveries(),
     settled: () => handler.settled(),
 
-    async bake() {
+    fixtures: () => fixtureStore.records(),
+
+    async bake(bakeOptions = {}) {
+      // Checked before the scope filter, so a regeneration with no source
+      // configured says THAT rather than reporting a filter miss.
       if (!resolvedLlm?.source) {
         throw new Error(
           'mockingham: bake() requires an llm source. Set llm.mode to something ' +
@@ -222,6 +236,7 @@ export function createMock(
         persona: resolvedLlm.persona,
         scope: resolvedLlm.scope,
         budget: resolvedLlm.budget,
+        only: bakeOptions.only,
         now: options.now ?? (() => Date.now()),
         onWarn: options.onWarn,
         onError: (error) => options.onError?.(error)
@@ -279,7 +294,7 @@ export type { Delivery } from './webhooks/deliver.ts'
 export type { WebhookConfig } from './webhooks/emit.ts'
 export type { LlmConfig } from './fixtures/config.ts'
 export type { RuntimeOverride } from './runtime/overrides.ts'
-export type { BakeSummary } from './fixtures/bake.ts'
+export type { BakeSummary, BakeScope } from './fixtures/bake.ts'
 
 // The bake-commit-serve loop needs these at the package root. Exporting only
 // the types, as this file used to, left no way to construct a store or a

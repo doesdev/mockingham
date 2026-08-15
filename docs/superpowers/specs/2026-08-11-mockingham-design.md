@@ -130,7 +130,13 @@ interface Mock {
   deliveries(filter?: DeliveryFilter): Delivery[]
   clearDeliveries(): void
 
-  bake(opts?: BakeOptions): Promise<BakeReport>
+  // `only` narrows the walk to one operation and optionally one status — the
+  // scoped re-bake `regenerate_fixture` is built on. A scope matching no
+  // operation throws rather than reporting a summary of zeroes. See the
+  // regenerate delta §3.
+  bake(opts?: { only?: BakeScope }): Promise<BakeSummary>
+  // Everything in the fixture store, sorted. What `list_fixtures` reports.
+  fixtures(): FixtureRecord[]
   mcp(opts?: McpOptions): McpServer
   store: Store
 }
@@ -767,6 +773,7 @@ Read — introspection over the loaded document:
 | `get_auth_requirements` | security schemes and per-operation requirements |
 | `list_webhooks` | declared webhooks and callbacks, with payload schemas and which operations emit them |
 | `list_deliveries` | what has been emitted so far — the agent's feedback loop for verifying its own handler |
+| `list_fixtures` | what the fixture store holds, when each entry was generated, and whether the document has moved under it (added by the regenerate delta §7) |
 
 `sample_response` is the one that earns its place: an agent writing a parser
 against a schema is guessing, and an agent that has seen the concrete payload —
@@ -782,12 +789,21 @@ Write — the control plane, exposed:
 | `fail_next` / `outage` | drive error paths on demand |
 | `emit_webhook` | fire a webhook at a chosen URL — lets an agent test its own receiver without provoking the triggering flow |
 | `set_seed` | reshuffle all generated content |
-| `regenerate_fixture` | re-run the LLM for one operation |
+| `regenerate_fixture` | re-run the LLM for one operation, by operationId or method+path, optionally one status |
 | `reset` | clear chaos state, idempotency keys, counters, runtime overrides |
 
-Write tools mutate only runtime state. They never edit the user's config file,
-and `reset` fully restores the configured baseline — so an agent cannot leave the
-mock in a state the developer did not ask for and cannot explain.
+Write tools never edit the user's config file, and `reset` fully restores the
+configured baseline — so an agent cannot leave the mock in a state the
+developer did not ask for and cannot explain.
+
+> **Corrected 2026-08-15 (regenerate cycle).** This paragraph began "Write
+> tools mutate only runtime state", which is too broad as written and became
+> false with `regenerate_fixture`. That tool calls `store.set`, and a
+> disk-backed fixture store writes through to the configured directory —
+> exactly as `bake()` does. The promise that matters, and that still holds, is
+> the one about configuration: no tool edits the user's config. The gate on
+> writing to a fixture directory is `write: true`, which is opt-in on both
+> transports. See the regenerate delta §6.
 
 ### Transport and dependency
 

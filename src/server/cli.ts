@@ -431,8 +431,10 @@ export const MCP_USAGE = `mockingham mcp — serve the MCP tools over stdio
   --seed <s>        Generation seed (default: mockingham)
   --fixtures <dir>  Serve committed fixture files from this directory
   --write           Expose the write tools (fail_next, outage, emit_webhook,
-                     set_seed, reset, set_override, clear_overrides). Off by
-                     default: they change the mock's runtime state.
+                     set_seed, reset, set_override, clear_overrides,
+                     regenerate_fixture). Off by default: they change the
+                     mock's runtime state, and regenerate_fixture writes to
+                     the fixture directory when one is configured.
   --help, -h        Show this message
 
 YAML is not parsed. Convert the document to JSON first.

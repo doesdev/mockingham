@@ -79,9 +79,9 @@ an explicit `await handle.connectStdio()` before it talks JSON-RPC — which is
 exactly what the `mockingham mcp` subcommand does on your behalf
 (`src/server/cli.ts`). Only `'http'` writes anything into the mount slot.
 
-## The fourteen tools
+## The sixteen tools
 
-Seven read tools, always available:
+Eight read tools, always available:
 
 - `list_operations` — method, path, `operationId`, summary, and tags for
   every operation; filter with `tag` or `pathPrefix`.
@@ -98,8 +98,12 @@ Seven read tools, always available:
   and which operations are configured to emit them.
 - `list_deliveries` — webhook deliveries recorded so far, oldest first,
   filterable by webhook name and outcome.
+- `list_fixtures` — what is in the fixture store: which operations and
+  statuses have a stored response, when it was generated, and whether it has
+  gone `stale` because the document changed underneath it. Values are omitted
+  unless you pass `includeValues`.
 
-Seven write tools, gated behind `--write` (see below):
+Eight write tools, gated behind `--write` (see below):
 
 - `fail_next` — make the next request(s) to a target fail.
 - `outage` — fail every request to a target for a window of time.
@@ -114,6 +118,11 @@ Seven write tools, gated behind `--write` (see below):
 - `clear_overrides` — remove runtime overrides set by `set_override`. With no
   target, clears every operation. Never touches the overrides in your config
   file.
+- `regenerate_fixture` — re-run the configured content source for one
+  operation, replacing its stored fixtures. Requires an llm source. Identify
+  the operation by `operationId`, or by `method` and `path`; add `status` to
+  regenerate just one. Returns the bake summary, so an operation with no JSON
+  body reads as `skipped` rather than as success.
 
 `describe_operation`, `sample_response`, and `get_auth_requirements` all
 identify an operation by `operationId`, or by `method` and `path` together.
@@ -122,6 +131,17 @@ outright — `method` and `path` are silently ignored rather than checked for
 agreement with it, so passing an `operationId` alongside a mismatched
 `method`/`path` pair does not raise anything (`src/mcp/tools/read.ts`,
 `findOperation`).
+
+`regenerate_fixture` does **not** share that behavior. It checks every field
+you supply and raises when they disagree, and it raises when the operation or
+status does not exist rather than reporting a summary of zeroes — an agent
+handed `{"generated": 0}` for a typo has been told it succeeded at doing
+nothing.
+
+**`regenerate_fixture` can write to disk.** With a disk-backed fixture store
+(`--fixtures <dir>`, or `createDiskFixtureStore`), storing a fixture writes it
+to that directory, exactly as `bake()` does. The `--write` gate is what stands
+between an agent and that directory.
 
 ## The ready-to-paste client config
 
@@ -316,8 +336,15 @@ as `payloadSchema: undefined` instead of the `$comment` placeholder
 recursive, so it never appears above — it is worth knowing before you build
 tooling against a document that has one.
 
-## What isn't here yet
+## Every declared tool now ships
 
-`regenerate_fixture` — a tool to save a live-generated response as a
-committed fixture — is not part of this server. Nothing here is a
-commitment to when it lands.
+Master §15 names sixteen tools and this server exposes all sixteen. Earlier
+revisions of this guide carried a "what isn't here yet" section; there is
+nothing left to put in it.
+
+That section also described `regenerate_fixture` as "a tool to save a
+live-generated response as a committed fixture", which was never what the
+specification said and is not what shipped. It re-runs the configured content
+source — the LLM — for one operation. Saving whatever the mock generated a
+moment ago, with no source involved, is a different and genuinely useful tool
+that does not exist.

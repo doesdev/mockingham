@@ -5,6 +5,7 @@ import { toJsonSchema } from '../../schema/json-schema.ts'
 import type { Operation, Parameter, Schema } from '../../spec/types.ts'
 import { createRng } from '../../generate/rng.ts'
 import { generateValue } from '../../generate/generate.ts'
+import { schemaHashLookup } from '../../fixtures/source.ts'
 
 // One compiler for the module: compilation is pure and its cache is a win
 // across calls. It holds no per-request state.
@@ -383,6 +384,56 @@ const listDeliveries: McpTool = {
   }
 }
 
+const listFixtures: McpTool = {
+  name: 'list_fixtures',
+  description:
+    'What is in the fixture store: which operations and statuses have a ' +
+    'stored response, when it was generated, and whether it has gone stale ' +
+    'because the document changed underneath it. Values are omitted unless ' +
+    'you ask for them. Pair with regenerate_fixture to refresh a stale one.',
+  inputSchema: {
+    operationId: z.string().optional(),
+    status: z.number().int().optional(),
+    includeValues: z
+      .boolean()
+      .optional()
+      .describe('Default false — a whole document of values is a lot of tokens')
+  },
+  handler(ctx: McpContext, args: Record<string, unknown>) {
+    const operationId = args.operationId as string | undefined
+    const status = args.status as number | undefined
+    const includeValues = args.includeValues === true
+    // Computed with the same helper the startup staleness check uses, so the
+    // two can never disagree about what stale means.
+    const hashFor = schemaHashLookup(ctx.api, compiler)
+
+    // `records()` is already sorted — persistence depends on it writing
+    // byte-identical files — so this must not re-sort by anything derived
+    // from object key order.
+    return ctx.fixtures()
+      .filter((record) => operationId === undefined || record.operationId === operationId)
+      .filter((record) => status === undefined || record.status === status)
+      .map((record) => {
+        const stored = record.entry.meta?.schemaHash
+        return {
+          operationId: record.operationId,
+          status: record.status,
+          key: record.key,
+          generatedAt: record.entry.meta?.generatedAt,
+          schemaHash: stored,
+          scoped: record.entry.meta?.scoped,
+          // An entry with no stored hash is NOT stale: it predates hashing, or
+          // came from a schema neither path can convert. Reporting it stale
+          // would send an agent regenerating something that is fine.
+          stale:
+            stored !== undefined &&
+            stored !== hashFor(record.operationId, record.status),
+          ...(includeValues ? { value: record.entry.value } : {})
+        }
+      })
+  }
+}
+
 export const READ_TOOLS: McpTool[] = [
   listOperations,
   describeOperation,
@@ -390,5 +441,6 @@ export const READ_TOOLS: McpTool[] = [
   sampleResponse,
   searchOperations,
   listWebhooks,
-  listDeliveries
+  listDeliveries,
+  listFixtures
 ]

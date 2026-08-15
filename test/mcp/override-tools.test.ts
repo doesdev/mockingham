@@ -175,28 +175,21 @@ test('every shipped tool is named exactly once in the guide inventory, and nowhe
   const guide = await readFile(new URL('../../docs/mcp.md', import.meta.url), 'utf8')
   const shipped = mcpTools({ write: true }).map((tool) => tool.name).sort()
 
-  const listed = bulletedToolNames(guide, '## The fourteen tools').sort()
+  const listed = bulletedToolNames(guide, '## The sixteen tools').sort()
   assert.deepEqual(
     listed,
     shipped,
     'the "## The fourteen tools" bullet list must name exactly the shipped tools'
   )
 
-  const deferredStart = guide.indexOf('## What isn\'t here yet')
-  assert.ok(deferredStart !== -1, '"## What isn\'t here yet" section not found in docs/mcp.md')
-  const deferredSection = guide.slice(deferredStart)
-  for (const name of shipped) {
-    assert.ok(
-      !deferredSection.includes(name),
-      `${name} ships but is still named in "what isn't here yet"`
-    )
-  }
-
-  const notShipped = ['regenerate_fixture']
-  for (const name of notShipped) {
-    assert.ok(
-      !shipped.includes(name),
-      `${name} is listed as deferred but now ships — update the guide and this list`
-    )
-  }
+  // Nothing is deferred any more, so the guide must no longer carry a section
+  // claiming otherwise. This replaces the previous check, which walked a
+  // `notShipped` list and a "what isn't here yet" section: emptying that list
+  // would have left a loop over zero entries, passing whatever the guide said.
+  // A vacuous check that reads as coverage is worse than no check.
+  assert.equal(
+    guide.indexOf('## What isn\'t here yet'),
+    -1,
+    'every declared tool ships — the deferral section must be gone, not emptied'
+  )
 })

@@ -1,6 +1,6 @@
-import type { Api, Schema } from '../spec/types.ts'
+import type { Api, Operation, Schema } from '../spec/types.ts'
 import type { Compiler } from '../schema/compile.ts'
-import { fixtureKey } from './key.ts'
+import { fixtureKey, operationSlug } from './key.ts'
 import { isScoped, narrow } from './scope.ts'
 import type { ScopeConfig } from './scope.ts'
 import { buildRequest, schemaHash } from './source.ts'
@@ -15,6 +15,23 @@ export interface BakeBudget {
   timeoutMs?: number
 }
 
+/**
+ * Narrows a bake to one operation, and optionally to one of its statuses —
+ * what `regenerate_fixture` is built on. A filter rather than a second entry
+ * point: everything downstream of planning (chunking, persona, scope
+ * narrowing, hashing, the store write) must be reached by the same code a full
+ * bake reaches it by, or the two drift.
+ */
+export interface BakeScope {
+  /** `operationSlug` — the declared operationId when the document has one. */
+  operationId?: string
+  method?: string
+  /** Templated form, e.g. `/orders/{orderId}`. */
+  path?: string
+  /** Absent means every declared JSON status for the matched operation. */
+  status?: number
+}
+
 export interface BakeOptions {
   api: Api
   store: FixtureStore
@@ -23,9 +40,45 @@ export interface BakeOptions {
   persona?: string
   scope?: ScopeConfig
   budget?: BakeBudget
+  only?: BakeScope
   now: () => number
   onWarn?: (message: string) => void
   onError?: (error: unknown) => void
+}
+
+/**
+ * Matched on `operationSlug` rather than `operation.operationId`, because the
+ * slug is what the fixture store is keyed by — an operation the document gave
+ * no id still has one, and naming a fixture is the whole point of the filter.
+ *
+ * Every supplied field must agree. `findOperation` in the MCP read tools
+ * returns on an `operationId` match without checking a co-supplied
+ * `method`/`path` (deferred item 29a); that behavior is not reproduced here.
+ */
+function matchesScope(operation: Operation, only: BakeScope): boolean {
+  if (
+    only.operationId !== undefined &&
+    operationSlug(operation) !== only.operationId
+  ) {
+    return false
+  }
+  if (
+    only.method !== undefined &&
+    operation.method !== only.method.toLowerCase()
+  ) {
+    return false
+  }
+  if (only.path !== undefined && operation.path !== only.path) return false
+  return true
+}
+
+function describeScope(only: BakeScope): string {
+  const parts: string[] = []
+  if (only.operationId !== undefined) parts.push(`operationId "${only.operationId}"`)
+  if (only.method !== undefined) parts.push(`method "${only.method}"`)
+  if (only.path !== undefined) parts.push(`path "${only.path}"`)
+  if (only.status !== undefined) parts.push(`status ${only.status}`)
+  return parts.join(', ')
 }
 
 export interface BakeSummary {
@@ -58,14 +111,71 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
   // requests a maxCalls budget admits before truncating — depends only on
   // the document's operations, never on the order they happened to appear
   // in the source object.
-  const operations = [...options.api.operations].sort((a, b) => {
+  const sorted = [...options.api.operations].sort((a, b) => {
     if (a.path !== b.path) return a.path < b.path ? -1 : 1
     return a.method < b.method ? -1 : 1
   })
 
+  const only = options.only
+  // An absent `only` bakes the whole document — that is the ordinary bake. An
+  // `only` that is PRESENT but identifies no operation is a different thing
+  // and must not be read as "all of them": the MCP tool always passes an
+  // object, with undefined fields when the caller gave no arguments, so
+  // without this `regenerate_fixture` with no arguments re-bakes every
+  // operation against a source that may be charging per call.
+  //
+  // `method` or `status` alone is not an identifier either — `method: 'get'`
+  // matches every GET in the document.
+  if (
+    only !== undefined &&
+    only.operationId === undefined &&
+    only.path === undefined
+  ) {
+    throw new Error(
+      'mockingham: a bake scope must identify an operation. Supply ' +
+        'operationId, or method and path. Omit the scope entirely to bake ' +
+        'the whole document.'
+    )
+  }
+  const operations =
+    only === undefined
+      ? sorted
+      : sorted.filter((operation) => matchesScope(operation, only))
+
+  // A filter matching nothing throws rather than returning a summary of zeroes.
+  // The precedent is `compileTarget`, which throws on a target matching no
+  // operation instead of silently arming nothing: an agent that mistypes an
+  // operationId and is handed `{generated: 0}` has been told its regeneration
+  // succeeded at doing nothing.
+  if (only !== undefined && operations.length === 0) {
+    throw new Error(
+      `mockingham: no operation matches ${describeScope(only)}. ` +
+        'Check the operationId, or the method and templated path.'
+    )
+  }
+
+  // Checked separately from the operation match so the message names which of
+  // the two was wrong, and checked before any call is made to the source.
+  if (only?.status !== undefined) {
+    const declared = operations.some((operation) =>
+      operation.responses.some((response) => response.status === only.status)
+    )
+    if (!declared) {
+      throw new Error(
+        `mockingham: no response declares ${describeScope(only)}. ` +
+          'Call describe_operation to see the statuses this operation declares.'
+      )
+    }
+  }
+
   for (const operation of operations) {
     const responses = [...operation.responses].sort((a, b) => a.status - b.status)
     for (const response of responses) {
+      // Narrowed to one status. NOT counted as skipped: the other statuses
+      // were never asked for, and reporting them would make a one-status
+      // regeneration look as though it had declined work.
+      if (only?.status !== undefined && response.status !== only.status) continue
+
       // A range response (`4XX`) carries its bucket's lower bound in `status`,
       // so it collides with an exactly declared `400` — the store keys on
       // [operationId, status, key] and the second write silently wins, while
