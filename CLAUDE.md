@@ -10,10 +10,17 @@ this file is only the operating manual.
 
 ```sh
 npm test                 # node --test — runs .ts tests directly, no build
-npx tsc --noEmit         # typecheck
+npm run typecheck        # tsc --noEmit
+npm run check:package    # what a publish would actually ship
 node --test test/spec/   # scope tests to one directory
 node src/server/cli.ts docs/example.json --port 4000   # run the mock from a document
 ```
+
+CI (`.github/workflows/ci.yml`) runs the first three on Node 24 and current
+LTS, plus an advisory job on the newest Node — this package is built directly
+on native type stripping, so a break in an unreleased line is worth seeing
+early and is not a reason to block a pull request. `npm ci` there will fail if
+the lockfile and `package.json` disagree, which is deliberate.
 
 ## Non-negotiable invariants
 

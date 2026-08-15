@@ -29,7 +29,9 @@
   },
   "scripts": {
     "test": "node --test 'test/**/*.test.ts'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:package": "node scripts/check-package.ts",
+    "determinism": "node scripts/determinism.ts"
   },
   "dependencies": {
     "zod": "^4.4.3"

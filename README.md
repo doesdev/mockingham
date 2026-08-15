@@ -1,5 +1,7 @@
 # mockingham
 
+[![CI](https://github.com/doesdev/mockingham/actions/workflows/ci.yml/badge.svg)](https://github.com/doesdev/mockingham/actions/workflows/ci.yml)
+
 An OpenAPI-driven HTTP mock server. Point it at a document and get back a
 server that answers every declared operation with deterministic data shaped
 by that document's own schemas — no hand-written stubs, no drift between what
@@ -338,6 +340,6 @@ parsed.
 
 ## License and the design spec
 
-MIT. The behavior above is the operating manual; the contract it's
-implementing is
+MIT — see [LICENSE](LICENSE). The behavior above is the operating manual; the
+contract it's implementing is
 [docs/superpowers/specs/2026-08-11-mockingham-design.md](docs/superpowers/specs/2026-08-11-mockingham-design.md).
