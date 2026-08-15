@@ -1,6 +1,16 @@
 import type { Schema } from '../spec/types.ts'
 import type { Rng } from './rng.ts'
 import { applyMultipleOf, numberBounds, stringLength } from './constraints.ts'
+import { generateFromPattern } from './pattern.ts'
+
+export interface StringOptions {
+  /**
+   * Called with a `pattern` the generator's subset cannot express. Reported
+   * every time here — deduplication is the caller's job, because "once" is a
+   * property of a mock's lifetime rather than of one value.
+   */
+  onUnsupportedPattern?: (pattern: string) => void
+}
 
 const WORDS = [
   'alder', 'basalt', 'cedar', 'dune', 'ember', 'fjord', 'gale', 'harbor',
@@ -44,7 +54,26 @@ function generateDate(rng: Rng): Date {
   return new Date(EPOCH_MS + rng.int(0, YEAR_MS))
 }
 
-export function generateString(schema: Schema, rng: Rng): string {
+export function generateString(
+  schema: Schema,
+  rng: Rng,
+  options: StringOptions = {}
+): string {
+  // Before `format`, because `pattern` is what request validation enforces
+  // (`schema/compile.ts`) — a format-shaped value that fails the declared
+  // pattern is a body the mock emits and would then reject.
+  if (schema.pattern !== undefined) {
+    const value = generateFromPattern(schema.pattern, rng)
+    // Returned directly, never through `fitLength`: appending to reach
+    // `minLength` or slicing to `maxLength` breaks the match, which would
+    // trade one silently wrong value for another.
+    if (value !== undefined) return value
+    options.onUnsupportedPattern?.(schema.pattern)
+    // Falls through. `example` and `default` were already consulted by
+    // `generateValue` before this was ever called, so what follows is the
+    // placeholder that master §3 names as the last step of the chain.
+  }
+
   switch (schema.format) {
     case 'email':
       return `${rng.pick(GIVEN)}.${rng.pick(FAMILY)}@${word(rng)}.${rng.pick(TLDS)}`

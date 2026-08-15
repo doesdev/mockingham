@@ -14,6 +14,11 @@ export interface GenerateOptions {
   schemaNames?: Map<Schema, string>
   /** Passed through to resolver callbacks. Typed loosely to avoid a cycle. */
   ctx?: unknown
+  /**
+   * Called with a `pattern` value generation cannot express, every time one is
+   * generated. The handler deduplicates and routes it to `onWarn`.
+   */
+  onUnsupportedPattern?: (pattern: string) => void
 }
 
 const DEFAULT_MAX_DEPTH = 3
@@ -58,7 +63,9 @@ export function generateValue(
       case 'enum':
         return rng.pick(kind.values)
       case 'string':
-        return generateString(merged, rng)
+        return generateString(merged, rng, {
+          onUnsupportedPattern: options.onUnsupportedPattern
+        })
       case 'integer':
         return generateInteger(merged, rng)
       case 'number':

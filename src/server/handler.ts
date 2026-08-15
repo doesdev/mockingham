@@ -2,6 +2,7 @@ import { createRouter } from '../spec/routes.ts'
 import type { Api, Operation } from '../spec/types.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
+import type { GenerateOptions } from '../generate/generate.ts'
 import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
@@ -189,6 +190,27 @@ export function createHandler(
 
   const warn = options.onWarn ?? ((message: string) => console.warn(message))
 
+  // Warned once per pattern for the life of this handler, not once per value —
+  // a per-request warning for a field on a hot path is noise nobody reads.
+  //
+  // This deliberately is NOT a startup warning, which is what master §3
+  // originally specified: nothing walks every schema at construction.
+  // `compile()` is lazy and serves request validation, so a response-only
+  // schema is never compiled at all, and a warning hung off compilation would
+  // miss exactly the case this exists for. Membership only — the set is never
+  // iterated, so determinism is untouched.
+  const warnedPatterns = new Set<string>()
+  const onUnsupportedPattern = (pattern: string): void => {
+    if (warnedPatterns.has(pattern)) return
+    warnedPatterns.add(pattern)
+    warn(
+      `mockingham: the pattern ${pattern} is outside the subset value ` +
+        'generation can express, so a generated placeholder is used instead. ' +
+        'Requests are still validated against it. Use a fixture or an ' +
+        'override to pin a conforming value.'
+    )
+  }
+
   // Compiled once. An expression outside the documented subset warns here
   // rather than silently never firing — the same reasoning as `compileTarget`
   // throwing on a target that matches nothing.
@@ -205,6 +227,18 @@ export function createHandler(
       return false
     })
   }))
+
+  // One object, three call sites. They were already identical field for field,
+  // and a fifth option added to two of the three would be a silent gap — the
+  // unsupported-pattern warning firing for a rendered body but not for an
+  // error body is exactly the kind of asymmetry nobody notices.
+  const baseGenerateOptions: GenerateOptions = {
+    maxDepth: options.maxDepth,
+    preferExamples: options.preferExamples,
+    resolvers,
+    schemaNames: api.schemaNames,
+    onUnsupportedPattern
+  }
 
   const webhookConfigs = new Map<string, ResolvedWebhook>()
   for (const [name, config] of Object.entries(options.webhooks ?? {})) {
@@ -281,12 +315,7 @@ export function createHandler(
       captureOnly: options.captureOnly === true,
       seed,
       rng: createRng(`${seed}|webhook|${name}|${counters.next(`webhook|${name}`)}`),
-      generateOptions: {
-        maxDepth: options.maxDepth,
-        preferExamples: options.preferExamples,
-        resolvers,
-        schemaNames: api.schemaNames
-      },
+      generateOptions: baseGenerateOptions,
       fetch: doFetch,
       sleep,
       now,
@@ -315,12 +344,7 @@ export function createHandler(
         mode,
         ctx,
         rng: createRng(`${key}|error|${status}`),
-        generateOptions: {
-          maxDepth: options.maxDepth,
-          preferExamples: options.preferExamples,
-          resolvers,
-          schemaNames: api.schemaNames
-        },
+        generateOptions: baseGenerateOptions,
         debugHeaders: options.debugHeaders
       })
 
@@ -440,12 +464,7 @@ export function createHandler(
       request,
       staticStatus: runtime.status ?? config.status,
       key,
-      generateOptions: {
-        maxDepth: options.maxDepth,
-        preferExamples: options.preferExamples,
-        resolvers,
-        schemaNames: api.schemaNames
-      },
+      generateOptions: baseGenerateOptions,
       // ctx is declared just below; this getter is only invoked later (inside
       // generateValue, at generation time), by which point the assignment has
       // already run — the same deferral the old inline closure relied on.
