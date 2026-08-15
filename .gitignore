@@ -4,6 +4,9 @@
 node_modules
 dist/
 .claude/worktrees/
+# Machine-local permissions, and it accumulates absolute scratchpad paths from
+# whichever session wrote it. `.claude/settings.json` IS tracked and shared.
+.claude/settings.local.json
 .superpowers/
 *.tsbuildinfo
 .mockingham/
