@@ -98,6 +98,64 @@ export function assertKnownFences(fences: Fence[], file: string): void {
   }
 }
 
+/**
+ * A `txt` fence is inert by design — the docs-design §2.3 table calls it
+ * "directory listings and file trees" — which means anything typed into one is
+ * never run, never diffed, and never checked. That is fine for a file tree and
+ * dangerous for program output: fabricated output in a `txt` fence looks
+ * exactly like verified output to a reader. Rejecting the SHAPE keeps the
+ * fence useful for what it is for while closing the hole. Deferred item 37.
+ */
+const PROGRAM_OUTPUT_SHAPES = [
+  /^\s*[{[]/, // a JSON object or array
+  /^\s*(status|error|warning)\b/i,
+  /^\s*at\s+\S+\s*\(/m, // a stack frame
+  /\bmockingham:\s/ // the CLI's own message prefix
+] as const
+
+export function assertInertFencesAreInert(fences: Fence[], file: string): void {
+  for (const fence of fences) {
+    if (fence.lang !== 'txt') continue
+    const offender = PROGRAM_OUTPUT_SHAPES.find((shape) => shape.test(fence.content))
+    if (offender !== undefined) {
+      throw new Error(
+        `${file}:${fence.line}: this txt fence looks like program output ` +
+          `(matched ${offender}), and a txt fence is never run or compared — ` +
+          'so nothing would catch it drifting from what the program prints. ' +
+          'Use a console fence, which is diffed, or restate it as prose.'
+      )
+    }
+  }
+}
+
+/**
+ * A `console` fence must follow the `ts` fence whose output it shows.
+ *
+ * `assembleProgram` and `expectedOutput` each filter the fence list by
+ * language independently, so only the relative order WITHIN each language
+ * survives — a document that prints expected output above the code producing
+ * it, or in an unrelated section, compared exactly the same as one that did
+ * not. Deferred item 36.
+ */
+export function assertConsoleFencesFollowCode(fences: Fence[], file: string): void {
+  let sawTs = false
+  for (const fence of fences) {
+    if (fence.lang === 'ts') {
+      sawTs = true
+      continue
+    }
+    if (fence.lang !== 'console') continue
+    if (!sawTs) {
+      throw new Error(
+        `${file}:${fence.line}: a console fence appears before any ts fence. ` +
+          'Expected output is compared in document order against the program ' +
+          'assembled from the ts fences, so output shown above the code that ' +
+          'produces it is not the guarantee it looks like.'
+      )
+    }
+  }
+}
+
 import { mkdtemp, writeFile, copyFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -187,15 +245,47 @@ interface ChildResult {
   timedOut: boolean
 }
 
+/**
+ * Well past any real document, because the failure mode when it is exceeded is
+ * bad: Node does not set `error.killed`, so the timeout branch never fires,
+ * and `error.code` is the STRING `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`, which
+ * the numeric check below folds into an ordinary exit 1 — producing a plain
+ * "exited 1" report with the whole truncated megabyte dumped into it and no
+ * mention of a buffer anywhere. Deferred item 39.
+ */
+const MAX_STDOUT_BYTES = 32 * 1024 * 1024
+
 function runChild(program: string, cwd: string, timeoutMs: number): Promise<ChildResult> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [program],
-      { cwd, env: { ...process.env, NO_COLOR: '1' }, timeout: timeoutMs },
+      {
+        cwd,
+        env: { ...process.env, NO_COLOR: '1' },
+        timeout: timeoutMs,
+        maxBuffer: MAX_STDOUT_BYTES
+      },
       (error, stdout, stderr) => {
         if (error !== null && error.killed === true) {
           resolve({ stdout, stderr, code: -1, timedOut: true })
+          return
+        }
+        // Named rather than folded into a generic exit 1, so the report says
+        // what actually happened instead of showing a truncated dump.
+        if (
+          error !== null &&
+          (error as NodeJS.ErrnoException).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+        ) {
+          resolve({
+            stdout,
+            stderr:
+              `${stderr}\nmockingham docs harness: the document printed more than ` +
+              `${MAX_STDOUT_BYTES} bytes to stdout and was truncated. A document ` +
+              'that prints this much is almost certainly looping.',
+            code: 1,
+            timedOut: false
+          })
           return
         }
         const code =
@@ -220,6 +310,8 @@ export async function runDocument(
   const fences = extractFences(markdown)
   assertKnownFences(fences, docPath)
   assertHasTsFence(fences, docPath)
+  assertInertFencesAreInert(fences, docPath)
+  assertConsoleFencesFollowCode(fences, docPath)
 
   for (const fence of fences) {
     if (fence.lang === 'ts') {

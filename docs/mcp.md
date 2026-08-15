@@ -18,14 +18,15 @@ page; a consumer of the published package only needs to install it if they
 actually call `mcp()`. Without it, `mcp()` itself still returns a handle —
 master §1 types it as synchronous, so a missing package cannot be reported
 from inside the call — but the first thing that touches the SDK,
-`connectStdio()` or the first HTTP request to the mount, throws:
+`connectStdio()` or the first HTTP request to the mount, throws an error naming
+the package and the `npm install @modelcontextprotocol/sdk` command that fixes
+it (`src/mcp/server.ts`).
 
-```txt
-mockingham: the MCP server needs @modelcontextprotocol/sdk, which is an
-optional peer dependency. Install it with:
-
-  npm install @modelcontextprotocol/sdk
-```
+The exact wording is deliberately not reproduced here as a fenced block. No
+runnable example on this page provokes it, so the harness has no way to diff it
+against what the code actually prints — and a block that looks like verified
+output while being hand-copied is the failure mode worth avoiding more than the
+convenience is worth having.
 
 ## stdio
 
@@ -45,7 +46,7 @@ preference.
 
 Add `--seed <s>` to pin generation, `--fixtures <dir>` to serve a fixture
 store the way the plain server does, and `--write` to open the write gate
-(§ below).
+(see "The write gate" below).
 
 ## http
 
@@ -126,17 +127,15 @@ Eight write tools, gated behind `--write` (see below):
 
 `describe_operation`, `sample_response`, and `get_auth_requirements` all
 identify an operation by `operationId`, or by `method` and `path` together.
-Worth knowing before you rely on it: when `operationId` is supplied, it wins
-outright — `method` and `path` are silently ignored rather than checked for
-agreement with it, so passing an `operationId` alongside a mismatched
-`method`/`path` pair does not raise anything (`src/mcp/tools/read.ts`,
-`findOperation`).
+**Every field you supply is checked**, so passing an `operationId` alongside a
+`method`/`path` pair that names a different operation raises rather than
+quietly answering about one of them. Supply one form or the other, or make them
+agree.
 
-`regenerate_fixture` does **not** share that behavior. It checks every field
-you supply and raises when they disagree, and it raises when the operation or
-status does not exist rather than reporting a summary of zeroes — an agent
-handed `{"generated": 0}` for a typo has been told it succeeded at doing
-nothing.
+`regenerate_fixture` behaves the same way, and additionally raises when the
+operation or status does not exist rather than reporting a summary of zeroes —
+an agent handed `{"generated": 0}` for a typo has been told it succeeded at
+doing nothing.
 
 **`regenerate_fixture` can write to disk.** With a disk-backed fixture store
 (`--fixtures <dir>`, or `createDiskFixtureStore`), storing a fixture writes it
@@ -190,7 +189,7 @@ and the flag is off by default.
 says so.** An agent that already knows a write tool's name still sees it in
 `tools/list`; hiding the name and naming the flag that would enable it
 cannot both happen, and the flag is the more useful half of that choice
-(design §3.7):
+(the MCP design delta §3.7):
 
 ```ts
 const listResponse = await demoMock.fetch(
@@ -232,7 +231,7 @@ mockingham: fail_next is a write tool and write tools are disabled. Enable them 
 **Third: `sample_response` *is* `mock.fetch()`, so it 401s on a
 credential-protected operation exactly like a real client would.** The
 no-drift guarantee master §17 originally framed as a test obligation is
-structural instead (design §3.3): the tool builds a `Request` and hands it to
+structural instead (the MCP design delta §3.3): the tool builds a `Request` and hands it to
 the same `fetch()` every other caller uses, rather than running a second
 generation path that could quietly disagree with the first. `getPayment`
 requires `bearerAuth`, and the call below supplies no credentials:
@@ -317,24 +316,19 @@ await demoMock.close()
 ```
 
 `paymentSucceeded`'s `emittedBy` names `POST /payments` because that is where
-the callback is declared and nothing here is configured to emit it, so
-`list_webhooks` falls back to the declaring operation (design §3.6). That
-fallback only applies when nothing is configured: if some *other* operation's
-`emits` config names a callback's webhook while its own declaring operation
-has none, `emittedBy` reports only the configured operation and quietly drops
-the declaring one — worth knowing if you configure `emits` yourself, though
-nothing in this document does, so it does not show up above.
+the callback is declared (the MCP design delta §3.6). **`emittedBy` is the union of the
+declaring operation and every configured emitter**, deduplicated, with the
+declaring operation first. Configuring some other operation's `emits` to fire a
+callback's webhook adds that operation to the list rather than replacing the
+one that declares it — which it did until the ledger-clearing cycle, quietly
+dropping the declaring operation the moment any config named the webhook.
 
-`payloadSchema` has a related sharp edge. Every other schema this server
-emits — in `describe_operation`, for instance — falls back to
-`{ "$comment": "not expressible as JSON Schema; this operation is generated
-only" }` when the converter can't turn a schema into JSON Schema (a recursive
-one, mainly). `list_webhooks`'s `payloadSchema` calls the converter directly
-rather than through that fallback, so a recursive webhook payload comes back
-as `payloadSchema: undefined` instead of the `$comment` placeholder
-(`src/mcp/tools/read.ts`). Neither webhook in `docs/example.json` is
-recursive, so it never appears above — it is worth knowing before you build
-tooling against a document that has one.
+`payloadSchema` routes through the same fallback every other schema on this
+server does: `{ "$comment": "not expressible as JSON Schema; this operation is
+generated only" }` when the converter cannot turn a schema into JSON Schema.
+In practice that placeholder is hard to provoke — **recursion is not such a
+case**, contrary to what an earlier revision of this guide said. A recursive
+payload is expressed with `$defs` and `$ref` and comes back in full.
 
 ## Every declared tool now ships
 

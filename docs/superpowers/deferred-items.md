@@ -1,17 +1,27 @@
-# Deferred items
+# Findings ledger
 
-Findings raised by code review during plans 2–5, deliberately deferred rather than
-fixed at the time, each with the ruling that deferred it and where it belongs.
+Findings raised by code review across plans 2–13, each with the ruling that
+resolved it. **Nothing here is open.** Every entry is either fixed or closed as
+a deliberate choice with the reasoning recorded — and the difference matters:
+several entries exist precisely because someone decided a change was not worth
+making, and "clearing" those by making it anyway would silently reverse a
+decision that was already settled.
 
 This file is tracked in git on purpose. The SDD ledgers that originally held these
 live under `.superpowers/` inside per-plan worktrees, which is gitignored scratch —
 one `git worktree remove` and the reasoning is gone. Anything here is meant to
 survive that.
 
-Status as of 2026-08-12: plan 5 (phases 7–9) is merged to `main`. Plan 6
-implements the phase 8 webhooks design (`2026-08-12-mockingham-webhooks-design.md`)
-on worktree branch `worktree-plan-6-webhooks`, not yet merged to `main`. 585
-tests passing, up from a 509-test baseline, typecheck clean.
+**Status as of 2026-08-15**, after the ledger-clearing cycle (plan 13): every
+numbered phase, every deferred feature, and every deferred finding is closed.
+1105 tests passing, typecheck clean. New findings belong here in the same shape
+— what was found, and the ruling that resolved it.
+
+**Read the closed entries before assuming a behavior is accidental.** Several
+record that the obvious fix was tried and rejected, or that the reported
+symptom turned out not to be the real one — items 8, 28, 29c and 33 each
+contain a correction to their own original text, found by reproducing the claim
+rather than trusting it.
 
 ---
 
@@ -117,11 +127,21 @@ tests passing, up from a 509-test baseline, typecheck clean.
     is consequently reachable only for a *wedged prior* request (a dead process,
     or a throw before the boundary catch releases the marker), not for a real
     race. A `Store` with no compare-and-set primitive cannot fix this properly.
-    **Status: documented deferral, plan 5.** `Store.setIfAbsent` is the eventual
-    fix — adding it mid-plan-5 was judged out of scope for a fix wave. Expected
-    to land in plan 6, but plan 6 turned out to be webhooks alone; it is now
-    unscheduled, to be picked up when someone next opens the `Store` interface.
-    See phases 7-9 design §6 (known limitation 6) and master spec §11.
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** `Store` gained a
+    **required** `setIfAbsent(key, value, ttlMs?): Promise<boolean>`, and the
+    claim attempts it FIRST rather than reading and then writing — no leading
+    `get` fast path, because two routes to one decision is how the fast one
+    drifts from the slow one. On a lost claim the existing mismatch /
+    in-flight / replay logic runs on the entry that won.
+
+    Verified by mutation: reverting to get-then-set fails the new concurrency
+    test with `runs: 2`, the exact figure this entry recorded from plan 5.
+
+    **Required rather than optional, and therefore a breaking change to a
+    published interface.** An optional CAS falling back to get-then-set would
+    reintroduce the very race while advertising atomicity the mock did not
+    have. At 0.1.0, alongside item 27 tightening packaging in the same cycle,
+    this was the cheapest moment it will ever be.
 
 16. **The response-always-returned guarantee has one remaining hole.**
     `handle()`'s first line (`const startedAt = now()`) and `internalError()`'s
@@ -130,7 +150,12 @@ tests passing, up from a 509-test baseline, typecheck clean.
     reject with no response. The stage-11 block itself was fully guarded
     during plan 5's fix wave; this is the narrow remainder. Pre-existing
     rather than introduced.
-    **Status: documented deferral, plan 5.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** The clock read is
+    guarded and falls back to `0` — a duration measured from zero is wrong, no
+    response at all is worse — and `String(error)` moved into a
+    `describeThrown` helper that catches a throwing `toString`. Each has its
+    own test and its own mutation. **`fetch()` has no remaining known way to
+    reject.**
 
 17. **A failed body capture still stores an idempotency record.** When
     `captureBody` fails and a key was claimed, the record is written with
@@ -138,7 +163,13 @@ tests passing, up from a 509-test baseline, typecheck clean.
     That is better than the pre-fix behavior of rejecting the request
     outright, but arguably storage should be skipped entirely when capture
     failed. Untested either way.
-    **Status: documented deferral, plan 5.**
+    **Status: DONE by user ruling, ledger-clearing cycle (2026-08-15).**
+    Storage is skipped: a capture failure now releases the key like any other
+    non-storable outcome, so a retry re-executes and can succeed. Pinning a
+    bodiless replay for the full TTL turned a transient failure into a
+    persistently wrong response the client could not recover from — a 200 with
+    nothing in it, for as long as the key lived. Tested, no longer "either
+    way".
 
 19. **`an injected 429 is not stored, so a retry re-runs` has an inert half.**
     The test (`test/server/idempotency.test.ts`) never increments its
@@ -146,7 +177,14 @@ tests passing, up from a 509-test baseline, typecheck clean.
     `respond` callback therefore never runs. The `idempotent-replay` header
     assertion is what gives the test teeth, and that was mutation-confirmed —
     but the name promises re-execution the assertions do not check.
-    **Status: documented deferral, plan 5.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** The injection is
+    gated on its OWN counter rather than on `attempts`, so the retry actually
+    reaches `respond`; the test now asserts the second request returns 201 and
+    that the operation executed exactly once, on the retry. The name is true.
+
+    Worth keeping as a shape: the guard was gated on the counter that only the
+    guarded code increments, so the condition could never change. A test whose
+    setup depends on the thing it is testing is a fixed point, not a test.
 
 22. **The synchronous `EmitCtx` construction at the single exit is not wrapped
     in a try/catch.** In `src/server/handler.ts`'s trigger-two block, building
@@ -184,7 +222,14 @@ tests passing, up from a 509-test baseline, typecheck clean.
     regression there — the real timer left running — would silently
     reintroduce "a CLI shutdown hangs for up to `afterMs`", the exact bug I3
     was raised to fix.
-    **Status: documented deferral, plan 6.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** A test patches
+    `setTimeout`/`clearTimeout`, captures the handle the emission arms, and
+    asserts `close()` clears **that exact handle** — not merely that some
+    `clearTimeout` happened, since the runner and the fetch path both use
+    timers and a count would pass on unrelated traffic. `reset()` gets the
+    same assertion (item 25). Both fail under precisely the mutation this
+    entry describes: deleting only the `clearTimeout` call while leaving
+    `entry.resolve()` in place.
 
 25. **`reset()` does not clear `pendingTimers`, while `close()` does.** Design
     §2.3 treats `close()` canceling pending timers and `reset()` clearing them
@@ -199,7 +244,13 @@ tests passing, up from a 509-test baseline, typecheck clean.
     delivers late or twice — and it predates this wave (the timer was never
     cancellable before I3's fix). It is only visible now that `close()` has a
     `clearTimeout` for `reset()` to be asymmetric with.
-    **Status: documented deferral, plan 6.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** Both paths call one
+    `clearPendingTimers()` helper, so `reset()` clears and resolves exactly
+    what `close()` does and `settled()` straight after a reset returns
+    promptly. `docs/webhooks.md` carried a "Known limitation" section for this
+    and documents the behavior instead now — the guide is executed, so its own
+    fence flipped from `waited out the afterMs anyway: true` to `false`, which
+    is how the fix announced itself.
 
 27. **The missing `exports` map.** The docs — README, all four guides —
     universally tell readers to `import { createMock } from 'mockingham'`.
@@ -211,8 +262,24 @@ tests passing, up from a 509-test baseline, typecheck clean.
     `exports` map added later is a breaking change for anyone who found a
     working deep import in the meantime. It is not a docs decision, and
     phase 12's boundary is no `src/` or `package.json` changes.
-    **Status: deferred, phase 12 docs cycle.** Belongs to whichever cycle next
-    opens packaging. See docs-design delta §5.4.
+    **Status: DONE by user ruling, ledger-clearing cycle (2026-08-15).**
+    Strict: `exports` carries `.` and `./package.json` and nothing else, so
+    paths inside `src/` no longer resolve through the package name. A `files`
+    field lands with it — there was none, so a publish shipped `test/`,
+    `docs/`, and every scratch file in the tree.
+
+    **Asserted through real resolution, not by reading package.json back to
+    itself.** Node permits a package to import itself by name only when it
+    declares `exports`, so a self-referencing test fails outright if the map is
+    removed, and a deep import is asserted to fail with
+    `ERR_PACKAGE_PATH_NOT_EXPORTED`. Nothing else in the suite could have
+    covered this: every other test reaches into `src/` by relative path, which
+    `exports` does not govern, and the docs harness rewrites the bare
+    specifier to a path before running a document.
+
+    **Still open, and NOT part of this item:** `package.json` declares
+    `"license": "MIT"` and there is no LICENSE file. Authoring one is the
+    owner's call, not a mechanical fix.
 
 28. **`pattern` is silently ignored by value generation, while request
     validation enforces it.** `pattern` appears nowhere in
@@ -290,9 +357,30 @@ tests passing, up from a 509-test baseline, typecheck clean.
     `docs/example.json` has no scenario that naturally exercises any of them
     without a contrived setup — so all three are documented in prose there,
     with source citations, rather than demonstrated running.
-    **Status: documented deferral, phase 12 docs cycle.** None is a regression
-    from plan 8; all three are pre-existing and merely went unrecorded until
-    now. Fix belongs to whoever next opens `src/mcp/tools/read.ts`.
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** None was a
+    regression from plan 8; all three were pre-existing and merely went
+    unrecorded until phase 12.
+
+    - **(a) fixed.** `findOperation` checks every supplied field and throws on
+      disagreement, which changes three shipped tools —
+      `describe_operation`, `sample_response`, `get_auth_requirements` — from
+      silently-ignore to raise. `bake`'s scope filter already behaved this way
+      (regenerate delta §4, which deliberately declined to reproduce the
+      residual); the two agree now.
+    - **(b) fixed.** `emittedBy` is the deduplicated union of the declaring
+      operation and the configured emitters, declaring operation first, rather
+      than a choice that dropped the declaring one the moment any config named
+      the webhook.
+    - **(c) fixed, and the entry was WRONG about why it mattered.** Routing
+      `payloadSchema` through `jsonSchemaOf` landed — the asymmetry was real —
+      but the stated trigger is false. "A recursive webhook payload comes back
+      as `payloadSchema: undefined`" does not happen: zod expresses recursion
+      through `$defs`/`$ref`, exactly as `src/schema/json-schema.ts`'s own
+      docstring says ("Recursion is NOT such a case"). Probing found nothing
+      this loader can build that the converter refuses, so the fix changes no
+      observable output and the test asserts what is true rather than a
+      placeholder that never appears. `docs/mcp.md` had repeated the same
+      false claim and is corrected.
 
 30. **`durationMs` is unobservable — not merely stable — under an injected
     fixed clock.** `src/server/handler.ts`: `startedAt = now()` (line 653) and
@@ -399,7 +487,12 @@ tests passing, up from a 509-test baseline, typecheck clean.
     determinism amendment the check exists to enforce — stable,
     cross-Node-version-printable output — can be sidestepped by writing to
     stdout through any path other than a literal `console.log(`.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** Every other route to
+    a compared stream is now rejected by name — `process.stdout.write`,
+    `process.stderr.write`, `console.error/warn/info/debug/dir/table/trace/group`
+    — with the occurrence skipped when it sits inside a string, so prose about
+    the API is not mistaken for a call. `test/docs/fixtures/stdout-bypass.md`
+    exists to fail this check.
 
 35. **Three quote-tracking loops in `test/docs/fence-checks.ts` disagree on
     backslash escapes.** `assertPrintableLogs` and `checkShellFence` both
@@ -412,7 +505,13 @@ tests passing, up from a 509-test baseline, typecheck clean.
     the paren-depth/comma-at-depth-1 check that would catch the second
     argument only runs outside a quote and so never fires, and the call is
     accepted despite passing two arguments.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** One `scanQuotes`
+    replaces all three loops, counting escapes properly and reporting, per
+    index, the enclosing quote, whether the character is a delimiter, and
+    whether a run was left open. The three consumers cannot disagree again —
+    the same reasoning invariant 1 applies to schema traversal.
+    `test/docs/fixtures/escaped-quote.md` is the doubled-backslash case, and
+    it fails the check.
 
 36. **Nothing enforces that a `console` fence follows the `ts` block that
     produces its output.** `assembleProgram` and `expectedOutput`
@@ -422,7 +521,10 @@ tests passing, up from a 509-test baseline, typecheck clean.
     to, or even after, the `ts` fence whose output it claims to show; a
     document that prints an expected block above unrelated prose, or above
     the code that produces it, passes exactly the same as one that doesn't.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** A `console` fence
+    appearing before any `ts` fence is rejected, so output cannot be shown
+    above the code that produces it.
+    `test/docs/fixtures/output-before-code.md` proves it fires.
 
 37. **A `txt` fence is inert, so fabricated program output placed in one is
     never checked.** `runDocument`'s per-language dispatch
@@ -435,7 +537,18 @@ tests passing, up from a 509-test baseline, typecheck clean.
     the CLI actually prints — verified by hand against `src/mcp/`'s lazy-load
     path — but the harness has no way to distinguish that from a document
     author simply typing whatever they want.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** `txt` stays inert by
+    design; what is rejected is a `txt` fence whose CONTENT is shaped like
+    program output — JSON, a stack frame, a status line, or the `mockingham:`
+    message prefix. The fence keeps working for file trees, which is what it
+    is for.
+
+    **The check immediately caught the case this entry named as legitimate.**
+    `docs/mcp.md`'s hand-verified CLI error message is now prose: no runnable
+    example on that page provokes it, so no fence could ever have diffed it,
+    and a block that looks verified while being hand-copied is exactly the
+    failure mode worth removing. `test/docs/fixtures/fabricated-txt.md` proves
+    the check fires.
 
 38. **`checkJsonFence` only inspects a `mcpServers` key.**
     `test/docs/fence-checks.ts`'s `checkJsonFence` reads
@@ -446,7 +559,12 @@ tests passing, up from a 509-test baseline, typecheck clean.
     ("an MCP client config's `args` array is additionally fed through the
     real `mockingham mcp` parser") as if it applied to any JSON fence holding
     a client config, unconditionally.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** The fence is walked
+    recursively for any `args` array of strings, wherever it sits and whatever
+    key holds it, and each one that names `mockingham` goes through the real
+    parser. Checking for the SHAPE rather than for one key is what makes the
+    spec's description true. `test/docs/fixtures/other-args-key.md` puts a bad
+    flag under a `servers` key and fails.
 
 39. **A child process writing more than 1 MB to stdout fails opaquely, though
     not via the timeout path.** `runDocument` (`test/docs/harness.ts`) calls
@@ -461,7 +579,12 @@ tests passing, up from a 509-test baseline, typecheck clean.
     message and no mention of `maxBuffer` anywhere — unhelpful, but a
     different failure shape than a `killed`-driven timeout misdiagnosis would
     be.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** `maxBuffer` is
+    raised to 32 MB — well past any real document — and
+    `ERR_CHILD_PROCESS_STDIO_MAXBUFFER` is recognized by name and reported as
+    itself, with a note that a document printing that much is almost certainly
+    looping, instead of folding into a generic exit 1 with a truncated
+    megabyte in the message.
 
 40. **The coverage sweep only walks `docs/` non-recursively, with
     `README.md` hardcoded.** `test/docs/docs.test.ts`'s coverage test calls
@@ -472,7 +595,16 @@ tests passing, up from a 509-test baseline, typecheck clean.
     subtest runs, never verified to exist by the coverage assertion itself. A
     future top-level reader-facing markdown file outside `docs/` (a
     `CONTRIBUTING.md`, say) would be silently uncovered either way.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** The sweep walks the
+    whole repo recursively, skipping `node_modules`/`.git`/`dist`, with
+    exemptions declared BY NAME and with a reason — `CLAUDE.md` (an operating
+    manual for agents, not for readers), `docs/superpowers` (specs, plans and
+    this ledger), and `test/docs/fixtures` (documents that exist to be
+    rejected). It also asserts every entry in the run list exists on disk,
+    which is what `README.md` being a bare literal had escaped.
+
+    The recursive walk found the harness's own fixture documents on its first
+    run, which is the mechanism working.
 
 41. **Citation style drifts across the guides.** Some name the source
     document — `docs/logging-datadog.md:38`: "phases 7-9 design §2.1";
@@ -483,44 +615,104 @@ tests passing, up from a 509-test baseline, typecheck clean.
     but the docs-design spec (§4) asks a guide that states a rule to cite
     "the invariant or spec section the rule comes from," and a bare `§4`
     does not say which of this repo's three specs that is.
-    **Status: documented deferral, phase 12 docs cycle.**
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** Every citation in
+    every guide names its document: `master §N`, `the MCP design delta §N`,
+    `the webhooks design delta §N`, `phases 7-9 design §N`. The one `(§ below)`
+    — which pointed within the same document rather than at a spec — names the
+    section instead.
 
 ---
 
 ## Polish
 
+All closed by the ledger-clearing cycle (2026-08-15). Four were fixed; the rest
+are closed as **deliberate**, which is a decision and not an omission — several
+of these entries exist precisely because someone weighed the change and
+declined it.
+
 8. `chaosSeed` is frozen at construction, so `setSeed` does not update it. Cosmetic
    only — chaos still varies because `requestKey` carries the seed.
+   **FIXED.** A `chaosSeed` that merely defaulted to the seed now follows
+   `setSeed` and `reset`; an explicitly configured one is left alone, since
+   decoupling it is a deliberate choice.
+
+   **The obvious test for this cannot fail, and passed against the unfixed
+   code when tried.** Reseeding changes the chaos roll either way, because
+   `requestKey` carries the seed — which is this entry's own reason for calling
+   it cosmetic. What discriminates is comparing a reseeded handler against one
+   BUILT with the new seed: both then share request keys, so only the chaos
+   seed can differ. Mutation-verified in that form.
 10. Latency is skipped on an injected failure. The literal spec order permits it,
     but a slow outage is the more realistic behavior. Worth one line in §7.2 either
     way.
+    **CLOSED, behavior unchanged, documented.** Master §7 now states it
+    outright: latency is last in the evaluation order and an injected failure
+    short-circuits before reaching it, so `failNext`, an outage, an open
+    circuit and a lost rate roll all return immediately. A slow outage is
+    arguably more realistic; changing the order would alter the timing of every
+    existing failure test to no one's benefit. The entry asked for one line
+    "either way" and got it.
 11. `classify`'s `union.mode` is consumed by the compiler now, but
     `additionalProperties: <Schema>` and `oneOf` exactly-one arrived in plan 4 —
     check nothing else reads `mode` expecting the old looseness.
+    **CLOSED, audited, nothing to change.** Three consumers of
+    `kind === 'union'` exist, and only one reads `mode`:
+    - `src/schema/compile.ts` reads it, branching on `'one'`. The intended
+      consumer.
+    - `src/generate/generate.ts` picks one variant with the seeded rng and does
+      not read `mode` — correct, since generating a single variant satisfies
+      `oneOf` (exactly one) and `anyOf` (at least one) alike.
+    - `src/fixtures/source.ts` walks every variant for recursion detection and
+      does not read `mode` — correct, since whether a schema recurses does not
+      depend on union semantics.
 12. `OperationConfig`'s numeric index signature could collide with its reserved
     `status`/`respond` keys. Pre-existing since plan 2; numeric status keys cannot
     actually collide with those names.
+    **CLOSED, cannot occur.** The entry states its own answer: a numeric key
+    and the identifiers `status`/`respond` are disjoint. A note, not work.
 13. `toSecuritySchemes` uses `as` casts with no runtime validation, so a malformed
     `type` silently yields an invalid scheme. Matches the existing loader style.
+    **FIXED, and it was more than a style note.** An unrecognized `type` fell
+    through to the bearer branch, so a document declaring `mutualTLS` — valid
+    OpenAPI 3.1, credential carried in a TLS handshake a mock never sees — got
+    a 401 on every request with no way to satisfy it. A typo'd type behaved the
+    same way. An unrecognized type is now *unenforceable* rather than assumed
+    bearer, and an enforceable member of the same requirement must still be
+    met. The loader keeps its lenient casting; the fix is in `auth.ts`, where
+    the consequence was.
 14. `split()` is duplicated between `src/resolve/target.ts` and
     `src/spec/routes.ts`. Identical one-liners; extracting couples two modules for
     little gain.
+    **CLOSED, deliberate.** The reasoning holds; reversing it now would be
+    change for its own sake.
 18. A failed body parse consumes a request ordinal. Parse failures now draw from
     `requestOrdinals` under the matched key, so a failed parse shifts the
     `requestId` of the next successful request sharing that identity. Harmless —
     `requestId` never feeds the PRNG — but it is an unremarked behavior change
     from plan 5.
+    **CLOSED, intended.** Recorded here so it is remarked rather than
+    accidental. `requestId` is a diagnostic handle, not an input to generation,
+    so a shifted ordinal changes nothing a caller can observe in a response.
 20. The log block's own `try`/`catch` in `src/server/handler.ts` is untested.
     Nothing inside it can realistically throw now that `emitLog` self-isolates,
     so this is defense in depth rather than a gap.
+    **FIXED, and the premise was wrong.** `emitLog` does self-isolate — but the
+    block also reads the clock for `durationMs` inside the same `try`, so a
+    clock that throws on its second read proves the guard while leaving the
+    caller's 200 intact. An untested guard is indistinguishable from an absent
+    one.
 21. `templateFor` duplicates `allowedMethods`' loop body in the router.
     Extracting the shared walk would couple two small functions for little gain.
+    **CLOSED, deliberate.** Same reasoning as 14.
 23. In `test/server/webhooks-loopback.test.ts`'s `finally` blocks, both tests
     run `await mock.close()` before `await hook.close()`. If `mock.close()`
     threw, `hook.close()` would be skipped, leaking the throwaway `node:http`
     receiver's listening socket. `mock.close()` has no plausible throwing
     surface, so this is cosmetic; it mirrors the accepted single-resource
     convention already in `test/server/node.test.ts`.
+    **FIXED.** Nested `try`/`finally`, so a throwing `mock.close()` cannot skip
+    `hook.close()`. Cheap, and the failure mode it prevents is a hung test run,
+    which is the worst way to learn about a leaked socket.
 26. Every `afterMs > 0` emission (I3's fix, plan 6) races its wait against the
     module-scoped `closedSignal` promise via `Promise.race`, which attaches a
     reaction that is only released when `close()` resolves `closedSignal`. On
@@ -532,6 +724,13 @@ tests passing, up from a 509-test baseline, typecheck clean.
     leak in the classic sense — worth a line if `closedSignal` ever gains a
     reason to reset itself (for instance, if `reset()` is taught to be
     symmetric with `close()`, per item 25).
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** Narrowed rather than
+    removed: the race exists for an INJECTED `sleep`, which has no timer handle
+    for `close()`/`reset()` to clear. The default sleep's wait is already
+    released by `clearPendingTimers()`, so racing `closedSignal` there was pure
+    waste — and the injected sleep is a test-time configuration on a
+    short-lived mock, which is not the long-lived-server scenario this entry is
+    about. The accumulation no longer happens on the path that had it.
 32. `src/mcp/server.ts:6-9`'s `McpOptions.transport` JSDoc says `'stdio'`
     "connects immediately." It does not: `createMcpServer` (`src/mcp/server.ts`)
     only branches on `options.transport === 'http'` when building `path`;
@@ -545,8 +744,11 @@ tests passing, up from a 509-test baseline, typecheck clean.
     from this JSDoc, that had leaked into `docs/mcp.md:76`. The guide was
     corrected at the source; this comment is source under `src/`, which is out
     of scope for the docs cycle's no-code-change boundary.
-    **Status: documented deferral, phase 12 docs cycle.** Fix belongs to
-    whichever cycle next opens `src/mcp/server.ts`.
+    **Status: DONE, ledger-clearing cycle (2026-08-15).** The JSDoc says what
+    actually happens: `'stdio'` attaches nothing, and a handle talks JSON-RPC
+    only once the caller awaits `connectStdio()`. Worth noting the shape — a
+    false comment in source propagated into a guide, the guide was corrected,
+    and the source that caused it was left standing for two more cycles.
 
 ---
 

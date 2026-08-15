@@ -75,6 +75,49 @@ test('describe_operation addresses an operation by method and path too', async (
   assert.equal(result.operationId, 'getOrder')
 })
 
+test('a mismatched operationId and method/path pair is refused', async () => {
+  // Deferred item 29a: the operationId branch used to return on its own match
+  // without checking a co-supplied method/path, so a caller who named two
+  // different operations was silently answered about one of them.
+  await assert.rejects(
+    async () =>
+      toolNamed('describe_operation').handler(contextFor(), {
+        operationId: 'createOrder',
+        method: 'get',
+        path: '/orders/{orderId}'
+      }),
+    /disagree/
+  )
+})
+
+test('an operationId with an agreeing method and path still resolves', async () => {
+  // The check must reject disagreement, not the mere presence of extra fields.
+  const result = (await toolNamed('describe_operation').handler(contextFor(), {
+    operationId: 'createOrder',
+    method: 'post',
+    path: '/orders'
+  })) as { operationId?: string }
+
+  assert.equal(result.operationId, 'createOrder')
+})
+
+test('the agreement check reaches sample_response and get_auth_requirements too', async () => {
+  // All three resolve through the same helper; a fix in one that missed the
+  // others would be the asymmetry the ledger complains about elsewhere.
+  for (const name of ['sample_response', 'get_auth_requirements']) {
+    await assert.rejects(
+      async () =>
+        toolNamed(name).handler(contextFor(), {
+          operationId: 'createOrder',
+          method: 'get',
+          path: '/orders/{orderId}'
+        }),
+      /disagree/,
+      `${name} must refuse a mismatched pair`
+    )
+  }
+})
+
 test('describe_operation reports an unknown operation as an error', async () => {
   await assert.rejects(
     async () => toolNamed('describe_operation').handler(contextFor(), { operationId: 'nope' }),

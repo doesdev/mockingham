@@ -187,7 +187,13 @@ export function createHandler(
   })
   const idempotency = resolveIdempotency(options.idempotency)
   const policies = compilePolicies(options.failure, api.operations)
-  const chaosSeed = options.chaosSeed ?? seed
+  // Follows `seed` when no explicit `chaosSeed` was configured, so `setSeed`
+  // reaches it. It was captured once at construction, which meant "the seed
+  // control does not control this seed" — chaos still varied, because
+  // `requestKey` carries the seed, but a reader who set a chaos seed and
+  // watched it not take effect had no way to tell that from a bug.
+  // Deferred item 8.
+  let chaosSeed = options.chaosSeed ?? seed
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   const chaosCounts = new Map<string, number>()
   // Its OWN counter. Sharing the chaos counter would shift every chaos roll the
@@ -284,6 +290,20 @@ export function createHandler(
   // `afterMs` even though `close()` had already "returned" the wait.
   const pendingTimers = new Set<{ handle: ReturnType<typeof setTimeout>; resolve: () => void }>()
 
+  /**
+   * Clears every real timer and releases its waiter. Clearing without
+   * resolving would leave each timer's own promise pending forever; resolving
+   * without clearing leaves the event loop open until it fires naturally.
+   * Both halves are needed, and both `close()` and `reset()` need them.
+   */
+  function clearPendingTimers(): void {
+    for (const entry of pendingTimers) {
+      clearTimeout(entry.handle)
+      entry.resolve()
+    }
+    pendingTimers.clear()
+  }
+
   function defaultEmitSleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
       const entry: { handle: ReturnType<typeof setTimeout>; resolve: () => void } = {
@@ -300,7 +320,8 @@ export function createHandler(
   // Only the emission path's `afterMs` wait uses this. The shared `sleep`
   // above is also used by the failure stage's injected delay and by delivery
   // retry backoff, neither of which this fix touches.
-  const emitSleep = options.sleep ?? defaultEmitSleep
+  const injectedSleep = options.sleep
+  const emitSleep = injectedSleep ?? defaultEmitSleep
 
   async function settled(): Promise<void> {
     while (pending.size > 0) await Promise.all([...pending])
@@ -643,6 +664,22 @@ export function createHandler(
   }
 
   /**
+   * A message for anything that was thrown, including things that resist
+   * being described. `String(error)` invokes a user-supplied `toString`, and a
+   * throwable whose `toString` itself throws would escape the boundary 500 and
+   * make `fetch()` reject with no response at all — the last hole in the
+   * response-always-returned guarantee (deferred item 16).
+   */
+  function describeThrown(error: unknown): string {
+    if (error instanceof Error) return error.message
+    try {
+      return String(error)
+    } catch {
+      return 'an unstringifiable value was thrown'
+    }
+  }
+
+  /**
    * The boundary 500. Every user callback — resolvers, override functions,
    * header overrides, response callbacks — runs somewhere inside `produce`, and
    * invariant 4 says the mock keeps serving whatever they do. One catch rather
@@ -650,7 +687,7 @@ export function createHandler(
    * client as if it were real.
    */
   function internalError(error: unknown): Response {
-    const message = error instanceof Error ? error.message : String(error)
+    const message = describeThrown(error)
     const headers = new Headers()
     if (options.debugHeaders) {
       // Header values cannot carry line breaks, and a thrown message might.
@@ -704,7 +741,17 @@ export function createHandler(
    * out. See the phases 7-9 design §1.
    */
   async function handle(request: Request): Promise<Response> {
-    const startedAt = now()
+    // Guarded because it is the FIRST line of the single exit and sits outside
+    // every other catch: an injected clock that throws would reject `fetch()`
+    // with no response, which is the one guarantee this function exists to
+    // keep (deferred item 16). A duration measured from 0 is wrong; no
+    // response at all is worse.
+    let startedAt = 0
+    try {
+      startedAt = now()
+    } catch (error) {
+      reportError(options.onError, error, undefined)
+    }
     const trace: Trace = { params: {}, requestKey: seed, bytesIn: 0 }
 
     let response: Response
@@ -737,10 +784,12 @@ export function createHandler(
     // needs it: an idempotency record to store, a `bytesOut` to report, a
     // callback expression that may point at it, or an emit's `ctx.result.body`.
     let captured: string | null = null
+    let captureFailed = false
     if (needsBody) {
       try {
         captured = await captureBody(response)
       } catch (error) {
+        captureFailed = true
         reportError(options.onError, error, trace.ctx)
       }
     }
@@ -759,7 +808,12 @@ export function createHandler(
         if (
           trace.error !== undefined ||
           response.status >= 500 ||
-          trace.ctx?.decisions.failure === 'injected'
+          trace.ctx?.decisions.failure === 'injected' ||
+          // A capture that failed would be stored as `body: null`, pinning a
+          // bodiless replay for the whole TTL — a transient failure turned
+          // into a persistently wrong response the client cannot recover from
+          // until expiry. Storing nothing lets a retry re-execute and succeed.
+          captureFailed
         ) {
           await store.delete(claimed.key)
         } else {
@@ -895,10 +949,20 @@ export function createHandler(
               try {
                 const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
                 if (delay !== undefined && delay > 0) {
-                  // Raced rather than plainly awaited: whichever `sleep` is in
-                  // play, `close()` resolving `closedSignal` unblocks this
-                  // promptly instead of waiting out the real delay.
-                  await Promise.race([emitSleep(delay), closedSignal])
+                  // The race is only needed for an INJECTED sleep, which has
+                  // no timer handle for `close()`/`reset()` to clear — for the
+                  // default sleep, clearPendingTimers() already resolves this
+                  // wait directly.
+                  //
+                  // Narrowed because `Promise.race` attaches a reaction to
+                  // `closedSignal` that is released only when close() resolves
+                  // it, so on a long-lived listen() server that is never
+                  // closed, one accumulates per delayed emission. Bounded by
+                  // traffic and tiny, but pure waste on the common path.
+                  // Deferred item 26.
+                  await (injectedSleep === undefined
+                    ? emitSleep(delay)
+                    : Promise.race([emitSleep(delay), closedSignal]))
                 }
                 // A reset or a close while this was waiting invalidates it.
                 if (closed || at !== generation) return
@@ -922,13 +986,25 @@ export function createHandler(
     store,
     setSeed(next) {
       seed = next
+      // An explicitly configured chaosSeed is a deliberate decoupling and is
+      // left alone; one that merely defaulted to the seed keeps following it.
+      if (options.chaosSeed === undefined) chaosSeed = next
     },
     async reset() {
       seed = options.seed ?? 'mockingham'
+      if (options.chaosSeed === undefined) chaosSeed = seed
       counters.reset()
       chaosCounts.clear()
       requestOrdinals.clear()
       generation += 1
+      // Symmetric with close(). Bumping `generation` alone already drops the
+      // emission — the `at !== generation` check inside the delayed IIFE
+      // catches it — but the underlying setTimeout kept running and held the
+      // event loop open, so settled() straight after reset() blocked for the
+      // full afterMs (3005ms measured for 3000). Design §2.3 treats close()
+      // canceling and reset() clearing as one sentence; this makes them one
+      // behavior. Deferred item 25.
+      clearPendingTimers()
       deliveryLog.clear()
       await store.clear()
     },
@@ -956,15 +1032,7 @@ export function createHandler(
     async close() {
       closed = true
       resolveClosedSignal()
-      // Clearing without resolving would leave each timer's own promise
-      // pending forever; resolving it is what lets the event loop close
-      // rather than merely letting `close()`'s own await resolve via the
-      // race above.
-      for (const entry of pendingTimers) {
-        clearTimeout(entry.handle)
-        entry.resolve()
-      }
-      pendingTimers.clear()
+      clearPendingTimers()
       await settled()
     }
   }

@@ -4,13 +4,20 @@ import { WRITE_TOOLS } from './tools/write.ts'
 
 export interface McpOptions {
   /**
-   * `http` mounts on the mock's own port; `stdio` connects immediately;
-   * `inline` attaches nothing, which is what a test wants. Default `inline`.
+   * `http` mounts on the mock's own port. `inline` attaches nothing, which is
+   * what a test wants. Default `inline`.
+   *
+   * `stdio` attaches nothing either — despite what this comment said until
+   * deferred item 32 was closed, it does NOT connect immediately. Nothing here
+   * or in `mcp()` branches on `'stdio'` at all; a handle only starts talking
+   * JSON-RPC once the caller awaits `handle.connectStdio()`, which is what the
+   * `mockingham mcp` subcommand does on their behalf. The same false claim,
+   * inherited from this comment, had already reached `docs/mcp.md` once.
    */
   transport?: 'http' | 'stdio' | 'inline'
   /** http only. Default `/mcp`. */
   path?: string
-  /** Expose the seven write tools. Default false — design §3.7. */
+  /** Expose the eight write tools. Default false — design §3.7. */
   write?: boolean
 }
 

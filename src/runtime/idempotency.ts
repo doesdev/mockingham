@@ -169,18 +169,32 @@ export function createIdempotencyStage(input: IdempotencyStageInput): Stage {
       scope: input.config.scope
     })
 
-    const entry = (await input.store.get(key)) as IdempotencyEntry | undefined
+    // The claim is attempted FIRST, not after a lookup. A `get` followed by a
+    // `set` leaves a window in which two concurrent identical requests both
+    // read `undefined`, both claim, and both execute — measured as `runs: 2`
+    // in plan 5, which is what made MOCK_IDEMPOTENCY_IN_FLIGHT reachable only
+    // for a wedged prior request rather than for a real race.
+    //
+    // Deliberately no leading `get` fast path: two routes to the same
+    // decision is how the fast one drifts from the slow one.
+    const claimed = await input.store.setIfAbsent(
+      key,
+      { state: 'in-flight', fingerprint: bodyHash },
+      input.config.inFlightTtlMs
+    )
 
-    if (entry === undefined) {
+    if (claimed) {
       ctx.decisions.idempotency = 'first'
-      await input.store.set(
-        key,
-        { state: 'in-flight', fingerprint: bodyHash },
-        input.config.inFlightTtlMs
-      )
       input.claim(key, bodyHash)
       return undefined
     }
+
+    // Lost the claim, so an entry exists — read it and decide on its merits.
+    // It can still be absent here if it expired in the interval, in which case
+    // there is nothing to conflict with and this request proceeds unclaimed
+    // rather than inventing a decision.
+    const entry = (await input.store.get(key)) as IdempotencyEntry | undefined
+    if (entry === undefined) return undefined
 
     // Mismatch before in-flight: a different body is a conflict on its merits,
     // whether or not the first request has finished.

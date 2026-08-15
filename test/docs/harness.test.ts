@@ -309,3 +309,50 @@ test('a mismatch error includes a stderr section, marked empty when there is non
     /--- stderr ---\n\(empty\)/
   )
 })
+
+// ── Each of these documents SHOULD fail. A check with no document proving it
+// fires is the same defect the ledger entries it closes were about.
+
+test('a document writing to stdout outside console.log is rejected', async () => {
+  // Deferred item 34. This document produces correct, stable output — the
+  // objection is the route, which the old substring scan could not see.
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/stdout-bypass.md', import.meta.url).pathname),
+    /process\.stdout\.write writes to a stream/
+  )
+})
+
+test('a two-argument console.log behind a doubled backslash is rejected', async () => {
+  // Deferred item 35. The old lookback read the escaped backslash as escaping
+  // the quote, never left the string, and accepted the second argument.
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/escaped-quote.md', import.meta.url).pathname),
+    /single argument/
+  )
+})
+
+test('a console fence above the code that produces it is rejected', async () => {
+  // Deferred item 36.
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/output-before-code.md', import.meta.url).pathname),
+    /console fence appears before any ts fence/
+  )
+})
+
+test('program-shaped output in an inert txt fence is rejected', async () => {
+  // Deferred item 37. The fence stays inert for file trees; what is rejected
+  // is content shaped like output nobody checks.
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/fabricated-txt.md', import.meta.url).pathname),
+    /looks like program output/
+  )
+})
+
+test('an args array under a key other than mcpServers is still parsed', async () => {
+  // Deferred item 38. `--nope` is not a flag the CLI accepts, and the old
+  // check returned before ever looking because the top-level key differed.
+  await assert.rejects(
+    assertDocument(new URL('./fixtures/other-args-key.md', import.meta.url).pathname),
+    /unknown option --nope/
+  )
+})

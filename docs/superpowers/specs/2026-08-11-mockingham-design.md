@@ -432,8 +432,22 @@ mock.reset()
 
 Evaluation order within stage 6: `decide()` → one-shot (`failNext`) → outage →
 circuit state → rate → latency. Latency applies even when the request succeeds.
+
+**It does NOT apply to a request an earlier step already failed.** Latency is
+last in the order, and an injected failure short-circuits before reaching it,
+so a `failNext`, an outage, an open circuit, or a lost rate roll all return
+immediately rather than being made slow first. A slow outage is arguably the
+more realistic simulation, and this order is nonetheless what ships: changing
+it would alter the timing of every existing failure test to no one's benefit.
+Configure latency and inject a failure separately if you want both.
+*(Recorded 2026-08-15, ledger item 10, which asked for exactly this sentence.)*
+
 Rate rolls are drawn from the seeded PRNG so a run is reproducible; pass
-`chaosSeed` to vary chaos independently of content.
+`chaosSeed` to vary chaos independently of content. **A `chaosSeed` that was
+not configured explicitly follows `setSeed`**; one that was is left alone.
+Note that `requestKey` also carries the seed, so reseeding changes the chaos
+roll either way — `chaosSeed` decouples chaos from *content*, not from the
+seed entirely.
 
 All failure state lives in the `Store`, so it works across a multi-instance mock.
 
