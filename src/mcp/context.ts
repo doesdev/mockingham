@@ -4,6 +4,8 @@ import type { Delivery } from '../webhooks/deliver.ts'
 import type { EmitOptions } from '../server/handler.ts'
 import type { CompiledConfig } from '../runtime/config.ts'
 import type { RuntimeOverride } from '../runtime/overrides.ts'
+import type { BakeScope, BakeSummary } from '../fixtures/bake.ts'
+import type { FixtureRecord } from '../fixtures/store.ts'
 
 export interface McpFailNextOptions {
   times?: number
@@ -32,6 +34,10 @@ export interface McpContext {
   reset(): Promise<void>
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
   deliveries(): Delivery[]
+  /** A scoped re-bake. Throws when no llm source is configured. */
+  bake(options?: { only?: BakeScope }): Promise<BakeSummary>
+  /** Everything in the fixture store, already sorted by `records()`. */
+  fixtures(): FixtureRecord[]
   /** Webhook name → the operation targets configured to emit it. See design §3.6. */
   emitters: Map<string, string[]>
   /**
@@ -43,7 +49,7 @@ export interface McpContext {
 }
 
 /**
- * The ten members of `McpContext` a `Mock` supplies directly. Typed
+ * The twelve members of `McpContext` a `Mock` supplies directly. Typed
  * structurally rather than as `Mock` on purpose: `../index.ts` imports this
  * module, so naming its type here would close a cycle. It is also the whole
  * point of the narrowing — this is every part of a `Mock` a tool may reach.
@@ -59,6 +65,8 @@ export interface McpContextSource {
   reset(): Promise<void>
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
   deliveries(): Delivery[]
+  bake(options?: { only?: BakeScope }): Promise<BakeSummary>
+  fixtures(): FixtureRecord[]
 }
 
 /**
@@ -83,6 +91,8 @@ export function createMcpContext(
     reset: () => source.reset(),
     emit: (name, opts) => source.emit(name, opts),
     deliveries: () => source.deliveries(),
+    bake: (options) => source.bake(options),
+    fixtures: () => source.fixtures(),
     emitters: computeEmitters(source.api.operations, configs),
     origin
   }

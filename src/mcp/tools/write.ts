@@ -128,6 +128,36 @@ const clearOverrides: McpTool = {
   }
 }
 
+const regenerateFixture: McpTool = {
+  name: 'regenerate_fixture',
+  description:
+    'Re-run the configured content source for one operation, replacing its ' +
+    'stored fixtures. Use it after the document changes under a fixture — ' +
+    'call list_fixtures to see which are stale. Identify the operation by ' +
+    'operationId, or by method and path; add status to regenerate just one. ' +
+    'Requires an llm source. Returns the bake summary, not a bare ok: an ' +
+    'operation with no JSON body is reported as skipped rather than failed.',
+  inputSchema: {
+    operationId: z.string().optional(),
+    method: z.string().optional(),
+    path: z.string().optional().describe('Templated form, e.g. /orders/{orderId}'),
+    status: z.number().int().optional().describe('Omit for every declared status')
+  },
+  async handler(ctx: McpContext, args: Record<string, unknown>) {
+    // Passed straight through. There is deliberately no budget argument: a
+    // tool that can raise its own spending limit can spend without asking,
+    // so the mock's configured llm.budget is the only one that applies.
+    return ctx.bake({
+      only: {
+        operationId: args.operationId as string | undefined,
+        method: args.method as string | undefined,
+        path: args.path as string | undefined,
+        status: args.status as number | undefined
+      }
+    })
+  }
+}
+
 export const WRITE_TOOLS: McpTool[] = [
   failNext,
   outage,
@@ -135,5 +165,6 @@ export const WRITE_TOOLS: McpTool[] = [
   setSeed,
   reset,
   setOverride,
-  clearOverrides
+  clearOverrides,
+  regenerateFixture
 ]
