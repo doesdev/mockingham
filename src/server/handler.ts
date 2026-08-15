@@ -737,10 +737,12 @@ export function createHandler(
     // needs it: an idempotency record to store, a `bytesOut` to report, a
     // callback expression that may point at it, or an emit's `ctx.result.body`.
     let captured: string | null = null
+    let captureFailed = false
     if (needsBody) {
       try {
         captured = await captureBody(response)
       } catch (error) {
+        captureFailed = true
         reportError(options.onError, error, trace.ctx)
       }
     }
@@ -759,7 +761,12 @@ export function createHandler(
         if (
           trace.error !== undefined ||
           response.status >= 500 ||
-          trace.ctx?.decisions.failure === 'injected'
+          trace.ctx?.decisions.failure === 'injected' ||
+          // A capture that failed would be stored as `body: null`, pinning a
+          // bodiless replay for the whole TTL — a transient failure turned
+          // into a persistently wrong response the client cannot recover from
+          // until expiry. Storing nothing lets a retry re-execute and succeed.
+          captureFailed
         ) {
           await store.delete(claimed.key)
         } else {
