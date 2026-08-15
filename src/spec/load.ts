@@ -7,7 +7,11 @@ import type {
   SecurityScheme, SecurityRequirement
 } from './types.ts'
 
-function toResponseSpec(status: number, value: unknown): ResponseSpec {
+function toResponseSpec(
+  status: number,
+  value: unknown,
+  range?: boolean
+): ResponseSpec {
   const record = asRecord(value)
   const headers: Record<string, Schema> = {}
   for (const [name, header] of Object.entries(asRecord(record['headers']))) {
@@ -15,11 +19,16 @@ function toResponseSpec(status: number, value: unknown): ResponseSpec {
   }
   return {
     status,
+    ...(range === true ? { range: true } : {}),
     description: record['description'] as string | undefined,
     headers,
     content: toContent(record['content'])
   }
 }
+
+/** OpenAPI 3.x range keys — `1XX` through `5XX`. */
+const RANGE_KEY = /^([1-5])XX$/i
+const EXACT_KEY = /^[1-5][0-9]{2}$/
 
 function toResponses(
   raw: unknown
@@ -31,11 +40,34 @@ function toResponses(
       defaultResponse = toResponseSpec(0, value)
       continue
     }
-    const status = Number.parseInt(code, 10)
-    if (Number.isNaN(status)) continue
-    responses.push(toResponseSpec(status, value))
+    // `Number.parseInt` is a converter here, never a parser. Used as one it
+    // read '4XX' as 4 and '200abc' as 200, so a declared error contract loaded
+    // under a status no request can produce and the built-in envelope served
+    // in its place. The key is tested first, converted second.
+    const ranged = RANGE_KEY.exec(code)
+    if (ranged) {
+      responses.push(
+        toResponseSpec(Number.parseInt(ranged[1] as string, 10) * 100, value, true)
+      )
+      continue
+    }
+    if (!EXACT_KEY.test(code)) continue
+    responses.push(toResponseSpec(Number.parseInt(code, 10), value))
   }
-  responses.sort((a, b) => a.status - b.status)
+  // By status, then an exact status before a range sharing its bound.
+  //
+  // The tiebreak is defense in depth, not load-bearing, and deliberately kept
+  // after being shown unobservable: an exact key like '400' is integer-like and
+  // JS iterates it before a string key like '4XX' whatever the document's own
+  // order, so `Object.entries` already hands them over exact-first and a stable
+  // sort preserves that. Nothing downstream depends on this order either —
+  // `responseForStatus` selects exact over range explicitly rather than by
+  // position. It stays because a total sort should not rely on two unrelated
+  // language guarantees holding forever.
+  responses.sort(
+    (a, b) =>
+      a.status - b.status || Number(a.range ?? false) - Number(b.range ?? false)
+  )
   return { responses, defaultResponse }
 }
 

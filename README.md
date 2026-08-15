@@ -79,13 +79,13 @@ status 200
     {
       "id": "eb87bbc4-c43a-43f2-9353-a4a78e19bae3",
       "amount": 15.23,
-      "currency": "ember",
+      "currency": "UMQ",
       "status": "failed",
-      "description": "larch",
-      "createdAt": "2024-08-18T07:02:43.000Z"
+      "description": "pine-cedar",
+      "createdAt": "2024-01-07T13:07:53.197Z"
     }
   ],
-  "nextCursor": "umber"
+  "nextCursor": "basalt"
 }
 ```
 
@@ -280,14 +280,21 @@ parsed.
 
 ## Known limitations
 
-- **`pattern` is not honored by generation.** A field declared
-  `"pattern": "^[A-Z]{3}$"` is validated against that pattern on the way in,
-  but nothing constrains what gets generated on the way out — the
-  quickstart's `"currency": "ember"` above is that exact gap, not a
-  cherry-picked example. Pin the field with an override, a fixture, or a
-  declared OpenAPI example if a caller needs to see a value that actually
-  matches. No startup warning fires for a pattern outside what generation
-  can produce, because generation makes no attempt at `pattern` at all.
+- **`pattern` is honored for a documented subset only.** Generation covers
+  literals, character classes, shorthand escapes (`\d`, `\w`, `\s` and their
+  negations), anchors, alternation, groups, and quantifiers — the quickstart's
+  `"currency": "UMQ"` above is generated from `"pattern": "^[A-Z]{3}$"`.
+  Unbounded `*` and `+` are capped at three repeats. Lookaround,
+  backreferences, named groups and unicode property escapes are not
+  expressible: a field declaring one falls back to `example`, then `default`,
+  then an ordinary placeholder, and a warning naming the pattern is emitted
+  once the first time such a value is generated. Requests are still validated
+  against the full pattern either way, so pin the field with an override or a
+  fixture when a caller needs a conforming value the subset cannot produce.
+- **A `pattern` wins over a conflicting `minLength`/`maxLength`.** Padding a
+  value to reach a minimum, or slicing it to fit a maximum, would break the
+  match, so length bounds are honored only through the pattern's own
+  quantifiers.
 - **Recursive schemas terminate at a configurable `maxDepth`** rather than
   generating forever, and are excluded from LLM-backed fixture generation
   entirely — structured-output APIs can't express a recursive JSON Schema.

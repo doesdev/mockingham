@@ -107,3 +107,61 @@ test('number rounding never escapes the declared bounds', () => {
 test('booleans are booleans', () => {
   assert.equal(typeof generateBoolean(createRng('b')), 'boolean')
 })
+
+test('a patterned string generates a value matching its pattern', () => {
+  const rng = createRng('patterned')
+  for (let i = 0; i < 50; i++) {
+    const value = generateString({ type: 'string', pattern: '^[A-Z]{3}$' }, rng)
+    assert.match(value, /^[A-Z]{3}$/)
+  }
+})
+
+test('pattern wins over format', () => {
+  // compile.ts enforces the declared pattern on incoming requests, so an
+  // `email`-shaped value that fails the pattern is exactly the asymmetry this
+  // closes: a body the mock emits but would reject.
+  const value = generateString(
+    { type: 'string', format: 'email', pattern: '^[A-Z]{3}$' },
+    createRng('pf')
+  )
+  assert.match(value, /^[A-Z]{3}$/)
+})
+
+test('fitLength does not run on a pattern-generated value', () => {
+  // minLength 20 would append `-${word}` and break the match; maxLength 2
+  // would slice it. Neither may touch a pattern-generated value.
+  const long = generateString(
+    { type: 'string', pattern: '^[A-Z]{3}$', minLength: 20 },
+    createRng('fl')
+  )
+  assert.match(long, /^[A-Z]{3}$/)
+  assert.equal(long.length, 3)
+
+  const short = generateString(
+    { type: 'string', pattern: '^[A-Z]{3}$', maxLength: 2 },
+    createRng('fs')
+  )
+  assert.match(short, /^[A-Z]{3}$/)
+})
+
+test('an unsupported pattern reports itself and falls back', () => {
+  const seen: string[] = []
+  const value = generateString(
+    { type: 'string', pattern: '^(?=.*\\d)[a-z]+$' },
+    createRng('unsup'),
+    { onUnsupportedPattern: (pattern) => seen.push(pattern) }
+  )
+  assert.deepEqual(seen, ['^(?=.*\\d)[a-z]+$'])
+  // Falls back to the ordinary placeholder rather than emitting nothing.
+  assert.ok(value.length > 0)
+})
+
+test('a supported pattern reports nothing', () => {
+  const seen: string[] = []
+  generateString(
+    { type: 'string', pattern: '^[A-Z]{3}$' },
+    createRng('sup'),
+    { onUnsupportedPattern: (pattern) => seen.push(pattern) }
+  )
+  assert.deepEqual(seen, [])
+})

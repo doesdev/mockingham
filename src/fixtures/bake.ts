@@ -66,6 +66,19 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
   for (const operation of operations) {
     const responses = [...operation.responses].sort((a, b) => a.status - b.status)
     for (const response of responses) {
+      // A range response (`4XX`) carries its bucket's lower bound in `status`,
+      // so it collides with an exactly declared `400` — the store keys on
+      // [operationId, status, key] and the second write silently wins, while
+      // the summary still counts both as generated.
+      //
+      // Skipping is the honest answer rather than a wider key: a range has no
+      // concrete status offline, and `resolve.ts` looks a fixture up by the
+      // request's ACTUAL status, so a fixture stored at 400 could never serve
+      // the 422 the range exists to cover anyway.
+      if (response.range) {
+        summary.skipped += 1
+        continue
+      }
       const media = response.content[JSON_TYPE]
       if (!media) {
         summary.skipped += 1

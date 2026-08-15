@@ -1,5 +1,27 @@
 # mockingham Correctness Cycle Implementation Plan
 
+> **EXECUTED 2026-08-15**, branch `plan-11-correctness`, 1000 → 1050 tests.
+> All six tasks landed; deferred items 28, 30, 31 and 33 are closed in the
+> ledger. The checkboxes below were not ticked as it ran — the commits and
+> `docs/superpowers/deferred-items.md` are the record.
+>
+> **Three things the plan got wrong, all caught by running its own mutation
+> steps rather than by re-reading them:**
+> 1. Task 1's sort mutation was vacuous — an exact key is integer-like and JS
+>    iterates it before a string range key, so the tiebreak is unobservable
+>    through `loadApi`. The test was rewritten to say what it really guards.
+> 2. Task 2's restamp was unnecessary (a range bound already equals its wire
+>    status) and its second mutation was wrong (the range-only 500 is closed by
+>    Task 1's loader fix, not the `servable` guard).
+> 3. Task 3's mutation was vacuous — pinning a repeat count to `max` satisfies
+>    every bound assertion, so quantifier seeding was untested until a test was
+>    added that observes more than one length.
+>
+> **And one defect the plan did not anticipate at all:** ranges share a status
+> with an exactly declared response, which collided in `bake`'s per-status
+> fixture key — three generated, two stored, reported as success. Found by
+> reviewing the branch, not by the suite. See the final two commits.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the four contract violations the phase 12 docs cycle found and

@@ -223,10 +223,23 @@ Producers for: `date-time`, `date`, `time`, `duration`, `uuid`, `email`, `uri`,
 `oneOf`/`anyOf` (seeded pick, discriminator-aware), `allOf` (merged).
 
 **Defined limitation — `pattern`.** A minimal regex generator covers literals,
-character classes, anchors, and bounded quantifiers. Anything outside that subset
-falls back to `example`, then `default`, then a deterministic placeholder, and
-emits a single startup warning naming the schema path. Generating from arbitrary
-regex is out of scope; the escape hatch is an override or a fixture.
+character classes, shorthand escapes, anchors, alternation, groups, and
+quantifiers, with unbounded `*` and `+` capped at three repeats. Anything outside
+that subset — lookaround, backreferences, named groups, unicode property escapes
+— falls back to `example`, then `default`, then a deterministic placeholder, and
+warns once naming the pattern. Generating from arbitrary regex is out of scope;
+the escape hatch is an override or a fixture. A `pattern` takes precedence over
+a conflicting `format` and over `minLength`/`maxLength`, since padding or slicing
+a generated value breaks the match.
+
+> **Corrected 2026-08-15 (correctness cycle).** This paragraph said "a single
+> startup warning". There is no startup warning and there cannot cheaply be one:
+> nothing walks every schema at construction, `compile()` is lazy and serves
+> request validation, and a response-only schema — the case this exists for — is
+> never compiled at all. The warning fires once per pattern the first time such
+> a value is generated, deduplicated for the life of the handler. Implemented in
+> the correctness cycle; see
+> `docs/superpowers/specs/2026-08-15-mockingham-correctness-design.md` §3.
 
 Recursive schemas are detected during `$ref` resolution and generated to a
 configurable `maxDepth` (default 3), then terminated with `null` if nullable or
@@ -906,15 +919,19 @@ Each phase leaves the project in a working, tested state.
 
 ## 19. Known limitations, stated up front
 
-- **Corrected 2026-08-14 (phase 12 docs).** Regex `pattern` is not honored by
-  value generation at all — not "a documented subset, warned at startup" as
-  this bullet originally claimed. `pattern` appears nowhere in
-  `src/generate/values.ts` or `src/generate/constraints.ts`, and no startup
-  warning fires for it. Incoming requests ARE validated against a declared
-  `pattern` (`src/schema/compile.ts`), so the two directions disagree: a mock
-  can emit a body it would reject as a request. An override or fixture is the
-  only way to get a pattern-conforming generated value. See
-  `docs/superpowers/deferred-items.md` (item 28, phase 12).
+- **Regex `pattern` is honored for the §3 subset only.** Literals, character
+  classes, shorthand escapes, anchors, alternation, groups and quantifiers
+  generate a conforming value; lookaround, backreferences, named groups and
+  unicode property escapes fall back to `example`, then `default`, then a
+  placeholder, and warn once naming the pattern. Incoming requests are
+  validated against the FULL pattern either way (`src/schema/compile.ts`), so
+  for a construct outside the subset the two directions still disagree and an
+  override or fixture is the way to pin a conforming value. Where a `pattern`
+  and a length bound conflict, the pattern wins.
+  *(2026-08-14 recorded that `pattern` was not honored at all, and that the
+  "documented subset, warned at startup" claim was false in both halves. The
+  subset half is now true; the startup half was retired as unbuildable — see
+  §3's correction note. Deferred item 28, closed by the correctness cycle.)*
 - Recursive schemas terminate at `maxDepth` and are excluded from LLM generation.
 - No stateful CRUD: writes do not affect later reads.
 - YAML documents must be parsed by the caller and passed in as objects.
