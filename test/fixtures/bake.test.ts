@@ -511,6 +511,65 @@ test('the driver hands a source its declared chunkSize, not maxConcurrency', asy
   assert.deepEqual(source.sizes, [6])
 })
 
+const rangeCollisionDoc = {
+  openapi: '3.1.0',
+  info: { title: 't', version: '1' },
+  paths: {
+    '/thing': {
+      get: {
+        operationId: 'thing',
+        responses: {
+          '200': {
+            description: 'ok',
+            content: {
+              'application/json': { schema: { type: 'object', properties: { ok: { type: 'boolean' } } } }
+            }
+          },
+          '400': {
+            description: 'exact',
+            content: {
+              'application/json': { schema: { type: 'object', properties: { exact: { type: 'string' } } } }
+            }
+          },
+          '4XX': {
+            description: 'range',
+            content: {
+              'application/json': { schema: { type: 'object', properties: { ranged: { type: 'string' } } } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+test('a range response does not overwrite the exact status it shares a bound with', async () => {
+  // A range carries its bucket's LOWER BOUND in `status`, so `4XX` and an
+  // exactly declared `400` both arrive here as 400 — and the store keys on
+  // [operationId, status, key]. Baking both silently overwrote one and still
+  // reported it generated: three generated, two stored.
+  //
+  // A range is skipped instead. Its concrete status is not knowable offline,
+  // and a fixture stored at its bound is either unreachable (a request
+  // resolving to 422 looks up 422 and misses) or standing on a real one.
+  const store = createMemoryFixtureStore()
+  const summary = await bake({
+    api: loadApi(rangeCollisionDoc),
+    store,
+    source: sourceReturning({ any: 'value' }),
+    compiler: createCompiler(),
+    now: () => 0
+  })
+
+  const records = store.records()
+  assert.equal(records.length, 2, 'one fixture per concrete status')
+  assert.deepEqual(records.map((record) => record.status), [200, 400])
+  // The summary must agree with what is actually stored, or a silent
+  // overwrite reads as success.
+  assert.equal(summary.generated, records.length)
+  assert.equal(summary.skipped, 1)
+})
+
 test('a source with no chunkSize still chunks by maxConcurrency', async () => {
   // The default path must not change: only a source that declares a size opts
   // out of it, and a third-party source that omits the field is unaffected.

@@ -108,6 +108,10 @@ const describeOperation: McpTool = {
         .sort((a, b) => a.status - b.status)
         .map((response) => ({
           status: response.status,
+          // A range response carries its bucket's LOWER BOUND as `status`, so
+          // `4XX` and an exactly declared `400` both report 400. Without this
+          // flag they are indistinguishable to a caller.
+          ...(response.range === true ? { range: true } : {}),
           description: response.description,
           content: contentSchemas(response.content),
           // Convenience: the JSON body schema most callers actually want,

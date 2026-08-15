@@ -24,6 +24,49 @@ test('describe_operation returns params, bodies, responses, and security', async
   assert.deepEqual(created?.schema?.required, ['id', 'total'])
 })
 
+test('describe_operation distinguishes a range response from an exact status', async () => {
+  // Both carry status 400 — a range's `status` is its bucket's lower bound —
+  // so without the flag an agent sees two entries reporting the same status
+  // with different schemas and no way to tell which is which.
+  const doc = {
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: {
+      '/thing': {
+        get: {
+          operationId: 'thing',
+          responses: {
+            '400': {
+              description: 'exact',
+              content: {
+                'application/json': { schema: { type: 'object', properties: { exact: { type: 'string' } } } }
+              }
+            },
+            '4XX': {
+              description: 'range',
+              content: {
+                'application/json': { schema: { type: 'object', properties: { ranged: { type: 'string' } } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const result = (await toolNamed('describe_operation').handler(
+    contextFor(doc), { operationId: 'thing' }
+  )) as { responses: Array<{ status: number; range?: boolean; description?: string }> }
+
+  assert.deepEqual(result.responses.map((entry) => entry.status), [400, 400])
+  assert.deepEqual(result.responses.map((entry) => entry.range), [undefined, true])
+  // Paired with the description so the two are unambiguous end to end.
+  assert.deepEqual(
+    result.responses.map((entry) => entry.description),
+    ['exact', 'range']
+  )
+})
+
 test('describe_operation addresses an operation by method and path too', async () => {
   const result = (await toolNamed('describe_operation').handler(
     contextFor(), { method: 'get', path: '/orders/{orderId}' }
