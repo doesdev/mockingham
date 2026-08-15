@@ -153,6 +153,72 @@ document moved. Re-running `bake` is what actually regenerates it. A
 hand-written fixture (one with no `meta` at all) is never stale by this check
 and never warns, because there is nothing to compare it against.
 
+## Regenerating one operation
+
+Re-baking a whole document to refresh one response is a poor trade when a
+source charges per call. `bake()` takes a scope — one operation, and
+optionally one of its statuses. Continuing the program above, whose recorded
+source can only answer `getPayment` 200:
+
+```ts
+const scoped = await mock.bake({ only: { operationId: 'getPayment', status: 200 } })
+console.log(JSON.stringify(scoped))
+```
+
+```console
+{"generated":1,"skipped":0,"failed":0}
+```
+
+No `failed` this time. The five responses the recorded source has no answer
+for were never planned, because the scope excluded them — which is the whole
+point when a live model is charging for each one. A scope can also name the
+operation by route instead:
+
+```ts
+const byRoute = await mock.bake({ only: { method: 'get', path: '/payments/{id}' } })
+console.log(JSON.stringify(byRoute))
+```
+
+```console
+{"generated":1,"skipped":0,"failed":1}
+```
+
+That one covers both of `getPayment`'s declared statuses, because no `status`
+narrowed it: 200 is regenerated, and 404 is **`failed`** rather than `skipped`
+— it has a JSON body, so the walk planned it and asked the source, and the
+recorded source had no answer. `skipped` would mean it was never attempted at
+all.
+
+Everything else about a scoped run is unchanged: the same `persona`, `scope`,
+and `budget` a full bake would use, and the same `schemaHash` and
+`generatedAt` written into the entry's metadata. **Regenerating is what clears
+the staleness above.**
+
+**A scope that matches no operation throws**, rather than returning a summary
+of zeroes. A summary saying `generated: 0` for a mistyped `operationId` reads
+as "there was nothing to do", which is the opposite of what happened. A scope
+that matches an operation with nothing bakeable — no JSON body, a recursive
+schema, a range response key — is *not* an error, and is reported as
+`skipped`.
+
+`mock.fixtures()` returns everything in the store, which is how you see what a
+bake actually landed:
+
+```ts
+for (const record of mock.fixtures()) {
+  console.log(`${record.operationId} ${record.status}`)
+}
+```
+
+```console
+getPayment 200
+```
+
+Both of these are exposed over MCP, as `regenerate_fixture` and
+`list_fixtures` — see `docs/mcp.md`. `list_fixtures` reports a `stale` flag per
+entry, computed the same way the startup warning is, so an agent can find what
+needs regenerating without restarting the mock.
+
 ## Scope, persona, and budget
 
 By default a fixture is the **whole response body**, for maximum cross-field
