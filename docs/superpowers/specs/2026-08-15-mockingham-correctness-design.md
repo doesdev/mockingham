@@ -202,6 +202,13 @@ categories:
 Anything unsupported takes §3's fallback chain — `example`, then `default`, then
 the current placeholder — and warns once.
 
+**That chain needs no new code.** `generateValue` already returns `example`
+before `default` before reaching `classify` (`generate.ts:43-44`), so
+`generateString` is only reached when neither exists, and its current
+`fitLength(word(rng), ...)` placeholder *is* §3's third step. An unsupported
+pattern falls back correctly today by construction; only the warning is missing.
+The plan must not re-implement a chain that already works.
+
 ### 3.3 Four rulings the spec line does not make
 
 **Unbounded quantifiers are capped.** `*` and `+` are "bounded quantifiers" only
@@ -223,12 +230,30 @@ silent wrong value. Pattern generation returns its value directly. Where a
 conflict is a documented limitation — the generator honors length only through
 the quantifier bounds it derives from the pattern itself.
 
-**The warning goes through `onWarn`.** It already exists —
-`handler.ts:190`, `options.onWarn ?? console.warn`, whose own comment says it is
-where startup warnings go and names unsupported runtime expressions as the other
-case. The pure core does not learn to print; it reuses the sink. "A single
-warning" means once per schema path, deduplicated, at construction — not once
-per generated value, which would be per-request noise.
+**The warning goes through `onWarn`, but it is not a startup warning.**
+The sink already exists — `handler.ts:190`, `options.onWarn ?? console.warn`,
+whose own comment says it is where startup warnings go. The pure core does not
+learn to print; it reuses the sink.
+
+**Amendment to §3, found while planning: "a single startup warning" is not
+achievable and becomes "once per pattern, on first encounter."** §3 assumed
+something walks every schema at construction. Nothing does. `compile()` is lazy
+and exists for request validation, so a response-only schema — which is exactly
+where `Payment.currency` lives — is never compiled at all, and a warning hung
+off compilation would never fire for the case that motivated the item. The only
+way to get a true startup warning is a new construction-time traversal, and
+adding a second schema walk to emit a diagnostic is a bad trade against
+invariant 1.
+
+So the warning fires the first time an unsupported pattern is actually
+generated, deduplicated per pattern string. The dedupe set lives in
+`handler.ts` where `GenerateOptions` is built, not in the generation path, so
+generation stays pure and the handler owns the state. `GenerateOptions` gains
+`onUnsupportedPattern?: (pattern: string) => void`.
+
+Warning *output* order therefore varies with request order. That does not touch
+invariant 2, which governs response bytes, not diagnostics — but a test must not
+assert on warning order.
 
 ### 3.4 Where it hooks in
 
