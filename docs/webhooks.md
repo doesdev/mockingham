@@ -160,8 +160,8 @@ Two triggers, deliberately no more:
 
 - **Imperative** — call `mock.emit(name, opts)` yourself, from a test or the
   control plane. `opts` is `{ to?, body? }`: an explicit destination and a
-  body override layered over the generated payload, the same layering §4
-  applies to a response.
+  body override layered over the generated payload, the same layering
+  master §4 applies to a response.
 - **Operation-linked** — declare `emits` on an operation's config, and it
   fires after that operation's response is returned, never before and never
   blocking it:
@@ -392,5 +392,5 @@ cost. Until the ledger-clearing cycle this was a documented limitation
 (deferred item 25): `reset()` bumped a generation counter, which dropped the
 emission correctly, but left the underlying timer running and holding the
 event loop open — 3005ms measured for a 3000ms `afterMs`. `close()` and
-`reset()` are symmetric now, which is what design §2.3 had implied in a single
+`reset()` are symmetric now, which is what the webhooks design delta §2.3 had implied in a single
 sentence all along.
