@@ -344,17 +344,13 @@ halves of the invariant are covered: a delivery that goes nowhere is
 captured, not an error, and a delivery that throws while being built never
 becomes the caller's problem either.
 
-## Known limitation: `reset()` and pending timers
+## `reset()` and pending timers
 
 `close()` cancels a pending emission outright — it clears the real timer
-backing its `afterMs` wait, so a shutdown never waits one out. `reset()` only
-bumps a generation counter; the emission is still correctly dropped once its
-timer fires (the generation check catches it), but the underlying timer
-itself keeps running. `settled()` called right after a `reset()` therefore
-waits out the full `afterMs` rather than returning promptly — deferred item
-25 in `docs/superpowers/deferred-items.md`, and a promptness gap rather than
-a correctness one: nothing is delivered late or twice, an operation-linked
-emission just outlives the `reset()` that was supposed to drop it sooner:
+backing its `afterMs` wait, so a shutdown never waits one out. **`reset()` now
+does the same.** Both clear the timer and release its waiter, so `settled()`
+straight after a `reset()` returns promptly rather than paying the full
+`afterMs`:
 
 ```ts
 const resetMock = createMock(doc, {
@@ -387,11 +383,14 @@ await mock.close()
 
 ```console
 deliveries after reset(): 0
-settled() waited out the afterMs anyway: true
+settled() waited out the afterMs anyway: false
 ```
 
-The delivery is still correctly dropped — `reset()` did its job, nothing
-fired — but a test that resets between cases and immediately calls
-`settled()` pays the `afterMs` cost anyway. Prefer `close()` over `reset()`
-between cases where an emission may be pending, or keep `afterMs` small in
-tests that reset.
+The delivery is dropped and the wait is not paid, so a test that resets
+between cases and immediately calls `settled()` no longer pays the `afterMs`
+cost. Until the ledger-clearing cycle this was a documented limitation
+(deferred item 25): `reset()` bumped a generation counter, which dropped the
+emission correctly, but left the underlying timer running and holding the
+event loop open — 3005ms measured for a 3000ms `afterMs`. `close()` and
+`reset()` are symmetric now, which is what design §2.3 had implied in a single
+sentence all along.

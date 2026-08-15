@@ -172,3 +172,42 @@ test('an async resolver that rejects is also a callback failure', async () => {
   assert.equal(response.status, 500)
   assert.equal(((await response.json()) as any).error.code, 'MOCK_CALLBACK_FAILED')
 })
+
+test('an injected clock that throws still produces a response', async () => {
+  // `const startedAt = now()` was the FIRST line of the single exit and sat
+  // outside every catch, so a throwing clock rejected fetch() with no
+  // response at all — the last hole in the response-always-returned
+  // guarantee (deferred item 16).
+  const errors: unknown[] = []
+  const handle = createHandler(api, {
+    seed: 'robust',
+    now: () => { throw new Error('clock boom') },
+    onError: (error) => errors.push(error)
+  }).fetch
+
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 200, 'a working request must still be answered')
+  assert.equal((errors[0] as Error).message, 'clock boom')
+})
+
+test('a throwable whose toString throws still produces a response', async () => {
+  // `String(error)` in internalError() invokes caller-supplied code. A value
+  // whose toString throws escaped the boundary 500 itself.
+  const hostile = {
+    toString() { throw new Error('toString boom') }
+  }
+  const handle = createHandler(api, {
+    seed: 'robust',
+    onError: () => {},
+    operations: {
+      showPetById: { respond: () => { throw hostile } }
+    }
+  }).fetch
+
+  const response = await handle(new Request('http://mock/pets/7'))
+  assert.equal(response.status, 500)
+  const body = (await response.json()) as { error: { code: string; message: string } }
+  // Described rather than propagated: the message says what happened instead
+  // of the request failing to produce a response at all.
+  assert.match(body.error.message, /unstringifiable/)
+})

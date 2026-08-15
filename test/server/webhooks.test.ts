@@ -761,3 +761,92 @@ test('settled() resolves rather than hanging after close() cancels a real timer'
 
   assert.deepEqual(handler.deliveries(), [])
 })
+
+/**
+ * Records which timer handles are actually cleared, so a test can assert on
+ * the `clearTimeout` call itself rather than on a downstream symptom.
+ *
+ * Deferred item 24: the promptness tests above pass with `clearTimeout` removed
+ * from `close()`, because `entry.resolve()` alone unblocks the wait. The only
+ * observable difference is a real timer left running, which nothing in the
+ * suite measures — so the regression it guards (a CLI shutdown hanging for up
+ * to `afterMs`) could return silently. Watching the call closes that.
+ */
+function watchTimers() {
+  const realSetTimeout = globalThis.setTimeout
+  const realClearTimeout = globalThis.clearTimeout
+  const created: unknown[] = []
+  const cleared: unknown[] = []
+
+  globalThis.setTimeout = ((fn: never, ms: never, ...rest: never[]) => {
+    const handle = realSetTimeout(fn, ms, ...rest)
+    created.push(handle)
+    return handle
+  }) as typeof globalThis.setTimeout
+
+  globalThis.clearTimeout = ((handle: never) => {
+    cleared.push(handle)
+    return realClearTimeout(handle)
+  }) as typeof globalThis.clearTimeout
+
+  return {
+    created,
+    cleared,
+    restore() {
+      globalThis.setTimeout = realSetTimeout
+      globalThis.clearTimeout = realClearTimeout
+    }
+  }
+}
+
+test('close() clears the emission timer, not just the wait', async () => {
+  const timers = watchTimers()
+  try {
+    const handler = createHandler(api, {
+      seed: 'hooks',
+      captureOnly: true,
+      operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 5_000 }] } }
+    })
+
+    await handler.fetch(subscribe())
+    assert.ok(timers.created.length > 0, 'the emission must arm a real timer')
+    const armed = timers.created[timers.created.length - 1]
+
+    await handler.close()
+
+    // The exact handle, not merely "some clearTimeout happened": the runner
+    // and the fetch path both use timers, so counting calls would pass on
+    // unrelated traffic.
+    assert.ok(
+      timers.cleared.includes(armed),
+      'close() must clear the timer it armed, or the process is held open'
+    )
+  } finally {
+    timers.restore()
+  }
+})
+
+test('reset() clears the emission timer too', async () => {
+  // Item 25's other half, asserted the same way. The promptness of settled()
+  // after reset() is the symptom; this is the cause.
+  const timers = watchTimers()
+  try {
+    const handler = createHandler(api, {
+      seed: 'hooks',
+      captureOnly: true,
+      operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 5_000 }] } }
+    })
+
+    await handler.fetch(subscribe())
+    const armed = timers.created[timers.created.length - 1]
+
+    await handler.reset()
+    assert.ok(timers.cleared.includes(armed), 'reset() must clear it as close() does')
+
+    await handler.settled()
+    assert.deepEqual(handler.deliveries(), [])
+    await handler.close()
+  } finally {
+    timers.restore()
+  }
+})
