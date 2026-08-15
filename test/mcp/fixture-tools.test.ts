@@ -140,6 +140,29 @@ test('regenerate_fixture reports an unknown operation as an error', async () => 
   )
 })
 
+test('regenerate_fixture with no arguments refuses instead of re-baking everything', async () => {
+  // The tool always passes an `only` object, so undefined fields would have
+  // matched every operation: an agent calling it bare would have re-baked the
+  // whole document against a source that may charge per call. Asserted here
+  // as well as in the core, because this is the path an agent takes.
+  let calls = 0
+  const counting: ContentSource = {
+    generate: async (reqs) => {
+      calls += reqs.length
+      return reqs.map(() => ({ value: { any: 'value' } }) as FixtureResult)
+    }
+  }
+  const mock = mockWith(counting)
+
+  await assert.rejects(
+    async () =>
+      toolNamed('regenerate_fixture', { write: true }).handler(contextForMock(mock), {}),
+    /identify/i
+  )
+  assert.equal(calls, 0, 'nothing may reach the source')
+  assert.deepEqual(mock.fixtures(), [])
+})
+
 test('regenerate_fixture is gated, list_fixtures is not', () => {
   const open = mcpTools({ write: true }).map((tool) => tool.name)
   const closed = mcpTools().map((tool) => tool.name)

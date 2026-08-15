@@ -117,6 +117,26 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
   })
 
   const only = options.only
+  // An absent `only` bakes the whole document — that is the ordinary bake. An
+  // `only` that is PRESENT but identifies no operation is a different thing
+  // and must not be read as "all of them": the MCP tool always passes an
+  // object, with undefined fields when the caller gave no arguments, so
+  // without this `regenerate_fixture` with no arguments re-bakes every
+  // operation against a source that may be charging per call.
+  //
+  // `method` or `status` alone is not an identifier either — `method: 'get'`
+  // matches every GET in the document.
+  if (
+    only !== undefined &&
+    only.operationId === undefined &&
+    only.path === undefined
+  ) {
+    throw new Error(
+      'mockingham: a bake scope must identify an operation. Supply ' +
+        'operationId, or method and path. Omit the scope entirely to bake ' +
+        'the whole document.'
+    )
+  }
   const operations =
     only === undefined
       ? sorted
@@ -151,6 +171,11 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
   for (const operation of operations) {
     const responses = [...operation.responses].sort((a, b) => a.status - b.status)
     for (const response of responses) {
+      // Narrowed to one status. NOT counted as skipped: the other statuses
+      // were never asked for, and reporting them would make a one-status
+      // regeneration look as though it had declined work.
+      if (only?.status !== undefined && response.status !== only.status) continue
+
       // A range response (`4XX`) carries its bucket's lower bound in `status`,
       // so it collides with an exactly declared `400` — the store keys on
       // [operationId, status, key] and the second write silently wins, while
@@ -160,10 +185,6 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
       // concrete status offline, and `resolve.ts` looks a fixture up by the
       // request's ACTUAL status, so a fixture stored at 400 could never serve
       // the 422 the range exists to cover anyway.
-      // Narrowed to one status. Not counted as skipped: the other statuses
-      // were never asked for, and reporting them would make a one-status
-      // regeneration look like it had declined work.
-      if (only?.status !== undefined && response.status !== only.status) continue
       if (response.range) {
         summary.skipped += 1
         continue

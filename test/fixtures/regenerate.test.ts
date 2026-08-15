@@ -197,6 +197,29 @@ test('a filter still respects maxCalls, reporting the remainder as skipped', asy
   assert.equal(summary.skipped, 1, 'the second planned status is over budget')
 })
 
+test('an empty scope throws rather than quietly baking everything', async () => {
+  // The MCP tool always passes an `only` object, with undefined fields when
+  // the caller supplied no arguments. Without this, regenerate_fixture with
+  // no arguments re-bakes the whole document — every operation, every status,
+  // against a source that may well be charging per call.
+  await assert.rejects(() => bake({ ...baseOptions(), only: {} }), /identify/i)
+})
+
+test('a scope naming only a status throws — it identifies no operation', async () => {
+  await assert.rejects(
+    () => bake({ ...baseOptions(), only: { status: 200 } }),
+    /identify/i
+  )
+})
+
+test('a scope naming only a method throws — it identifies no operation', async () => {
+  // `method: 'get'` alone would match every GET in the document.
+  await assert.rejects(
+    () => bake({ ...baseOptions(), only: { method: 'get' } }),
+    /identify/i
+  )
+})
+
 test('no filter still bakes the whole document', async () => {
   // The filter is optional and must not change the default walk.
   const store = createMemoryFixtureStore()
