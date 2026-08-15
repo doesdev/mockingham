@@ -223,3 +223,64 @@ test('drops non-string tags rather than coercing them', () => {
 
   assert.deepEqual(api.operations[0]?.tags, ['ok'])
 })
+
+const body = {
+  description: 'a response',
+  content: { 'application/json': { schema: { type: 'object' } } }
+}
+
+/** One operation carrying exactly the response keys under test. */
+function docWithResponses(responses: Record<string, unknown>) {
+  return {
+    openapi: '3.1.0',
+    info: { title: 't', version: '1' },
+    paths: { '/a': { get: { operationId: 'a', responses } } }
+  }
+}
+
+test('a 4XX range key loads as status 400 flagged as a range', () => {
+  // 400, NOT 4 — Number.parseInt('4XX', 10) is 4, which is what shipped and
+  // is why a declared error contract loaded under an unreachable status.
+  const api = loadApi(docWithResponses({ '4XX': body }))
+  const spec = api.operations[0]?.responses[0]
+  assert.equal(spec?.status, 400)
+  assert.equal(spec?.range, true)
+})
+
+test('an exact status is not flagged as a range', () => {
+  const api = loadApi(docWithResponses({ '404': body }))
+  assert.equal(api.operations[0]?.responses[0]?.status, 404)
+  assert.equal(api.operations[0]?.responses[0]?.range, undefined)
+})
+
+test('an exact status and a range at the same bound both load, exact first', () => {
+  // This CANNOT fail on the sort's range tiebreak, and is not written as
+  // though it can: '400' is an integer-like key and JS iterates it before the
+  // string key '4XX' regardless of document order, so the entries arrive
+  // exact-first and a stable sort keeps them there with or without the
+  // tiebreak. What it does guard is that both survive loading as distinct
+  // specs, and that the status sort has not been broken or reversed.
+  const api = loadApi(docWithResponses({ '4XX': body, '400': body }))
+  const [first, second] = api.operations[0]?.responses ?? []
+  assert.equal(first?.status, 400)
+  assert.equal(first?.range, undefined)
+  assert.equal(second?.status, 400)
+  assert.equal(second?.range, true)
+})
+
+test('a malformed response key is skipped rather than coerced', () => {
+  // '200abc' parsed to 200 and '99' to 99 before this cycle.
+  const api = loadApi(docWithResponses({ '200abc': body, '99': body, '6XX': body }))
+  assert.deepEqual(api.operations[0]?.responses, [])
+})
+
+test('every range bucket 1XX through 5XX is recognized', () => {
+  const keys = ['1XX', '2XX', '3XX', '4XX', '5XX']
+  const api = loadApi(
+    docWithResponses(Object.fromEntries(keys.map((key) => [key, body])))
+  )
+  assert.deepEqual(
+    api.operations[0]?.responses.map((r) => r.status),
+    [100, 200, 300, 400, 500]
+  )
+})

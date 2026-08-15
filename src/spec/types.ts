@@ -65,7 +65,14 @@ export interface MediaType {
 }
 
 export interface ResponseSpec {
+  /**
+   * For a range key (`4XX`) this is the range's LOWER BOUND — 400, not 4 — so
+   * that every `response.status === x` comparison keeps its meaning and only
+   * code that must distinguish a range reads `range`.
+   */
   status: number
+  /** True when the document spelled this response as a `1XX`-`5XX` range. */
+  range?: boolean
   description?: string
   headers: Record<string, Schema>
   content: Record<string, MediaType>
