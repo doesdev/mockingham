@@ -187,7 +187,13 @@ export function createHandler(
   })
   const idempotency = resolveIdempotency(options.idempotency)
   const policies = compilePolicies(options.failure, api.operations)
-  const chaosSeed = options.chaosSeed ?? seed
+  // Follows `seed` when no explicit `chaosSeed` was configured, so `setSeed`
+  // reaches it. It was captured once at construction, which meant "the seed
+  // control does not control this seed" — chaos still varied, because
+  // `requestKey` carries the seed, but a reader who set a chaos seed and
+  // watched it not take effect had no way to tell that from a bug.
+  // Deferred item 8.
+  let chaosSeed = options.chaosSeed ?? seed
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   const chaosCounts = new Map<string, number>()
   // Its OWN counter. Sharing the chaos counter would shift every chaos roll the
@@ -980,9 +986,13 @@ export function createHandler(
     store,
     setSeed(next) {
       seed = next
+      // An explicitly configured chaosSeed is a deliberate decoupling and is
+      // left alone; one that merely defaulted to the seed keeps following it.
+      if (options.chaosSeed === undefined) chaosSeed = next
     },
     async reset() {
       seed = options.seed ?? 'mockingham'
+      if (options.chaosSeed === undefined) chaosSeed = seed
       counters.reset()
       chaosCounts.clear()
       requestOrdinals.clear()

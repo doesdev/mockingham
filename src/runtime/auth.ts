@@ -41,11 +41,25 @@ export function cookieValue(
   return undefined
 }
 
+const KNOWN_SCHEME_TYPES: ReadonlySet<string> = new Set([
+  'apiKey',
+  'http',
+  'oauth2',
+  'openIdConnect'
+])
+
+/**
+ * Returned for a scheme whose credential this mock cannot inspect. Distinct
+ * from `undefined`, which means "the scheme is enforceable and the credential
+ * is missing" and produces a 401.
+ */
+const UNENFORCEABLE = Symbol('mockingham.unenforceable-scheme')
+
 /** Pulls the credential a scheme describes out of the request. */
 export function credentialFor(
   scheme: SecurityScheme,
   ctx: Ctx
-): string | undefined {
+): string | undefined | typeof UNENFORCEABLE {
   if (scheme.type === 'apiKey') {
     const name = scheme.name ?? ''
     if (scheme.location === 'query') {
@@ -55,6 +69,18 @@ export function credentialFor(
     if (scheme.location === 'cookie') return cookieValue(ctx.headers['cookie'], name)
     return ctx.headers[name.toLowerCase()]
   }
+
+  // A type this build does not know how to read a credential for. `mutualTLS`
+  // is the real case — it is valid OpenAPI 3.1 and carries its credential in
+  // the TLS handshake, which a mock never sees — and a typo'd or invented type
+  // lands here too, since `toSecuritySchemes` casts rather than validates
+  // (deferred item 13).
+  //
+  // Treated as unenforceable rather than as bearer. Falling through to the
+  // bearer branch demanded an `Authorization: Bearer` header the document
+  // never asked for, so a document declaring mutualTLS got a 401 on every
+  // request with no way to satisfy it.
+  if (!KNOWN_SCHEME_TYPES.has(scheme.type)) return UNENFORCEABLE
 
   // http basic/bearer, and oauth2/openIdConnect which are bearer in practice.
   const header = ctx.headers['authorization']
@@ -105,6 +131,10 @@ export async function checkAuth(input: AuthInput): Promise<AuthOutcome> {
       }
 
       const credential = credentialFor(scheme, input.ctx)
+      // Nothing to check and nothing to verify against, so the requirement is
+      // treated as met rather than as permanently failing. A `verify` hook
+      // needs a credential to receive, so it is skipped too.
+      if (credential === UNENFORCEABLE) continue
       if (credential === undefined) {
         satisfied = false
         failure = missing(name)

@@ -107,8 +107,14 @@ test('a real delivery arrives signed and verifiable', async () => {
     assert.equal(await verify('topsecret', header, hook.received[0]!.body), true)
     assert.equal(await verify('wrong', header, hook.received[0]!.body), false)
   } finally {
-    await mock.close()
-    await hook.close()
+    // Nested, so a throw from mock.close() cannot skip hook.close() and leak
+    // the throwaway receiver's listening socket — which surfaces as a hung
+    // test run rather than as a failure. Deferred item 23.
+    try {
+      await mock.close()
+    } finally {
+      await hook.close()
+    }
   }
 })
 
@@ -135,7 +141,13 @@ test('a real delivery retries a 500 and succeeds on the second attempt', async (
     // not.
     assert.deepEqual(slept, [236])
   } finally {
-    await mock.close()
-    await hook.close()
+    // Nested, so a throw from mock.close() cannot skip hook.close() and leak
+    // the throwaway receiver's listening socket — which surfaces as a hung
+    // test run rather than as a failure. Deferred item 23.
+    try {
+      await mock.close()
+    } finally {
+      await hook.close()
+    }
   }
 })

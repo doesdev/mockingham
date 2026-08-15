@@ -256,3 +256,32 @@ test('bytesIn counts the raw request bytes, not its characters', async () => {
   assert.equal(body.length, 15)
   assert.equal(sink.records[0]!.bytesIn, 16)
 })
+
+test('a throw while assembling the log record cannot reach the caller', async () => {
+  // Deferred item 20: the log block's own try/catch was untested, on the
+  // grounds that nothing inside it could realistically throw now that
+  // `emitLog` self-isolates. That is true of the SINK — and it is not true of
+  // the block, which reads the clock for `durationMs` inside the same guard.
+  // An untested guard is indistinguishable from an absent one.
+  const errors: unknown[] = []
+  let reads = 0
+  const handle = createHandler(api, {
+    seed: 'log',
+    // Survives the guarded read at the start of the exit, then throws on the
+    // second read, which is the one inside the log block.
+    now: () => {
+      reads += 1
+      if (reads > 1) throw new Error('clock boom')
+      return 1_000
+    },
+    onLog: () => {},
+    onError: (error) => errors.push(error)
+  }).fetch
+
+  const response = await handle(
+    new Request('http://mock/pets/7', { headers: { authorization: 'Bearer t' } })
+  )
+
+  assert.equal(response.status, 200, 'the response the caller already earned')
+  assert.equal((errors[0] as Error).message, 'clock boom')
+})
