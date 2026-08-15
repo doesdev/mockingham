@@ -161,8 +161,16 @@ export function createMock(
       // does.
       assertValidOverrideKeys(value)
       assertSerializable(value)
+      // `assertSerializable` just proved this value can survive a serializing
+      // Store — it does not prove the Store keeps a copy. An in-process Store
+      // keeps the live reference by default, so storing `value` itself would
+      // let the caller mutate what the mock serves after the call returns, or
+      // inject something that never passed the door above. One copy, made
+      // once here rather than per operation, is what makes what the mock
+      // serves a snapshot instead of a window onto the caller's object.
+      const stored = JSON.parse(JSON.stringify(value)) as RuntimeOverride
       for (const key of keysFor(target)) {
-        await handler.store.set(overrideKey(key), value)
+        await handler.store.set(overrideKey(key), stored)
       }
     },
 

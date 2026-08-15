@@ -93,7 +93,10 @@ const setOverride: McpTool = {
     'Pin what an operation returns, without editing config. The override ' +
     'layers over any configured one, so a partial body refines rather than ' +
     'replaces it. Target is a control-plane string: "POST /orders", an ' +
-    'operationId, or "* /**" for every operation. JSON data only.',
+    'operationId, or "* /**" for every operation. JSON data only. An ' +
+    'object-shaped body against an operation that returns an array is a ' +
+    'silent no-op — use { "*": { ... } } to reach every element, or a ' +
+    'literal JSON array.',
   inputSchema: {
     target: z.string(),
     value: z
@@ -115,8 +118,13 @@ const clearOverrides: McpTool = {
     target: z.string().optional().describe('Omit to clear every operation')
   },
   async handler(ctx: McpContext, args: Record<string, unknown>) {
-    await ctx.clearOverrides(args.target === undefined ? undefined : String(args.target))
-    return { cleared: args.target ?? '*' }
+    const target = args.target === undefined ? undefined : String(args.target)
+    await ctx.clearOverrides(target)
+    // `null` rather than a placeholder like '*' for the no-target case: '*'
+    // alone is not a valid target (resolveTarget reads a spaceless target as
+    // an operationId, so it throws), and echoing it back would teach a caller
+    // a string that fails on its next call.
+    return { cleared: target ?? null }
   }
 }
 

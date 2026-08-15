@@ -161,7 +161,12 @@ are exposed as MCP write tools (`set_override`, `clear_overrides`) — see
 another runtime override: setting the same target twice replaces the value,
 and two different targets that resolve to the same operation collide there,
 with the later write winning. Setting a `status` the document doesn't
-declare falls through to normal status selection rather than erroring.
+declare falls through to normal status selection rather than erroring. An
+object-shaped body override applied to an operation whose response is an
+array is a silent no-op — the array comes back byte-identical, with
+`x-mock-override: applied` stamped anyway, since a body layer did exist even
+though nothing in it matched. Use `{ '*': { ... } }` to reach every element,
+or supply a literal JSON array instead.
 
 Resolution for a response body is layered: a runtime override wins over a
 config override, which wins over a served fixture, which wins over a

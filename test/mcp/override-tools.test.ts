@@ -113,6 +113,42 @@ test('tools/call refuses set_override when the gate is closed', async () => {
   assert.notEqual(body.note, 'via-mcp')
 })
 
+test('tools/call refuses clear_overrides when the gate is closed', async () => {
+  // The second half of the gate, modelled on the equivalent set_override test
+  // above: with the gate closed the name still lists with a `Disabled.`
+  // description (server.ts's WRITE_TOOLS-derived registration, exercised
+  // above and in write.test.ts), and calling it directly must both refuse
+  // and leave existing state untouched.
+  const mock = createMock(mcpDoc)
+  await mock.override('getOrder', { 200: { body: { note: 'via-override' } } })
+  mock.mcp({ transport: 'http', path: '/mcp' })
+
+  const response = await mock.fetch(new Request('http://mock.local/mcp', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream'
+    },
+    body: JSON.stringify({
+      jsonrpc: '2.0', id: 1, method: 'tools/call',
+      params: { name: 'clear_overrides', arguments: {} }
+    })
+  }))
+
+  const payload = await response.json() as {
+    error?: { message: string }
+    result?: { isError?: boolean; content: Array<{ text: string }> }
+  }
+  const message = payload.error?.message ?? payload.result?.content[0]?.text ?? ''
+  assert.match(message, /write/i, `expected the refusal to name the write flag, got: ${message}`)
+
+  // And it must not have taken effect: the override set before the gated
+  // call is still live.
+  const check = await mock.fetch(new Request('http://mock.local/orders/abc', { headers: AUTH }))
+  const body = await check.json() as Record<string, unknown>
+  assert.equal(body.note, 'via-override')
+})
+
 /**
  * Extracts the tool names listed as `- \`name\` — ...` bullets in the section
  * that runs from `heading` to the next `## ` heading (or end of file).

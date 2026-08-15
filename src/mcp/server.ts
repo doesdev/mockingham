@@ -10,7 +10,7 @@ export interface McpOptions {
   transport?: 'http' | 'stdio' | 'inline'
   /** http only. Default `/mcp`. */
   path?: string
-  /** Expose the five write tools. Default false — design §3.7. */
+  /** Expose the seven write tools. Default false — design §3.7. */
   write?: boolean
 }
 
@@ -112,7 +112,7 @@ function register(server: McpServerLike, context: McpContext, tools: McpTool[]):
   // refusal that says how to enable it, rather than the SDK's bare "not
   // found" — which reads like the feature does not exist.
   //
-  // The names come from WRITE_TOOLS rather than a literal list: a sixth write
+  // The names come from WRITE_TOOLS rather than a literal list: another write
   // tool added later must not silently lose its refusal message.
   const exposed = new Set(tools.map((tool) => tool.name))
   for (const disabled of WRITE_TOOLS.filter((tool) => !exposed.has(tool.name))) {

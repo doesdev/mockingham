@@ -89,6 +89,15 @@ export function assertSerializable(
 
 const STATUS_KEY = /^[0-9]+$/
 
+/** The only keys `overrideAsResolved` ever reads off a status entry. */
+const STATUS_ENTRY_KEYS = new Set(['body', 'headers'])
+
+function typeName(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'array'
+  return typeof value
+}
+
 /**
  * `overrideAsResolved` only ever reads `value.status` and `value[forStatus]`
  * for a numeric `forStatus` — an own key that is neither `"status"` nor a run
@@ -97,15 +106,57 @@ const STATUS_KEY = /^[0-9]+$/
  * configuration error rather than an empty result; a status key that can
  * never match is the same error one level down, and over MCP the caller would
  * otherwise get a success response either way. Design amendment 2.2.
+ *
+ * Two further checks live here for the same reason: `overrideAsResolved`
+ * reads `value[forStatus].body` and `.headers` and nothing else, so a
+ * misspelled key inside a status entry (`{ 200: { bdy: {...} } }`) is
+ * accepted and silently inert. And status SELECTION compares
+ * `runtime.status` with `===` against a number, so a string status
+ * (`{ status: "404" }`) can never match and is just as silently inert. Both
+ * are likelier mistakes than a bad top-level key, and both deserve the same
+ * "this would never be read back" refusal rather than a passing test that
+ * proves nothing.
  */
 export function assertValidOverrideKeys(value: RuntimeOverride): void {
+  const record = value as Record<string, unknown>
   for (const key of Object.keys(value)) {
-    if (key === 'status' || STATUS_KEY.test(key)) continue
-    throw new Error(
-      `mockingham: override key "${key}" is not a status. An override key ` +
-        'must be "status" or a numeric status code such as 200 — anything ' +
-        'else can never be read back and would silently do nothing.'
-    )
+    if (key === 'status') {
+      const status = record.status
+      if (typeof status !== 'number') {
+        throw new Error(
+          `mockingham: override "status" is a ${typeName(status)}, not a ` +
+            'number. Status selection compares it with ===, so anything ' +
+            'else can never match and would silently do nothing.'
+        )
+      }
+      continue
+    }
+
+    if (!STATUS_KEY.test(key)) {
+      throw new Error(
+        `mockingham: override key "${key}" is not a status. An override key ` +
+          'must be "status" or a numeric status code such as 200 — anything ' +
+          'else can never be read back and would silently do nothing.'
+      )
+    }
+
+    const entry = record[key]
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new Error(
+        `mockingham: override ${key} is a ${typeName(entry)}, not an object. ` +
+          'A status entry must be an object with "body" and/or "headers" ' +
+          'keys.'
+      )
+    }
+    for (const innerKey of Object.keys(entry as Record<string, unknown>)) {
+      if (!STATUS_ENTRY_KEYS.has(innerKey)) {
+        throw new Error(
+          `mockingham: override ${key}.${innerKey} is not "body" or ` +
+            '"headers". A misspelled key here can never be read back and ' +
+            'would silently do nothing.'
+        )
+      }
+    }
   }
 }
 
@@ -149,6 +200,11 @@ export async function readOverride(
   operation: Operation
 ): Promise<ResolvedOverride> {
   const raw = await store.get(overrideKey(targetKey(operation)))
-  if (raw === undefined) return EMPTY_OVERRIDE
+  // `override()` only ever writes a plain object here, but the Store is
+  // advertised as shareable across processes — an older version, or another
+  // process writing a different shape entirely, is a real possibility this
+  // read must survive rather than crash on. Anything that is not a non-null,
+  // non-array object reads as no override.
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return EMPTY_OVERRIDE
   return overrideAsResolved(raw as RuntimeOverride)
 }

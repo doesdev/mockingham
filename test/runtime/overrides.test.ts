@@ -79,6 +79,38 @@ test('a non-status key is rejected, naming the offending key', () => {
 test('"status" and a numeric status key are both accepted', () => {
   assertValidOverrideKeys({ status: 404 })
   assertValidOverrideKeys({ 200: { body: {} } })
+  assertValidOverrideKeys({ 200: { headers: {} } })
+  assertValidOverrideKeys({ 200: { body: {}, headers: {} } })
+})
+
+test('a misspelled key inside a status entry is rejected, naming it', () => {
+  // overrideAsResolved only ever reads `.body` and `.headers` off a status
+  // entry — anything else can never be read back and would silently do
+  // nothing.
+  assert.throws(
+    () => assertValidOverrideKeys(
+      { 200: { bdy: {} } } as unknown as RuntimeOverride
+    ),
+    /200\.bdy/
+  )
+})
+
+test('a string status is rejected, since selection compares with ===', () => {
+  assert.throws(
+    () => assertValidOverrideKeys(
+      { status: '404' } as unknown as RuntimeOverride
+    ),
+    /"status" is a string, not a number/
+  )
+})
+
+test('a status entry that is not an object is rejected', () => {
+  assert.throws(
+    () => assertValidOverrideKeys(
+      { 200: 'not-an-object' } as unknown as RuntimeOverride
+    ),
+    /200 is a string, not an object/
+  )
 })
 
 test('overrideAsResolved exposes body and headers scoped by status', () => {
@@ -109,4 +141,17 @@ test('readOverride reads back what was written under the namespaced key', async 
   const resolved = await readOverride(store, operation)
   assert.notEqual(resolved, EMPTY_OVERRIDE)
   assert.deepEqual(resolved.bodies(200), [{ ok: 1 }])
+})
+
+test('readOverride treats a non-object stored value as no override rather than crashing', async () => {
+  // Unreachable through `override()` — the door checks above already refuse
+  // this. Reachable through a shared external Store, which the design
+  // explicitly advertises as a feature: another process, or an older
+  // version, writing a different shape.
+  for (const shape of [null, 'a string', 42, true, ['array']]) {
+    const store = createMemoryStore()
+    await store.set(overrideKey(targetKey(operation)), shape)
+    const resolved = await readOverride(store, operation)
+    assert.equal(resolved, EMPTY_OVERRIDE, `${JSON.stringify(shape)} must read as no override`)
+  }
 })

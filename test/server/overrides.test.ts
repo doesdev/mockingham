@@ -389,16 +389,23 @@ test('a non-status override key is refused at the door, naming the key', async (
 })
 
 test('a rejected non-status key writes nothing', async () => {
+  // The Store is the only honest witness here. `debugHeaders` is off (as this
+  // mock is constructed), so `x-mock-override` is never emitted regardless of
+  // whether a write happened — asserting on it would pass unconditionally.
+  // And turning `debugHeaders` on would not help either: the rejected value
+  // (`{ notAStatus: { body: {} } }`) contributes no body layer, no header, and
+  // no matching status even if it WERE written, so "did an override apply"
+  // stays false either way. Reading the Store directly is the only assertion
+  // that can actually fail.
   const mock = createMock(petstore, { seed: 'runtime' })
   await assert.rejects(
     () => mock.override('showPetById', { notAStatus: { body: {} } } as never),
     /notAStatus/
   )
 
-  const response = await mock.fetch(new Request('http://mock/pets/7'))
   assert.equal(
-    response.headers.get('x-mock-override'),
-    null,
+    await mock.store.get(overrideKey('showPetById')),
+    undefined,
     'the rejected override must not have been written'
   )
 })
@@ -436,6 +443,22 @@ test('a rejected override writes nothing, not even for operations resolved befor
       `${path} must not carry any part of the rejected override`
     )
   }
+})
+
+test('override() stores a copy, immune to mutating the caller\'s object afterward', async () => {
+  // `assertSerializable` only proves the value CAN survive a serializing
+  // Store, not that this one does — the in-process Store keeps whatever
+  // reference it is handed. Mutating the object after the call must not
+  // change what the mock serves.
+  const mock = createMock(petstore, { seed: 'runtime' })
+  const value = { 200: { body: { name: 'first' } } }
+  await mock.override('showPetById', value)
+
+  value[200].body.name = 'mutated-after-the-call'
+
+  const response = await mock.fetch(new Request('http://mock/pets/7'))
+  const body = await response.json() as Record<string, unknown>
+  assert.equal(body.name, 'first', 'the mock must serve the value as of the call, not as of now')
 })
 
 test('the second override for one target replaces the first', async () => {
