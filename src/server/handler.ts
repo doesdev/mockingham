@@ -112,6 +112,14 @@ export interface HandlerOptions {
    * consumers; neither can reach a response body, so neither violates the
    * determinism invariant. Defaults to `Date.now` at this boundary and nowhere
    * else.
+   *
+   * **Pinning this to a constant makes the logged `durationMs` exactly `0` on
+   * every request** — both ends of the measurement read this same clock, so a
+   * frozen one measures no elapsed time rather than a repeatable non-zero
+   * value. That is by design: a second, separate monotonic source would put a
+   * non-injectable time reading back inside the request path, which is what
+   * this option exists to prevent. A test or document that pins the clock
+   * cannot use `durationMs` to prove anything about timing.
    */
   now?: () => number
   onLog?: LogSink

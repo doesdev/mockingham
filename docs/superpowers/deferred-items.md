@@ -201,11 +201,33 @@ tests passing, up from a 509-test baseline, typecheck clean.
     neither half was ever true. Master §19 has been corrected at the source
     (2026-08-14, phase 12) to state the true, asymmetric behavior instead of
     the false "covered subset, warned at startup" claim.
-    **Status: documented deferral, phase 12 docs cycle.** Fixing generation to
-    honor `pattern` (a real regex-to-string generator, or at minimum a startup
-    warning naming the schema path) belongs to whoever next opens
-    `generate/values.ts`; an override or fixture is the only present escape
-    hatch. See master §19 and README's Known limitations.
+    **Status: DONE, correctness cycle (2026-08-15), commits `2a127a3` and
+    `74cebe5`.** `src/generate/pattern.ts` generates a conforming value from
+    the master §3 subset — literals, character classes, shorthand escapes,
+    anchors, alternation, groups, quantifiers, with unbounded `*`/`+` capped at
+    three repeats — drawing from the seeded `Rng` like every other generator.
+    `generateString` consults `pattern` before `format` and returns the value
+    directly, bypassing `fitLength`, which would pad or slice it out of the
+    match.
+
+    Two things the fix taught, both recorded in the cycle's design delta:
+    - **The "startup warning" half of master §19 was not merely unimplemented,
+      it was unbuildable as specified.** Nothing walks every schema at
+      construction; `compile()` is lazy and exists for request validation, so a
+      response-only schema — `Payment.currency`, the case that motivated this
+      item — is never compiled at all. The warning now fires once per pattern
+      on first generation, deduplicated in `handler.ts`. Master §3 carries a
+      correction note.
+    - **The `example` → `default` → placeholder fallback chain needed no new
+      code.** `generateValue` already returns `example` before `default` before
+      reaching `classify`, so `generateString` is only reached when neither
+      exists and its existing placeholder IS the chain's last step.
+
+    Still true, and now the whole of the limitation: a construct outside the
+    subset falls back while requests are validated against the full pattern, so
+    the two directions disagree for lookaround, backreferences, named groups
+    and unicode property escapes. An override or fixture remains the escape
+    hatch there.
 
 29. **Three MCP read-tool residuals from plan 8, rediscovered during phase 12
     rather than tracked.** All three were found and verified against
@@ -256,10 +278,19 @@ tests passing, up from a 509-test baseline, typecheck clean.
     `durationMs` from every `console` fence rather than showing the degenerate
     `0`, with a prose note explaining why a reader who tries it themselves
     under a real clock will see something else.
-    **Status: documented deferral, phase 12 docs cycle.** Not a defect —
-    `now() - startedAt` is the correct implementation for a real clock — but
-    any test or document that pins the clock cannot use `durationMs` to prove
-    anything about timing, and should not be written as though it can.
+    **Status: DONE by ruling, correctness cycle (2026-08-15), commit
+    `2933b5f`'s follow-up.** No code change. The ruling was put to the user
+    against the alternative of an explicit `options.monotonic`, and the trade
+    was declined: a second time source would put a non-injectable reading back
+    inside the request path, which is what invariant 2 exists to prevent, and
+    a diagnostic field is not worth a determinism guarantee.
+
+    What changed is that the degeneracy is no longer silent —
+    `HandlerOptions.now`'s doc comment now states that pinning the clock makes
+    `durationMs` exactly `0`, so it is discoverable at the injection point
+    rather than in a log. If observable timing under a pinned clock is ever
+    wanted, `options.monotonic` is the shape, and it needs its own cycle and
+    its own determinism argument.
 
 31. **The cross-process half of the determinism invariant has no automated
     coverage.** `scripts/determinism.ts` exists to be run twice, as two
@@ -278,10 +309,19 @@ tests passing, up from a 509-test baseline, typecheck clean.
     proves it) and in the docs-design spec §3.2 during Task 10 (which had
     itself claimed "the test that runs it" — see that document's 2026-08-14
     correction note).
-    **Status: documented deferral, phase 12 docs cycle.** Wiring
-    `scripts/determinism.ts` into `npm test` — spawning it twice as real child
-    processes and diffing stdout — is real, buildable coverage; phase 12's
-    no-code-change boundary is why it wasn't done here.
+    **Status: DONE, correctness cycle (2026-08-15), commit `2933b5f`.**
+    `test/determinism/cross-process.test.ts` spawns `scripts/determinism.ts`
+    twice as real child processes and byte-compares stdout.
+
+    The guards matter as much as the comparison and precede it: two crashed
+    processes both print nothing and compare equal, which is shape 12 in the
+    test-cannot-fail ledger and is exactly what the previous determinism proof
+    did. The test asserts both exit codes are `0`, that stdout is non-empty,
+    that it carries one line per probed path, and that each line contains a
+    generated body — then compares. Verified by mutation twice:
+    `Math.random()` in `generateInteger` fails the byte comparison with
+    divergent ids, and a throwing script fails the exit-code guard rather than
+    passing on two empty strings.
 
 33. **`4XX`/`5XX` range response keys are silently mis-parsed.**
     `src/spec/load.ts:34` uses `Number.parseInt(code, 10)` on every response
@@ -294,8 +334,34 @@ tests passing, up from a 509-test baseline, typecheck clean.
     exactly this case. Found correcting README.md's error-contract guarantee
     during the phase 12 fix wave. This is a source defect; the fix wave's
     boundary is no `src/` changes.
-    **Status: documented deferral, phase 12 docs cycle.** Fix belongs to
-    whichever cycle next opens `src/spec/load.ts`.
+    **Status: DONE, correctness cycle (2026-08-15), commits `8f0f0ec` and
+    `ee81d8b`.** `toResponses` now tests a key before converting it —
+    `/^[1-5]XX$/` for a range, `/^[1-5][0-9]{2}$/` for an exact status — and a
+    range carries its bucket's lower bound in `status` plus a `range` flag, so
+    every existing `response.status === x` comparison keeps its meaning.
+    `responseForStatus` resolves exact, then the range whose bucket contains
+    the status, then `default`, restamped with the REQUESTED status: a 422
+    served from a `4XX` contract is a 422.
+
+    **This entry understated the defect, which reproduction caught before the
+    fix was designed.** It is not only a silent downgrade to the envelope.
+    When a range key is an operation's ONLY declared response, selection fell
+    through to `responses[0]` — status `4` — and `new Response` rejects
+    anything outside 200–599, so the operation returned a hard 500 reporting
+    the document's own valid OpenAPI as `MOCK_INTERNAL`. Reproduced before and
+    after; it now serves 400.
+
+    Two further notes for whoever reads this next:
+    - **Key parsing was tightened beyond the reported defect, by user ruling.**
+      `'200abc'` used to load as 200 and `'99'` as 99. Both are now skipped.
+      Loading a malformed key under a plausible-looking number is how this
+      defect stayed invisible for ten plans.
+    - **`1XX` parses but is never selected.** Its bound of 100 is below the 200
+      floor `new Response` enforces, so there is no status it can be served as;
+      it degrades to the built-in envelope rather than throwing. This is the
+      only case the `servable()` guard in `select.ts` handles — verified by
+      mutation, since the range-only 500 is closed by the loader fix, not by
+      that guard.
 
 34. **`process.stdout.write(util.inspect(x))` bypasses `assertPrintableLogs`
     entirely.** `test/docs/fence-checks.ts`'s `assertPrintableLogs` only scans
