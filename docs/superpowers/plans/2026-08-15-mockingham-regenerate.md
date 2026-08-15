@@ -1,5 +1,24 @@
 # mockingham regenerate_fixture Implementation Plan
 
+> **EXECUTED 2026-08-15**, branch `plan-12-regenerate`, 1050 → 1076 tests.
+> All four tasks landed. **Nothing is deferred after this** — every tool
+> master §15 declares now ships.
+>
+> **The defect the plan did not anticipate, found reviewing the branch:** the
+> MCP tool always passes an `only` object, with undefined fields when the
+> caller gave no arguments, and undefined fields matched every operation. So
+> `regenerate_fixture` with no arguments re-baked the *entire document* —
+> reproduced at three source calls against a three-operation document. A scope
+> that is present but identifies no operation now throws before anything
+> reaches the source. An absent scope still bakes everything, because that is
+> the ordinary bake.
+>
+> **What the docs harness caught that review did not:** the fixtures guide's
+> new prose claimed `getPayment` 404 would be reported as `skipped`. It has a
+> JSON body, so it is planned, attempted, and reported as `failed`. The
+> harness fails a wrong *explanation*, not just a wrong fence — which is most
+> of why the guide's examples are executed rather than illustrative.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the last deferral. Ship `regenerate_fixture` as a scoped
