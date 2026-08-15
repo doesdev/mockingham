@@ -158,6 +158,19 @@ const rangeDoc = {
           }
         }
       }
+    },
+    '/only-informational': {
+      get: {
+        operationId: 'onlyInformational',
+        responses: {
+          '1XX': {
+            description: 'informational only',
+            content: {
+              'application/json': { schema: { type: 'object' } }
+            }
+          }
+        }
+      }
     }
   }
 }
@@ -187,4 +200,18 @@ test('an operation whose only response is a range still serves', async () => {
   const handle = createHandler(rangeApi, { seed: 'contract' }).fetch
   const response = await handle(new Request('http://mock/only-ranged'))
   assert.equal(response.status, 400)
+})
+
+test('a 1XX-only operation degrades instead of throwing', async () => {
+  // `new Response` rejects any status below 200, so a `1XX` bound of 100 has
+  // no servable form. Selection skips it, which lands on the ordinary
+  // no-response path — a 501 the mock chooses, not a RangeError escaping as
+  // MOCK_INTERNAL. The message says "declares no responses", which is loose
+  // for a document that declares a 1XX; it is the pre-existing wording for
+  // "nothing selectable" and is left alone rather than special-cased.
+  const handle = createHandler(rangeApi, { seed: 'contract' }).fetch
+  const response = await handle(new Request('http://mock/only-informational'))
+  const body = (await response.json()) as { error?: { code?: string } }
+  assert.equal(response.status, 501)
+  assert.equal(body.error?.code, 'MOCK_NO_RESPONSE')
 })

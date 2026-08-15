@@ -63,9 +63,10 @@ export function generateValue(
       case 'enum':
         return rng.pick(kind.values)
       case 'string':
-        return generateString(merged, rng, {
-          onUnsupportedPattern: options.onUnsupportedPattern
-        })
+        // `GenerateOptions` already satisfies `StringOptions` structurally, so
+        // this passes through rather than rebuilding a one-field object for
+        // every string generated.
+        return generateString(merged, rng, options)
       case 'integer':
         return generateInteger(merged, rng)
       case 'number':
