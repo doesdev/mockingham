@@ -14,6 +14,21 @@ export interface Selection {
  */
 const DEFAULT_STATUS = 200
 
+/** The lowest status `new Response` accepts. Below this there is nothing to serve. */
+const MIN_SERVABLE_STATUS = 200
+
+/**
+ * A range response (`4XX`) carries its bucket's lower bound in `status`, which
+ * for 2XX-5XX is already the status it should go on the wire as — 400 for
+ * `4XX`, and so on. So no restamping is needed, and only one case has to be
+ * excluded: `1XX`, whose bound of 100 is below the 200 floor `new Response`
+ * enforces. Selecting it threw a RangeError and surfaced the document's own
+ * valid OpenAPI as MOCK_INTERNAL.
+ */
+function servable(spec: ResponseSpec): boolean {
+  return !spec.range || spec.status >= MIN_SERVABLE_STATUS
+}
+
 /** Reads one `Prefer` directive, e.g. `status=201` or `example=empty-list`. */
 export function preferred(request: Request, key: string): string | undefined {
   const header = request.headers.get('prefer')
@@ -30,7 +45,8 @@ export function selectResponse(
   const wanted = preferred(request, 'status')
   if (wanted !== undefined) {
     const found = operation.responses.find(
-      (response) => response.status === Number.parseInt(wanted, 10)
+      (response) =>
+        response.status === Number.parseInt(wanted, 10) && servable(response)
     )
     // An undeclared Prefer status falls through to the normal choice rather
     // than failing: the client asked for something this operation cannot do.
@@ -39,17 +55,18 @@ export function selectResponse(
 
   if (staticStatus !== undefined) {
     const found = operation.responses.find(
-      (response) => response.status === staticStatus
+      (response) => response.status === staticStatus && servable(response)
     )
     if (found) return { spec: found, source: 'config' }
   }
 
   const success = operation.responses.find(
-    (response) => response.status >= 200 && response.status < 300
+    (response) =>
+      response.status >= 200 && response.status < 300 && servable(response)
   )
   if (success) return { spec: success, source: 'default' }
 
-  const first = operation.responses[0]
+  const first = operation.responses.find(servable)
   if (first) return { spec: first, source: 'default' }
 
   if (operation.defaultResponse) {
@@ -73,9 +90,19 @@ export function responseForStatus(
   status: number
 ): ResponseSpec | undefined {
   const declared = operation.responses.find(
-    (response) => response.status === status
+    (response) => response.status === status && !response.range
   )
   if (declared) return declared
+  // OpenAPI precedence: an exact status, then the range whose bucket contains
+  // it, then `default`. Restamped with the REQUESTED status, not the bucket's
+  // bound — a 422 served from a `4XX` contract is a 422.
+  const ranged = operation.responses.find(
+    (response) =>
+      response.range === true &&
+      status >= response.status &&
+      status < response.status + 100
+  )
+  if (ranged) return { ...ranged, status }
   if (operation.defaultResponse) {
     return { ...operation.defaultResponse, status }
   }
