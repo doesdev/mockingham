@@ -219,6 +219,16 @@ response that triggered them: a throw while building an emission reaches
 in-process with no receiver and no network. See
 [docs/webhooks.md](docs/webhooks.md).
 
+### The import surface
+
+Everything public comes from the package root — `createMock`, `loadApi`, the
+fixture store and content-source factories, and every published type — as in
+the quickstart above. `package.json` declares an `exports` map with that one
+entry, so paths inside `src/` are not importable: they are implementation
+detail, and an internal path that works today would otherwise become a
+compatibility obligation tomorrow. If something you need is not exported from
+the root, that is a gap worth reporting rather than routing around.
+
 ### Fixtures and LLM content
 
 A fixture is a reviewed, committed response body on disk. `mockingham bake`
