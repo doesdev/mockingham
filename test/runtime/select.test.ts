@@ -80,7 +80,7 @@ test('responseForStatus returns undefined when neither exists', () => {
   assert.equal(responseForStatus(op([res(200)]), 401), undefined)
 })
 
-/** A range response — `status` is the bucket's lower bound, per load.ts. */
+/** A range response - `status` is the bucket's lower bound, per load.ts. */
 function range(bound: number): ResponseSpec {
   return { status: bound, range: true, headers: {}, content: {} }
 }

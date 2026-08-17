@@ -35,7 +35,7 @@ export function resolveWebhook(config: WebhookConfig = {}): ResolvedWebhook {
 /**
  * Where a callback URL captured from a runtime expression is stored. Exported
  * because the capture side (the request pipeline) WRITES the key this module
- * READS — two independent spellings of one convention drift silently, with both
+ * READS - two independent spellings of one convention drift silently, with both
  * test suites green in isolation. The same reasoning as `failure.ts`'s exported
  * key builders.
  */
@@ -57,7 +57,7 @@ export interface DeliveryLog {
  * In memory rather than in the `Store`: `deliveries()` returns an array, and
  * `Store` has no enumeration primitive. Widening that interface for one caller
  * was rejected when the same trade-off arose for `reset()`. The consequence is
- * documented — retry attempt state is shared when the Store is, the capture log
+ * documented - retry attempt state is shared when the Store is, the capture log
  * is per-process.
  */
 export function createDeliveryLog(max: number = MAX_DELIVERIES): DeliveryLog {
@@ -98,7 +98,7 @@ export interface EmitInput {
  * Resolve a destination, generate and layer a payload, sign it, deliver it.
  *
  * An unknown webhook name THROWS rather than resolving to a failed delivery.
- * §13's "an emit never hard-fails" is about delivery — a name that is not in
+ * §13's "an emit never hard-fails" is about delivery - a name that is not in
  * the document is a typo, and `compileTarget` and `resolveTarget` already fail
  * loudly on those rather than silently never firing.
  */

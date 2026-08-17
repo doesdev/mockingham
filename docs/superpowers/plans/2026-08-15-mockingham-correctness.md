@@ -2,24 +2,24 @@
 
 > **EXECUTED 2026-08-15**, branch `plan-11-correctness`, 1000 → 1050 tests.
 > All six tasks landed; deferred items 28, 30, 31 and 33 are closed in the
-> ledger. The checkboxes below were not ticked as it ran — the commits and
+> ledger. The checkboxes below were not ticked as it ran - the commits and
 > `docs/superpowers/deferred-items.md` are the record.
 >
 > **Three things the plan got wrong, all caught by running its own mutation
 > steps rather than by re-reading them:**
-> 1. Task 1's sort mutation was vacuous — an exact key is integer-like and JS
+> 1. Task 1's sort mutation was vacuous - an exact key is integer-like and JS
 >    iterates it before a string range key, so the tiebreak is unobservable
 >    through `loadApi`. The test was rewritten to say what it really guards.
 > 2. Task 2's restamp was unnecessary (a range bound already equals its wire
 >    status) and its second mutation was wrong (the range-only 500 is closed by
 >    Task 1's loader fix, not the `servable` guard).
-> 3. Task 3's mutation was vacuous — pinning a repeat count to `max` satisfies
+> 3. Task 3's mutation was vacuous - pinning a repeat count to `max` satisfies
 >    every bound assertion, so quantifier seeding was untested until a test was
 >    added that observes more than one length.
 >
 > **And one defect the plan did not anticipate at all:** ranges share a status
 > with an exactly declared response, which collided in `bake`'s per-status
-> fixture key — three generated, two stored, reported as success. Found by
+> fixture key - three generated, two stored, reported as success. Found by
 > reviewing the branch, not by the suite. See the final two commits.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -29,7 +29,7 @@ deliberately did not fix. Nothing here is a feature; every task closes a gap
 between what the spec promises and what the code does.
 
 **Architecture:** Three independent seams and one doc change. Range response
-keys are a loader change plus a selection change — the loader learns a
+keys are a loader change plus a selection change - the loader learns a
 representation, selection learns a precedence and a restamp. `pattern` is a new
 leaf-value producer called from the one place strings are generated; the
 fallback chain it needs already exists and must not be rebuilt. Cross-process
@@ -41,7 +41,7 @@ determinism is a test that spawns the script nobody runs.
 **Spec:** `docs/superpowers/specs/2026-08-15-mockingham-correctness-design.md`
 Read it before Task 1. The master contract is
 `docs/superpowers/specs/2026-08-11-mockingham-design.md`; the delta wins where
-they disagree — including on the `pattern` warning, which the delta amends from
+they disagree - including on the `pattern` warning, which the delta amends from
 §3's "startup warning" to first-encounter.
 
 ## Global Constraints
@@ -55,7 +55,7 @@ they disagree — including on the `pattern` warning, which the delta amends fro
   `Set`/object in a generation path.
 - **One schema interpretation.** No new schema traversal. The pattern generator
   is a leaf producer called from `generateString`, not a walk.
-- **US English spelling** everywhere — `honor`, `behavior`, `serialize`,
+- **US English spelling** everywhere - `honor`, `behavior`, `serialize`,
   `normalize`, `canceled`.
 - **One plain command per Bash call, with literal arguments.** No `&&`, `||`,
   `;`, pipes, `$(...)`, `VAR=value` prefixes, heredocs, `>` redirects, or `cd`.
@@ -65,7 +65,7 @@ they disagree — including on the `pattern` warning, which the delta amends fro
   Write the test first, watch it fail, then implement.
 - `npx tsc --noEmit` must stay clean.
 - **`npm test` starts at 1000 passing and is EXPECTED to go red during Task 4.**
-  See that task's warning — changing generated values changes byte-compared doc
+  See that task's warning - changing generated values changes byte-compared doc
   fences. Do not "fix" that by reverting the generator.
 
 ---
@@ -85,7 +85,7 @@ they disagree — including on the `pattern` warning, which the delta amends fro
 | File | Change |
 |---|---|
 | `src/spec/types.ts` | `ResponseSpec.range?: boolean` |
-| `src/spec/load.ts` | `toResponses` — strict key parsing, range representation, total sort |
+| `src/spec/load.ts` | `toResponses` - strict key parsing, range representation, total sort |
 | `src/runtime/select.ts` | Range precedence in `responseForStatus`; restamp and 1XX skip in `selectResponse` |
 | `src/generate/values.ts` | `generateString` consults `pattern` before `format`, bypasses `fitLength` |
 | `src/generate/generate.ts` | `GenerateOptions.onUnsupportedPattern`, threaded to `generateString` |
@@ -94,7 +94,7 @@ they disagree — including on the `pattern` warning, which the delta amends fro
 | `test/runtime/select.test.ts` | Precedence, restamp, 1XX |
 | `test/generate/values.test.ts` | Pattern honored, `fitLength` bypassed |
 | `docs/superpowers/specs/2026-08-11-mockingham-design.md` | §3 warning wording, §19 retire the correction note |
-| `README.md` | Known limitations — `pattern` no longer unsupported |
+| `README.md` | Known limitations - `pattern` no longer unsupported |
 | `docs/superpowers/deferred-items.md` | Close items 28, 30, 31, 33 |
 
 **Ordering rationale:** the two range tasks are sequential on the same feature
@@ -124,7 +124,7 @@ In `test/spec/load.test.ts`:
 test('a 4XX range key loads as status 400 flagged as a range', () => {
   const api = loadApi(docWithResponses({ '4XX': errorResponse }))
   const [spec] = api.operations[0].responses
-  // 400, NOT 4 — Number.parseInt('4XX', 10) is 4, which is what shipped.
+  // 400, NOT 4 - Number.parseInt('4XX', 10) is 4, which is what shipped.
   assert.equal(spec.status, 400)
   assert.equal(spec.range, true)
 })
@@ -162,7 +162,7 @@ test('every range bucket 1XX through 5XX is recognized', () => {
 ```
 
 Run `node --test test/spec/load.test.ts`. The first, third, fourth, and fifth
-must fail. **If the second passes already, that is correct** — `range` is
+must fail. **If the second passes already, that is correct** - `range` is
 undefined today because the field does not exist; keep it as a regression guard
 but do not count it as evidence.
 
@@ -181,7 +181,7 @@ const EXACT_KEY = /^[1-5][0-9]{2}$/
 // '200abc' as 200, which is how a declared error contract loaded unreachable.
 ```
 
-Sort must be total — by `status`, then exact before range:
+Sort must be total - by `status`, then exact before range:
 
 ```ts
 responses.sort((a, b) =>
@@ -192,11 +192,11 @@ responses.sort((a, b) =>
 - [ ] **Step 3: Verify by mutation**
 
 Delete the `|| Number(...)` tiebreak. The exact-sorts-before-range test must
-fail. **Validate this mutation before trusting it** — if the test still passes,
+fail. **Validate this mutation before trusting it** - if the test still passes,
 the input order in the fixture is doing the work and the test is wrong, not the
 mutation.
 
-- [ ] **Step 4:** `npx tsc --noEmit` clean. Full `npm test` — note any test that
+- [ ] **Step 4:** `npx tsc --noEmit` clean. Full `npm test` - note any test that
 moves. Adding `range` should move nothing; a response count changing means a
 document in the fixtures had a malformed key that used to load, which is a
 finding worth reporting, not silently accepting.
@@ -266,7 +266,7 @@ const RANGE_STATUS = { 2: 200, 3: 300, 4: 400, 5: 500 } as const
 function servable(spec: ResponseSpec): ResponseSpec | undefined {
   if (!spec.range) return spec
   const stamped = RANGE_STATUS[Math.floor(spec.status / 100) as 2 | 3 | 4 | 5]
-  // 1XX has no servable status at all — new Response requires >= 200.
+  // 1XX has no servable status at all - new Response requires >= 200.
   return stamped === undefined ? undefined : { ...spec, status: stamped }
 }
 ```
@@ -280,7 +280,7 @@ const ranged = operation.responses.find(
 if (ranged) return { ...ranged, status }
 ```
 
-Note the restamp to the *requested* status there, not the bound — a 422 served
+Note the restamp to the *requested* status there, not the bound - a 422 served
 from a `4XX` contract is a 422.
 
 In `selectResponse`, the 2xx finder and the `responses[0]` fallback both route
@@ -288,7 +288,7 @@ through `servable()` and skip a spec it rejects.
 
 - [ ] **Step 3: Verify by mutation**
 
-Two separate mutations, run one at a time — item 10 in the test-cannot-fail
+Two separate mutations, run one at a time - item 10 in the test-cannot-fail
 ledger is two paths where one masks the other, and `responseForStatus` and
 `selectResponse` are exactly that shape here:
 
@@ -308,7 +308,7 @@ ledger is two paths where one masks the other, and `responseForStatus` and
 - Create: `src/generate/pattern.ts`, `test/generate/pattern.test.ts`
 
 **Interfaces:**
-- `generateFromPattern(pattern: string, rng: Rng): string | undefined` —
+- `generateFromPattern(pattern: string, rng: Rng): string | undefined` -
   `undefined` when the pattern uses anything outside the supported subset, which
   is the caller's signal to fall back.
 
@@ -320,7 +320,7 @@ unicode property escapes.
 
 - [ ] **Step 1: Write the failing tests**
 
-Every test asserts the generated value **matches the pattern** — never that two
+Every test asserts the generated value **matches the pattern** - never that two
 components agree. Shape 2 in the test-cannot-fail ledger is asserting agreement
 instead of correctness, and generation-versus-validation agreement is the exact
 bug this item is about.
@@ -344,7 +344,7 @@ test('an unsupported construct returns undefined rather than a wrong value', () 
 })
 
 test('the same seed produces the same value', () => {
-  // Determinism, invariant 2 — asserted on the producer directly.
+  // Determinism, invariant 2 - asserted on the producer directly.
   assert.equal(
     generateFromPattern('^[a-z]{8}$', createRng('fixed')),
     generateFromPattern('^[a-z]{8}$', createRng('fixed'))
@@ -362,26 +362,26 @@ test('different seeds produce different values for a wide pattern', () => {
 ```
 
 That last test exists because the determinism test alone passes against a
-hardcoded return value — shape 4 in the ledger, determinism making a test
+hardcoded return value - shape 4 in the ledger, determinism making a test
 toothless by default.
 
 - [ ] **Step 2: Implement**
 
 A small recursive-descent parser to an alternation/sequence/atom tree, then a
 seeded emit pass. `*` emits 0–3 repetitions, `+` emits 1–3, both via `rng.int`.
-Anchors parse and emit nothing. Return `undefined` from the parser — not a
-throw — on any unsupported construct, and let the caller decide.
+Anchors parse and emit nothing. Return `undefined` from the parser - not a
+throw - on any unsupported construct, and let the caller decide.
 
 - [ ] **Step 3: Verify by mutation**
 
 Replace the `rng.int` in the quantifier emitter with a constant `1`. The
 `{2,8}` test must still pass (1 is out of range only for `{2,8}`, so pick the
-mutation to bite: use a constant `0`) — **validate which constant actually
+mutation to bite: use a constant `0`) - **validate which constant actually
 falls outside the tested bounds before trusting this step.** The prescribed
 mutation being vacuous is the single most common failure in this project's
 plans; eight of plan 7's sixteen tasks had one.
 
-- [ ] **Step 4:** `npx tsc --noEmit`, full `npm test`. Nothing should move yet —
+- [ ] **Step 4:** `npx tsc --noEmit`, full `npm test`. Nothing should move yet -
 this module has no callers until Task 4.
 
 ---
@@ -432,7 +432,7 @@ test('an unsupported pattern warns once across many generations', () => {
   for (let i = 0; i < 5; i++) {
     generateString(schema, rng, { onUnsupportedPattern: (p) => seen.push(p) })
   }
-  // Dedupe lives in handler.ts, so at this level it fires every time —
+  // Dedupe lives in handler.ts, so at this level it fires every time -
   // assert the COUNT the producer is responsible for, and test dedupe
   // separately through createMock rather than asserting it here.
   assert.equal(seen.length, 5)
@@ -450,7 +450,7 @@ test('createMock warns once per pattern across requests', async () => {
 })
 ```
 
-Note the warning test asserts a count and a substring, not an order — the delta
+Note the warning test asserts a count and a substring, not an order - the delta
 records that warning order varies with request order.
 
 - [ ] **Step 2: Implement**
@@ -463,7 +463,7 @@ if (schema.pattern !== undefined) {
   // Returned directly: fitLength would append or slice and break the match.
   if (value !== undefined) return value
   options?.onUnsupportedPattern?.(schema.pattern)
-  // Falls through to the placeholder — `example` and `default` were already
+  // Falls through to the placeholder - `example` and `default` were already
   // consulted by generateValue before this was ever called.
 }
 ```
@@ -475,7 +475,7 @@ In `handler.ts`, build it over a dedupe set held outside the request path:
 
 ```ts
 const warnedPatterns = new Set<string>()
-// Membership only — never iterated, so invariant 2 is untouched.
+// Membership only - never iterated, so invariant 2 is untouched.
 const onUnsupportedPattern = (pattern: string) => {
   if (warnedPatterns.has(pattern)) return
   warnedPatterns.add(pattern)
@@ -492,7 +492,7 @@ must fail and the warn-once test must still pass. Then remove the
 - [ ] **Step 4: Reconcile the docs suite**
 
 Run `node --test test/docs/`. Update every fence whose value moved. Report the
-list of changed documents and values in the commit message — a reader of the
+list of changed documents and values in the commit message - a reader of the
 diff must be able to tell a legitimate regeneration from an accidental one.
 
 - [ ] **Step 5:** `npx tsc --noEmit`, full `npm test` back to green.
@@ -515,8 +515,8 @@ test('two separate processes produce byte-identical output', () => {
   const second = runOnce()
 
   // Guards before the comparison: two crashed processes both print nothing
-  // and compare equal. This is shape 12 — the designated proof that proves
-  // nothing — and it is the exact shape the previous determinism proof had.
+  // and compare equal. This is shape 12 - the designated proof that proves
+  // nothing - and it is the exact shape the previous determinism proof had.
   assert.equal(first.status, 0, first.stderr)
   assert.equal(second.status, 0, second.stderr)
   assert.equal(first.stdout.trim().split('\n').length, 3)
@@ -528,7 +528,7 @@ test('two separate processes produce byte-identical output', () => {
 - [ ] **Step 2: Verify by mutation**
 
 Introduce `Math.random()` into a generation path the petstore document reaches
-— `generateInteger`'s `rng.int` call is the direct one — and confirm the two
+(`generateInteger`'s `rng.int` call is the direct one) and confirm the two
 stdouts diverge and the test fails on the byte comparison, not on a guard.
 **Name the exact line; do not break something adjacent.** Plan 5's dead 5xx
 test survived two mutation checks because both broke a nearby line.
@@ -551,7 +551,7 @@ test fails on the exit-code assertion rather than passing on two empty strings.
 §3's `pattern` paragraph: change "emits a single startup warning" to the
 first-encounter behavior the delta amends it to, and state the `*`/`+` cap.
 
-§19: retire the 2026-08-14 correction note — it describes a gap this cycle
+§19: retire the 2026-08-14 correction note - it describes a gap this cycle
 closed. Replace it with the true remaining limitation: the subset is minimal,
 lookaround and backreferences fall back, and a `pattern` that conflicts with
 `minLength`/`maxLength` resolves in the pattern's favor.
@@ -571,7 +571,7 @@ covers and what falls back.
 
 Items 28, 30, 31, and 33 each get a `**Status: DONE**` line naming this cycle
 and its commits, in the style items 6 and 29 already use. Item 33's entry must
-record the 500 that the original entry missed — the ledger is the durable record
+record the 500 that the original entry missed - the ledger is the durable record
 and the escalation is the most useful thing this cycle learned about it.
 
 - [ ] **Step 5:** Full `npm test`, `npx tsc --noEmit`, and `node --test test/docs/`.

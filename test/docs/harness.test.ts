@@ -88,7 +88,7 @@ test('strings, template literals and JSON.stringify are accepted', () => {
   assertPrintableLogs('console.log(JSON.stringify(payment, null, 2))', 'doc.md', 3)
 })
 
-test('a relative import into src is rejected — a reader cannot write one', () => {
+test('a relative import into src is rejected - a reader cannot write one', () => {
   assert.throws(
     () => assertBareSpecifier("import { createMock } from '../src/index.ts'", 'doc.md', 3),
     /bare specifier/
@@ -229,7 +229,7 @@ test('assembleProgram rewrites a double-quoted specifier to the entry path', () 
 
 test('assembleProgram leaves a same-named seed literal untouched', () => {
   // 'mockingham' is the CLI's own documented default seed (cli.ts USAGE and
-  // the mcp USAGE), so a guide writing `seed: 'mockingham'` is plausible —
+  // the mcp USAGE), so a guide writing `seed: 'mockingham'` is plausible -
   // and must not be rewritten into a file path, which would make the
   // harness record output for a seed no reader could reproduce.
   const fences = extractFences(
@@ -280,7 +280,7 @@ test('a document whose program throws fails with the child stderr attached', asy
 
 // Fix round 1: a CRLF-terminated document must not extract zero fences and
 // pass vacuously. Checking `result.stdout` directly (rather than only that
-// assertDocument resolves) is deliberate — with the bug present, both the
+// assertDocument resolves) is deliberate - with the bug present, both the
 // expected output and the actual output degrade to the empty string, so
 // "does not throw" alone cannot distinguish a real pass from a vacuous one.
 test('a CRLF document normalizes line endings and its fences still run', async () => {
@@ -314,7 +314,7 @@ test('a mismatch error includes a stderr section, marked empty when there is non
 // fires is the same defect the ledger entries it closes were about.
 
 test('a document writing to stdout outside console.log is rejected', async () => {
-  // Deferred item 34. This document produces correct, stable output — the
+  // Deferred item 34. This document produces correct, stable output - the
   // objection is the route, which the old substring scan could not see.
   await assert.rejects(
     assertDocument(new URL('./fixtures/stdout-bypass.md', import.meta.url).pathname),

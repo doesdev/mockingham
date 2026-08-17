@@ -97,7 +97,7 @@ test('a scheme type this mock cannot inspect is not enforced as bearer', async (
   // `mutualTLS` is valid OpenAPI 3.1 and carries its credential in the TLS
   // handshake, which a mock never sees. It used to fall through to the bearer
   // branch, so a document declaring it 401'd on every request with no way to
-  // satisfy the requirement — and a typo'd type behaved the same way, because
+  // satisfy the requirement - and a typo'd type behaved the same way, because
   // `toSecuritySchemes` casts rather than validates. Deferred item 13.
   const doc = {
     openapi: '3.1.0',

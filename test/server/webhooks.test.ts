@@ -142,7 +142,7 @@ test('a rejected request captures nothing', async () => {
 })
 
 test('an operation declaring no callbacks captures nothing', async () => {
-  // Must exercise a request that MATCHES an operation with no callbacks —
+  // Must exercise a request that MATCHES an operation with no callbacks -
   // not an unmatched route, which never reaches the `entry.specs.length > 0`
   // check this test's name implies it covers.
   const handler = createHandler(api, { seed: 'hooks' })
@@ -206,7 +206,7 @@ test('an unsupported expression warns once at construction and is skipped', asyn
 
 test('a mixed-template expression with one unresolvable token captures nothing', async () => {
   // `resolveExpression` returns { ok: false } if ANY token in a template
-  // fails. A half-substituted URL must never be captured — it would be
+  // fails. A half-substituted URL must never be captured - it would be
   // delivered somewhere unintended, which is worse than not delivering.
   const mixed = loadApi({
     ...doc,
@@ -325,8 +325,8 @@ test('two emissions of one webhook get different payloads, and a replay reproduc
 test('two different webhooks each advance their own delivery counter', async () => {
   // The payload rng is keyed by `webhook|${name}` plus a per-name counter. A
   // regression to one shared counter across every webhook name would leave
-  // every other test in this file green — none of them emits two DIFFERENT
-  // webhooks from the same handler — so this compares a webhook's first
+  // every other test in this file green - none of them emits two DIFFERENT
+  // webhooks from the same handler - so this compares a webhook's first
   // delivery in isolation against its first delivery after another webhook
   // has already advanced a (hypothetically) shared counter.
   const solo = createHandler(api, {
@@ -359,7 +359,7 @@ test('an operation-linked emit fires after the response and is drained by settle
 
   const response = await handler.fetch(subscribe())
 
-  // The response does not wait for the emission — §13.
+  // The response does not wait for the emission - §13.
   assert.equal(response.status, 201)
   assert.deepEqual(handler.deliveries(), [])
 
@@ -682,7 +682,7 @@ test('settled() waits for an in-flight imperative emit', async () => {
   releaseFetch?.()
   await settling
 
-  // `settled()` alone must be sufficient — not the `emitting` promise below,
+  // `settled()` alone must be sufficient - not the `emitting` promise below,
   // which would complete the delivery regardless of whether `track()` was
   // ever called.
   assert.equal(handler.deliveries().length, 1)
@@ -712,7 +712,7 @@ test('close() drains an in-flight imperative emit before returning', async () =>
   releaseFetch?.()
   await closing
 
-  // close() only returned once the in-flight delivery had actually landed —
+  // close() only returned once the in-flight delivery had actually landed -
   // draining, not dropping, an emission that is already in flight. Asserted
   // before `emitting` is awaited: the point is that `close()` alone was
   // sufficient, not that awaiting the emit promise directly completed it.
@@ -732,7 +732,7 @@ test('close() with a real (non-injected) sleep and a large afterMs returns promp
   const handler = createHandler(api, {
     seed: 'hooks',
     captureOnly: true,
-    // No `sleep` injected — this is the real `setTimeout` path.
+    // No `sleep` injected - this is the real `setTimeout` path.
     operations: { subscribe: { emits: [{ webhook: 'onOrderShipped', afterMs: 5_000 }] } }
   })
 
@@ -769,7 +769,7 @@ test('settled() resolves rather than hanging after close() cancels a real timer'
  * Deferred item 24: the promptness tests above pass with `clearTimeout` removed
  * from `close()`, because `entry.resolve()` alone unblocks the wait. The only
  * observable difference is a real timer left running, which nothing in the
- * suite measures — so the regression it guards (a CLI shutdown hanging for up
+ * suite measures - so the regression it guards (a CLI shutdown hanging for up
  * to `afterMs`) could return silently. Watching the call closes that.
  */
 function watchTimers() {

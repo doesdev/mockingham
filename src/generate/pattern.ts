@@ -5,7 +5,7 @@ import type { Rng } from './rng.ts'
  * master §3: literals, character classes, anchors, and bounded quantifiers,
  * plus alternation and groups.
  *
- * Returns `undefined` — never throws — for anything outside that subset, which
+ * Returns `undefined` - never throws - for anything outside that subset, which
  * is the caller's signal to fall back to `example`, then `default`, then the
  * ordinary placeholder. The caller decides; this module only reports that it
  * cannot help.
@@ -134,7 +134,7 @@ function createParser(pattern: string) {
     if (close === -1) return node
     const inner = pattern.slice(at + 1, close)
     const bounds = /^(\d+)(,(\d*)?)?$/.exec(inner)
-    // Not a quantifier at all — a literal '{'. Left to the atom parser.
+    // Not a quantifier at all - a literal '{'. Left to the atom parser.
     if (!bounds) return node
     at = close + 1
     const min = Number.parseInt(bounds[1] as string, 10)

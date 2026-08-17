@@ -79,7 +79,7 @@ test('strict: true is honored when explicitly passed', async () => {
 
 test('json_schema mode with strict:true strips constraints real OpenAI strict mode rejects outright', async () => {
   // Stripping is only justified when strict mode is what would otherwise
-  // reject these keywords, so this test must opt into strict explicitly —
+  // reject these keywords, so this test must opt into strict explicitly -
   // it is no longer the default.
   let schema: Record<string, unknown> = {}
   const source = createOpenAiSource({
@@ -134,7 +134,7 @@ test('json_schema mode with the default strict:false sends constraints intact', 
   // With strict false (the default), OpenAI imposes no subset restriction
   // and local grammar decoders (GBNF, outlines, xgrammar) genuinely use
   // these keywords as generation guidance, so nothing should be stripped.
-  // Nothing pinned this before round 2 of task 8 — the stripping helper was
+  // Nothing pinned this before round 2 of task 8 - the stripping helper was
   // (wrongly) called unconditionally in json_schema mode.
   let schema: Record<string, unknown> = {}
   const source = createOpenAiSource({
@@ -186,7 +186,7 @@ test('json_object mode does NOT strip constraints: the full schema is useful gui
 test('stripping for strict mode does not mutate request.jsonSchema itself', async () => {
   // strict: true is required here: stripping is now gated on it, and with
   // the default (false) this test would never call stripForStrictMode at
-  // all — request.jsonSchema would pass through by reference, unprocessed,
+  // all - request.jsonSchema would pass through by reference, unprocessed,
   // and the assertion below would pass for a reason that has nothing to do
   // with what this test's name claims.
   const req = request({
@@ -316,7 +316,7 @@ test('a 200 response whose outer body is not JSON is a miss, not a throw', async
   // Distinct from the malformed-JSON test above, which is about the INNER
   // `content` string being unparseable. Here the OUTER envelope itself is
   // not valid JSON, so `response.json()` throws before `payload.choices` is
-  // even reachable — a different line, a different failure mode.
+  // even reachable - a different line, a different failure mode.
   const source = createOpenAiSource({
     baseUrl: 'http://x/v1',
     model: 'm',
@@ -353,8 +353,8 @@ test('an abort-shaped rejection (what a real timeout produces) is a miss, not a 
   // waiting on real time, which the brief for this task explicitly forbids.
   // What we CAN prove without a clock: (1) the configured timeout is wired
   // into an AbortSignal handed to fetch, and (2) the exact rejection shape a
-  // real timeout produces at the fetch boundary — a DOMException named
-  // 'AbortError' — is handled as a miss like any other fetch rejection.
+  // real timeout produces at the fetch boundary - a DOMException named
+  // 'AbortError' - is handled as a miss like any other fetch rejection.
   let sawSignal: AbortSignal | undefined
   const source = createOpenAiSource({
     baseUrl: 'http://x/v1',
@@ -394,7 +394,7 @@ test('results are positionally aligned with the requests', async () => {
 test('results stay positionally aligned when the FIRST request misses and the second succeeds', async () => {
   // Deliberately the harder direction. An implementation that sorted
   // successes before misses (or otherwise compacted/reordered) would produce
-  // [value, null] here too when the correct output is [null, value] — the
+  // [value, null] here too when the correct output is [null, value] - the
   // failure has to be caught at the front, not just proven present somewhere.
   // A miss-second variant (below) cannot catch that class of bug by itself:
   // a "successes first" implementation returns the SAME [value, null] shape
@@ -467,7 +467,7 @@ test('a trailing slash on the base url does not double the separator', async () 
 test('a per-property description from the json schema reaches the outgoing request', async () => {
   // buildRequest upstream now threads OpenAPI property descriptions into
   // jsonSchema.properties.*.description. That is deliberate prompt context;
-  // this proves the source does not drop it on the way out — in json_schema
+  // this proves the source does not drop it on the way out - in json_schema
   // mode it travels inside response_format.json_schema.schema, which is the
   // only place it can go since the schema itself is withheld from the user
   // message in that mode.

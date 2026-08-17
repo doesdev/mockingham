@@ -37,7 +37,7 @@ test('differs across different path parameters', async () => {
   const b = await (await handler(new Request('http://x/pets/43'))).json()
   assert.notDeepEqual(a, b)
 })
-// If this assertion fails it is NOT flaky — generation is deterministic, so
+// If this assertion fails it is NOT flaky - generation is deterministic, so
 // these two seeds genuinely collided on every field. Change 42/43 to two other
 // ids and it will stay passing. Do not weaken the assertion.
 
@@ -123,7 +123,7 @@ test('requestId is deterministic across handlers and distinct across calls', asy
   const one = await idFrom(first)
   const two = await idFrom(first)
 
-  // A fresh handler with the same seed replays the same sequence — that is what
+  // A fresh handler with the same seed replays the same sequence - that is what
   // "stable across processes" means for a correlation id.
   const replay = await idFrom(createHandler(api, echo).fetch)
 
@@ -147,7 +147,7 @@ test('an inbound X-Request-Id wins', async () => {
 test('the injected clock drives the default store', async () => {
   // Proves `now` actually reaches createMemoryStore rather than only the log
   // record: an outage armed with a TTL must expire when the clock advances.
-  // The outage key is `outage|<operationId>` — see outageKey and targetKey in
+  // The outage key is `outage|<operationId>` - see outageKey and targetKey in
   // src/runtime/failure.ts. No `failure` policy is needed: checkFailure reads
   // the outage key unconditionally, before it looks at any policy.
   let value = 1_000
@@ -167,7 +167,7 @@ test('decisions are populated by the time a response callback runs', async () =>
 
   const body = await (await handle(new Request('http://x/pets/42'))).json()
 
-  // petstore declares no security, so auth is 'anonymous' rather than 'ok' —
+  // petstore declares no security, so auth is 'anonymous' rather than 'ok' -
   // a real outcome, not a missing one.
   assert.deepEqual(body, { auth: 'anonymous', validation: 'ok', failure: 'ok' })
 })

@@ -2,7 +2,7 @@
 
 `checkJsonFence` read `parsed.mcpServers` and returned the moment it was
 absent, so a config shaped for a host using a different top-level key received
-no argument checking at all — `--nope` is not a flag the CLI accepts.
+no argument checking at all - `--nope` is not a flag the CLI accepts.
 
 ```ts
 import { createMock } from 'mockingham'

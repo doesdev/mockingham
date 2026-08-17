@@ -37,7 +37,7 @@ test('an unmatched control-plane target throws', async () => {
 })
 
 test('a wildcard target arms every operation it matches', async () => {
-  // Not just the first match — arming one of several would silently leave the
+  // Not just the first match - arming one of several would silently leave the
   // rest healthy while the caller believes the whole path is down.
   const instance = mock()
   await instance.outage('* /pets/**', { forMs: 60_000 })

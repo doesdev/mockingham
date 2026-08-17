@@ -26,7 +26,7 @@ export interface AuthInput {
 
 /**
  * Reads one cookie out of a `Cookie` header. Exported because request
- * validation needs exactly the same reading for `in: cookie` parameters —
+ * validation needs exactly the same reading for `in: cookie` parameters -
  * two parsers disagreeing about a cookie would be its own defect class.
  */
 export function cookieValue(
@@ -71,8 +71,8 @@ export function credentialFor(
   }
 
   // A type this build does not know how to read a credential for. `mutualTLS`
-  // is the real case — it is valid OpenAPI 3.1 and carries its credential in
-  // the TLS handshake, which a mock never sees — and a typo'd or invented type
+  // is the real case - it is valid OpenAPI 3.1 and carries its credential in
+  // the TLS handshake, which a mock never sees - and a typo'd or invented type
   // lands here too, since `toSecuritySchemes` casts rather than validates
   // (deferred item 13).
   //
@@ -103,8 +103,8 @@ function missing(scheme: string): AuthOutcome {
 
 /**
  * OpenAPI security semantics, which are easy to invert:
- *  - the `security` array is OR — any ONE requirement object satisfied is enough
- *  - within one object it is AND — every scheme named must be satisfied
+ *  - the `security` array is OR - any ONE requirement object satisfied is enough
+ *  - within one object it is AND - every scheme named must be satisfied
  *  - `security: []` means auth is explicitly NOT required, which is different
  *    from an absent `security` field
  */

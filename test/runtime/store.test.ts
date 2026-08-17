@@ -118,7 +118,7 @@ test('setIfAbsent creates once and reports which call won', async () => {
 
 test('setIfAbsent treats an expired entry as absent', async () => {
   // Expiry is lazy, so this must go through the same liveness check `get`
-  // uses rather than a bare `has` — otherwise a dead entry blocks the claim
+  // uses rather than a bare `has` - otherwise a dead entry blocks the claim
   // forever and idempotency wedges permanently instead of for the TTL.
   const time = clock()
   const store = createMemoryStore(time.now)

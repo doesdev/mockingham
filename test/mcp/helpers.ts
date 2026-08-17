@@ -9,7 +9,7 @@ import { compileConfigs } from '../../src/runtime/config.ts'
 import { mcpDoc } from './doc.ts'
 
 /**
- * The same McpContext `createMock().mcp()` builds, from an existing Mock —
+ * The same McpContext `createMock().mcp()` builds, from an existing Mock -
  * literally the same call, not a parallel one. Production and tests share one
  * construction path so the two cannot drift apart at the seam.
  */

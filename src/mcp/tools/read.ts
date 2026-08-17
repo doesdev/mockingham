@@ -30,7 +30,7 @@ export function findOperation(
     // Every supplied field must agree. This branch used to return on the
     // operationId match alone, so a caller passing a mismatched method/path
     // alongside a valid id was silently answered about a different operation
-    // than the one they named — deferred item 29a. `bake`'s scope filter
+    // than the one they named - deferred item 29a. `bake`'s scope filter
     // already refuses that; the two now behave the same way.
     if (
       (method !== undefined && found.method !== method) ||
@@ -146,8 +146,8 @@ const describeOperation: McpTool = {
 const getAuthRequirements: McpTool = {
   name: 'get_auth_requirements',
   description:
-    'The security schemes this API declares, plus — when operationId is given ' +
-    '— that operation\'s own security requirements. Without operationId only ' +
+    'The security schemes this API declares, plus - when operationId is given ' +
+    '- that operation\'s own security requirements. Without operationId only ' +
     'the schemes are returned, not a document-level default. An empty ' +
     'requirements array means the operation needs no auth.',
   inputSchema: { operationId: z.string().optional() },
@@ -199,7 +199,7 @@ const listOperations: McpTool = {
  * A path parameter the caller did not supply. Seeded on the operation and
  * parameter name and NOT on the mock's root seed: a synthesized parameter is
  * an address, not content. `set_seed` must change what `/orders/abc` returns
- * without turning it into `/orders/xyz` — otherwise every sample an agent
+ * without turning it into `/orders/xyz` - otherwise every sample an agent
  * recorded stops resolving the moment anything reseeds. It also keeps fixture
  * keys stable, since fixtureKey includes params.
  *
@@ -215,7 +215,7 @@ function synthesizeParam(operation: Operation, parameter: Parameter): string {
 const sampleResponse: McpTool = {
   name: 'sample_response',
   description:
-    'A live response for an operation, produced by the real request pipeline — ' +
+    'A live response for an operation, produced by the real request pipeline - ' +
     'the exact bytes your code will receive, not a schema you have to guess ' +
     'from. Path parameters you omit are filled with schema-valid values. Use ' +
     '`status` to ask for a specific declared response.',
@@ -340,8 +340,8 @@ const searchOperations: McpTool = {
 const listWebhooks: McpTool = {
   name: 'list_webhooks',
   description:
-    'Outbound requests this API can make — top-level webhooks and per-operation ' +
-    'callbacks — with payload schemas and which operations are configured to ' +
+    'Outbound requests this API can make - top-level webhooks and per-operation ' +
+    'callbacks - with payload schemas and which operations are configured to ' +
     'emit them. An empty emittedBy means the document declares it but nothing ' +
     'fires it.',
   inputSchema: {},
@@ -370,17 +370,17 @@ const listWebhooks: McpTool = {
         method: webhook.method.toUpperCase(),
         // Through the shared helper, so a schema the converter refuses comes
         // back as the `$comment` placeholder every other tool reports rather
-        // than as `undefined` — deferred item 29c. A recursive webhook payload
+        // than as `undefined` - deferred item 29c. A recursive webhook payload
         // was the case that exposed it.
         payloadSchema: media ? jsonSchemaOf(media.schema) : undefined,
         // A callback's owning operation is declared in the document, so it is
         // reported whether or not anything is configured to emit it. A
-        // top-level webhook has no declared owner — only config can link it.
+        // top-level webhook has no declared owner - only config can link it.
         //
         // The UNION, not a choice between the two: reporting the declaring
         // operation only when nothing was configured meant the moment any
         // operation's `emits` named this webhook, the operation that declares
-        // it vanished from the list — even when it was not among the
+        // it vanished from the list - even when it was not among the
         // configured emitters. Deferred item 29b.
         emittedBy:
           callback === undefined
@@ -395,7 +395,7 @@ const listWebhooks: McpTool = {
 const listDeliveries: McpTool = {
   name: 'list_deliveries',
   description:
-    'Webhook deliveries this mock has made so far, oldest first — the feedback ' +
+    'Webhook deliveries this mock has made so far, oldest first - the feedback ' +
     'loop for verifying your own receiver. Filter by webhook name or outcome.',
   inputSchema: {
     webhook: z.string().optional(),
@@ -404,7 +404,7 @@ const listDeliveries: McpTool = {
   handler(ctx: McpContext, args: Record<string, unknown>) {
     const webhook = args.webhook as string | undefined
     const outcome = args.outcome as string | undefined
-    // Filtered here rather than by widening Mock.deliveries() — design 3.9.
+    // Filtered here rather than by widening Mock.deliveries() - design 3.9.
     return ctx.deliveries()
       .filter((delivery) => webhook === undefined || delivery.webhook === webhook)
       .filter((delivery) => outcome === undefined || delivery.outcome === outcome)
@@ -424,7 +424,7 @@ const listFixtures: McpTool = {
     includeValues: z
       .boolean()
       .optional()
-      .describe('Default false — a whole document of values is a lot of tokens')
+      .describe('Default false - a whole document of values is a lot of tokens')
   },
   handler(ctx: McpContext, args: Record<string, unknown>) {
     const operationId = args.operationId as string | undefined
@@ -434,8 +434,8 @@ const listFixtures: McpTool = {
     // two can never disagree about what stale means.
     const hashFor = schemaHashLookup(ctx.api, compiler)
 
-    // `records()` is already sorted — persistence depends on it writing
-    // byte-identical files — so this must not re-sort by anything derived
+    // `records()` is already sorted - persistence depends on it writing
+    // byte-identical files - so this must not re-sort by anything derived
     // from object key order.
     return ctx.fixtures()
       .filter((record) => operationId === undefined || record.operationId === operationId)

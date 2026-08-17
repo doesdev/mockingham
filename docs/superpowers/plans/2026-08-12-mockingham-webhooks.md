@@ -1,30 +1,30 @@
-# mockingham Plan 6 — Webhooks and Callbacks
+# mockingham Plan 6 - Webhooks and Callbacks
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the mock emit outbound requests whose bodies conform to the
-document's declared schemas — triggered imperatively or by an operation —
+document's declared schemas - triggered imperatively or by an operation -
 delivered with retry and HMAC signing, or captured in-process with no receiver.
 
 **Architecture:** Five new modules that nothing existing imports; the dependency
 arrow points one way, from the handler into webhooks. Emission reuses the
-existing machinery wholesale — payloads come from seeded generation, are shaped
+existing machinery wholesale - payloads come from seeded generation, are shaped
 by the override layers, and carry layered headers. The only genuinely new code is
 expression resolution, signing, and delivery. The hook point is the single exit
 in `handle()`, where the response body is already captured.
 
 **Tech Stack:** TypeScript (erasable syntax only, run directly by Node ≥ 24.2),
-ESM, `node:test`, `zod` as the only hard runtime dependency. No new dependency —
+ESM, `node:test`, `zod` as the only hard runtime dependency. No new dependency -
 signing uses the `crypto.subtle` global and delivery uses `fetch`.
 
 ## Source documents
 
-- `docs/superpowers/specs/2026-08-12-mockingham-webhooks-design.md` — **this
+- `docs/superpowers/specs/2026-08-12-mockingham-webhooks-design.md` - **this
   plan's contract.** Its §2 records six amendments where the master spec collides
   with an invariant or leaves a gap. Where the two disagree, it wins.
-- `docs/superpowers/specs/2026-08-11-mockingham-design.md` — the master contract.
+- `docs/superpowers/specs/2026-08-11-mockingham-design.md` - the master contract.
   §13 webhooks, §16 config surface, §17 testing, §18 phase 8.
-- `docs/superpowers/deferred-items.md` — the process lessons, especially the
+- `docs/superpowers/deferred-items.md` - the process lessons, especially the
   test-shapes this project has learned to distrust.
 
 ## Global Constraints
@@ -32,7 +32,7 @@ signing uses the `crypto.subtle` global and delivery uses `fetch`.
 Every task's requirements implicitly include these. Breaking one is a defect even
 if the task's own tests pass.
 
-- **Node ≥ 24.2, ESM, `"type": "module"`.** Types are stripped natively — no
+- **Node ≥ 24.2, ESM, `"type": "module"`.** Types are stripped natively - no
   build step. The floor is 24.2 because `import.meta.main` needs it.
 - **Erasable syntax only.** No `enum`, no `namespace`, no parameter properties.
   Use `const X = {...} as const`.
@@ -42,7 +42,7 @@ if the task's own tests pass.
   processes. No `Math.random()`, no `Date.now()`, no iteration over an unordered
   `Set`/object in a generation path. Randomness comes from `generate/rng.ts`;
   time comes from the injected `options.now`. **Webhook backoff jitter is seeded**
-  per design §2.2 — it is not an exception to this rule, it is an application of it.
+  per design §2.2 - it is not an exception to this rule, it is an application of it.
 - **The core is pure.** `src/server/handler.ts` and everything it imports must
   not touch Node APIs. `node:` appears in exactly two files today,
   `server/node.ts` and `server/cli.ts`, and this plan keeps that true.
@@ -55,7 +55,7 @@ if the task's own tests pass.
 - **The mock keeps serving.** Everything this plan adds runs after the response
   exists. Nothing in it may throw in a way that replaces a good response.
 - **`zod` is the only hard runtime dependency.** This plan adds none.
-- **US English spelling** everywhere — identifiers, test names, comments, docs.
+- **US English spelling** everywhere - identifiers, test names, comments, docs.
   `honor`, `behavior`, `serialize`, `normalize`, `canceled`.
 - **Tests live in `test/` mirroring `src/`**, written in TypeScript, run by
   `node:test`. Write the test first, watch it fail, then implement.
@@ -82,7 +82,7 @@ typecheck. Both must hold at the end of every task.
 Six tests have reached this project's plans that **could not fail**, two of them
 during plan 5. Every one was caught by review, never by the plan author. Before
 accepting any test that claims to prove a mechanism, **observe it fail by
-mutation — and break the exact condition the test targets, not a nearby line.**
+mutation - and break the exact condition the test targets, not a nearby line.**
 Plan 5's dead test survived both its author's and its implementer's mutation runs
 because both broke something adjacent.
 
@@ -102,7 +102,7 @@ Five traps are live in this plan specifically, all named in design §6:
 
 | File | Responsibility |
 |---|---|
-| `src/spec/raw.ts` | `asRecord`, `toParameter`, `toContent` — extracted from `load.ts` so `webhooks.ts` can reuse them without an import cycle. |
+| `src/spec/raw.ts` | `asRecord`, `toParameter`, `toContent` - extracted from `load.ts` so `webhooks.ts` can reuse them without an import cycle. |
 | `src/spec/webhooks.ts` | Parse 3.1 top-level `webhooks` and per-operation `callbacks`. |
 | `src/webhooks/expr.ts` | The runtime-expression subset and its support check. |
 | `src/webhooks/sign.ts` | HMAC-SHA256 via `crypto.subtle`. |
@@ -127,7 +127,7 @@ Five traps are live in this plan specifically, all named in design §6:
 ## Task 1: Load webhooks and callbacks
 
 The document declares both shapes and `loadApi` ignores both today. This task is
-pure parsing — no runtime behavior changes.
+pure parsing - no runtime behavior changes.
 
 It opens by extracting three helpers from `load.ts` into `src/spec/raw.ts`.
 `webhooks.ts` needs them, and having `webhooks.ts` import from `load.ts` while
@@ -141,10 +141,10 @@ rewrite: the function bodies are unchanged.
 **Interfaces:**
 - Consumes: `HTTP_METHODS`, `MediaType`, `Parameter`, `Schema` (`src/spec/types.ts`).
 - Produces:
-  - `asRecord(value: unknown): Record<string, unknown>`, `toParameter(raw: unknown): Parameter`, `toContent(raw: unknown): Record<string, MediaType>` — all in `src/spec/raw.ts`
+  - `asRecord(value: unknown): Record<string, unknown>`, `toParameter(raw: unknown): Parameter`, `toContent(raw: unknown): Record<string, MediaType>` - all in `src/spec/raw.ts`
   - `interface WebhookSpec { name: string; method: HttpMethod; body?: Record<string, MediaType>; headers: Parameter[] }`
   - `interface CallbackSpec { name: string; expression: string; method: HttpMethod; body?: Record<string, MediaType> }`
-  - `toWebhooks(raw: unknown): Record<string, WebhookSpec>`, `toCallbacks(raw: unknown): CallbackSpec[]` — in `src/spec/webhooks.ts`
+  - `toWebhooks(raw: unknown): Record<string, WebhookSpec>`, `toCallbacks(raw: unknown): CallbackSpec[]` - in `src/spec/webhooks.ts`
   - `Api.webhooks: Record<string, WebhookSpec>`, `Operation.callbacks: CallbackSpec[]`
 
 - [ ] **Step 1: Write the failing test**
@@ -277,7 +277,7 @@ test('a document declaring neither yields an empty webhook map', () => {
 
 Run: `node --test test/spec/webhooks.test.ts`
 
-Expected: FAIL — `api.webhooks` is `undefined`.
+Expected: FAIL - `api.webhooks` is `undefined`.
 
 - [ ] **Step 3: Extract the shared raw-parsing helpers**
 
@@ -334,7 +334,7 @@ In `src/spec/types.ts`:
 
 ```ts
 /**
- * One outbound request the document says the API can make — a 3.1 top-level
+ * One outbound request the document says the API can make - a 3.1 top-level
  * `webhooks` entry, or a per-operation `callbacks` entry contributing its
  * payload schema under its own name.
  */
@@ -348,7 +348,7 @@ export interface WebhookSpec {
 
 /**
  * A per-operation `callbacks` entry. `expression` is the OpenAPI runtime
- * expression exactly as written — it can only be resolved against a live
+ * expression exactly as written - it can only be resolved against a live
  * request, so it stays text until then.
  */
 export interface CallbackSpec {
@@ -374,7 +374,7 @@ import type { CallbackSpec, HttpMethod, WebhookSpec } from './types.ts'
  * 3.1's top-level `webhooks`: a map of name to path item. Each entry is ONE
  * outbound request. A path item declaring several methods is unusual; the
  * first in `HTTP_METHODS` order wins, so the choice is stable rather than
- * dependent on key order in the source document — invariant 2 forbids letting
+ * dependent on key order in the source document - invariant 2 forbids letting
  * an unordered iteration decide anything observable.
  */
 export function toWebhooks(raw: unknown): Record<string, WebhookSpec> {
@@ -463,7 +463,7 @@ Expected: PASS, 7 tests.
 
 Run: `npm test`
 
-Expected: PASS. Existing `loadApi` tests must be unaffected — the helper
+Expected: PASS. Existing `loadApi` tests must be unaffected - the helper
 extraction is a move, not a rewrite. If one fails, the move changed behavior.
 
 Run: `npx tsc --noEmit`
@@ -484,7 +484,7 @@ git commit -m 'feat: load webhooks and callbacks from the document' -m 'Parses 3
 
 ## Task 2: Runtime expression resolution
 
-Destination tier 2 — the "client POSTs its own callback URL" flow — needs the
+Destination tier 2 - the "client POSTs its own callback URL" flow - needs the
 document's runtime expressions evaluated against a live request.
 
 **Files:**
@@ -617,7 +617,7 @@ test('isSupported is about form, not resolvability', () => {
 
 Run: `node --test test/webhooks/expr.test.ts`
 
-Expected: FAIL — cannot find module `src/webhooks/expr.ts`.
+Expected: FAIL - cannot find module `src/webhooks/expr.ts`.
 
 - [ ] **Step 3: Implement**
 
@@ -628,7 +628,7 @@ Create `src/webhooks/expr.ts`:
  * OpenAPI runtime expressions, restricted to the subset the master spec §13
  * documents: `$url`, `$method`, `$statusCode`,
  * `$request.{header|query|path}.name`, `$request.body#/pointer`, and the
- * `$response` equivalents that make sense for a response — `header` and `body`.
+ * `$response` equivalents that make sense for a response - `header` and `body`.
  * `$response.query` and `$response.path` are not meaningful and are rejected.
  *
  * An expression may be a whole template or mixed with literal text, because a
@@ -801,7 +801,7 @@ import { SIGNATURE_HEADER, sign } from '../../src/webhooks/sign.ts'
 
 // A KNOWN-ANSWER VECTOR, computed independently with WebCrypto. A test that
 // only asserts a signature header exists passes against any hash, including a
-// wrong one — which is the whole failure mode this vector rules out. The signed
+// wrong one - which is the whole failure mode this vector rules out. The signed
 // string is `${timestamp}.${body}`, here `1700000000.{"id":"o_1"}`.
 const SECRET = 'topsecret'
 const BODY = '{"id":"o_1"}'
@@ -849,7 +849,7 @@ test('the hex is 64 lowercase characters', async () => {
 
 Run: `node --test test/webhooks/sign.test.ts`
 
-Expected: FAIL — cannot find module `src/webhooks/sign.ts`.
+Expected: FAIL - cannot find module `src/webhooks/sign.ts`.
 
 - [ ] **Step 3: Implement**
 
@@ -859,14 +859,14 @@ Create `src/webhooks/sign.ts`:
 /**
  * HMAC-SHA256 over `timestamp + '.' + rawBody`, per master spec §13.
  *
- * `crypto.subtle` rather than `node:crypto` — see the webhooks design §2.1.
+ * `crypto.subtle` rather than `node:crypto` - see the webhooks design §2.1.
  * Emission is reachable from `src/server/handler.ts`, and invariant 3 says the
  * handler and everything it imports must not touch Node APIs. `crypto.subtle`
  * is a web global like `Request` and `TextEncoder`, which the core already
  * depends on. It is async, which costs nothing because delivery already is.
  *
- * This exists so the client's signature-verification path — the
- * security-critical one — is exercised before production rather than after.
+ * This exists so the client's signature-verification path - the
+ * security-critical one - is exercised before production rather than after.
  */
 
 export const SIGNATURE_HEADER = 'x-mockingham-signature'
@@ -1096,7 +1096,7 @@ test('the delivery carries the body and headers it was given', async () => {
 
 Run: `node --test test/webhooks/deliver.test.ts`
 
-Expected: FAIL — cannot find module `src/webhooks/deliver.ts`.
+Expected: FAIL - cannot find module `src/webhooks/deliver.ts`.
 
 - [ ] **Step 3: Implement**
 
@@ -1109,7 +1109,7 @@ export type DeliveryOutcome = 'delivered' | 'failed' | 'captured' | 'unresolved'
 
 /**
  * One outbound attempt's record. `emit()` resolves with this rather than
- * rejecting in every case, including `unresolved` and an exhausted retry —
+ * rejecting in every case, including `unresolved` and an exhausted retry -
  * master spec §13's "an emit never hard-fails" is a property of the return
  * type, not merely of the implementation.
  */
@@ -1154,7 +1154,7 @@ export function resolveRetry(config: RetryConfig = {}): ResolvedRetry {
 /**
  * Design §2.5, stated precisely because §13's two sentences narrow each other
  * and admit two implementations: retry a 5xx, a 408, and a 429; do not retry
- * any other 4xx or any 2xx. A 3xx never reaches here — `fetch` follows
+ * any other 4xx or any 2xx. A 3xx never reaches here - `fetch` follows
  * redirects itself.
  */
 export function shouldRetry(status: number): boolean {
@@ -1162,7 +1162,7 @@ export function shouldRetry(status: number): boolean {
 }
 
 /**
- * Seeded jitter, keyed by webhook and attempt — design §2.2. Invariant 2
+ * Seeded jitter, keyed by webhook and attempt - design §2.2. Invariant 2
  * forbids `Math.random()`, and keying by attempt rather than advancing one
  * stream means a delivery's delays do not depend on how many other deliveries
  * came first. That is what keeps a run replayable and a failing test
@@ -1248,7 +1248,7 @@ Expected: PASS, 11 tests.
 Change `shouldRetry` to `return true`, run the file, and confirm
 `a 404 does not retry` fails on the attempt count. Restore it. Then change
 `backoffFor` to `return 100`, run again, and confirm the 500 test fails on the
-delay sequence. Restore. **Report both failure messages** — they are what
+delay sequence. Restore. **Report both failure messages** - they are what
 separate this from a test that merely observes that a retry happened.
 
 - [ ] **Step 6: Run the whole suite and typecheck**
@@ -1273,7 +1273,7 @@ git commit -m 'feat: deliver webhooks with retry and seeded backoff' -m 'Retries
 
 ---
 
-## Task 5: Emission — destination, payload, signature
+## Task 5: Emission - destination, payload, signature
 
 The composition layer. Everything before it is a leaf; this is where a webhook
 name becomes a signed, addressed, schema-conforming request.
@@ -1561,7 +1561,7 @@ test('the delivery log is bounded and drops oldest first', () => {
 
 Run: `node --test test/webhooks/emit.test.ts`
 
-Expected: FAIL — cannot find module `src/webhooks/emit.ts`.
+Expected: FAIL - cannot find module `src/webhooks/emit.ts`.
 
 - [ ] **Step 3: Implement**
 
@@ -1605,7 +1605,7 @@ export function resolveWebhook(config: WebhookConfig = {}): ResolvedWebhook {
 /**
  * Where a callback URL captured from a runtime expression is stored. Exported
  * because the capture side (the request pipeline) WRITES the key this module
- * READS — two independent spellings of one convention drift silently, with both
+ * READS - two independent spellings of one convention drift silently, with both
  * test suites green in isolation. The same reasoning as `failure.ts`'s exported
  * key builders.
  */
@@ -1627,7 +1627,7 @@ export interface DeliveryLog {
  * In memory rather than in the `Store`: `deliveries()` returns an array, and
  * `Store` has no enumeration primitive. Widening that interface for one caller
  * was rejected when the same trade-off arose for `reset()`. The consequence is
- * documented — retry attempt state is shared when the Store is, the capture log
+ * documented - retry attempt state is shared when the Store is, the capture log
  * is per-process.
  */
 export function createDeliveryLog(max: number = MAX_DELIVERIES): DeliveryLog {
@@ -1668,7 +1668,7 @@ export interface EmitInput {
  * Resolve a destination, generate and layer a payload, sign it, deliver it.
  *
  * An unknown webhook name THROWS rather than resolving to a failed delivery.
- * §13's "an emit never hard-fails" is about delivery — a name that is not in
+ * §13's "an emit never hard-fails" is about delivery - a name that is not in
  * the document is a typo, and `compileTarget` and `resolveTarget` already fail
  * loudly on those rather than silently never firing.
  */
@@ -1926,7 +1926,7 @@ test('an unsupported expression warns once at construction and is skipped', asyn
 
 Run: `node --test test/server/webhooks.test.ts`
 
-Expected: FAIL — nothing is captured; `onWarn` is not a known option.
+Expected: FAIL - nothing is captured; `onWarn` is not a known option.
 
 - [ ] **Step 3: Add `EmitCtx`**
 
@@ -1938,7 +1938,7 @@ In `src/runtime/types.ts`, after `Ctx`:
  * response.
  *
  * `result` is a separate type rather than an optional field on `Ctx` because
- * `Ctx` is built before a response exists — `result` would then be `undefined`
+ * `Ctx` is built before a response exists - `result` would then be `undefined`
  * throughout every ordinary resolver, header override, and response callback,
  * and a field that is only sometimes real is a field that gets read when it is
  * not. See the webhooks design §2.4.
@@ -1958,7 +1958,7 @@ In `src/server/handler.ts`, add to `HandlerOptions`:
 
 ```ts
   /**
-   * Where startup warnings go — an unsupported runtime expression, for one.
+   * Where startup warnings go - an unsupported runtime expression, for one.
    * Injectable so a test can assert on it without capturing the console, and
    * so an embedding application can route it.
    */
@@ -1971,7 +1971,7 @@ In `createHandler`, near the other construction-time compilation:
   const warn = options.onWarn ?? ((message: string) => console.warn(message))
 
   // Compiled once. An expression outside the documented subset warns here
-  // rather than silently never firing — the same reasoning as `compileTarget`
+  // rather than silently never firing - the same reasoning as `compileTarget`
   // throwing on a target that matches nothing.
   const callbacks = api.operations.map((operation) => ({
     operation,
@@ -2173,7 +2173,7 @@ test('reset clears the delivery log too', async () => {
 
 Run: `node --test test/server/webhooks.test.ts`
 
-Expected: FAIL — `handler.emit is not a function`.
+Expected: FAIL - `handler.emit is not a function`.
 
 - [ ] **Step 3: Wire the handler**
 
@@ -2199,7 +2199,7 @@ In `createHandler`:
 
   /**
    * One emission, from either trigger. Records into the delivery log whatever
-   * comes back — including `unresolved` — because §13 says an emit never
+   * comes back - including `unresolved` - because §13 says an emit never
    * hard-fails and the log is where an operator sees that it did not.
    */
   async function runEmit(
@@ -2234,7 +2234,7 @@ In `createHandler`:
 
 The payload rng is keyed by webhook name and a per-name counter, so two emissions
 of the same webhook produce different payloads while a replayed run produces the
-same pair — the same reasoning as the request ordinal.
+same pair - the same reasoning as the request ordinal.
 
 Add to the returned object:
 
@@ -2325,7 +2325,7 @@ test('an operation-linked emit fires after the response and is drained by settle
 
   const response = await handler.fetch(subscribe())
 
-  // The response does not wait for the emission — §13.
+  // The response does not wait for the emission - §13.
   assert.equal(response.status, 201)
   assert.deepEqual(handler.deliveries(), [])
 
@@ -2456,7 +2456,7 @@ Add `import type { EmitCtx } from '../../src/runtime/types.ts'` to the file.
 
 Run: `node --test test/server/webhooks.test.ts`
 
-Expected: FAIL — `handler.settled is not a function`, and `emits` is not a known
+Expected: FAIL - `handler.settled is not a function`, and `emits` is not a known
 operation config key.
 
 - [ ] **Step 3: Add the config**
@@ -2597,7 +2597,7 @@ Expected: PASS, 20 tests.
 
 Change the exit to `await` each emission instead of tracking it, run the file,
 and confirm `an operation-linked emit fires after the response and is drained by
-settled` fails on its `assert.deepEqual(handler.deliveries(), [])` — the
+settled` fails on its `assert.deepEqual(handler.deliveries(), [])` - the
 emission would already have completed. Restore. **Report the exact failure
 message.** This is the observation that proves §13's "never blocks or delays the
 triggering response".
@@ -2768,7 +2768,7 @@ test('a real delivery arrives signed and verifiable', async () => {
   assert.equal(hook.received.length, 1)
   assert.equal(hook.received[0]!.body, delivery.body)
 
-  // The signature the receiver got verifies against the body it got — the
+  // The signature the receiver got verifies against the body it got - the
   // security-critical path a consumer will implement.
   const header = hook.received[0]!.signature
   assert.ok(header, 'no signature header arrived')
@@ -2885,7 +2885,7 @@ existing numbering and voice:
 ```markdown
 6. **Emission never affects the response.** Webhooks fire at the single exit,
    after the response is final. A throw in an emit override, in signing, or in
-   delivery reaches `onError` — never the caller. An emit that resolves no
+   delivery reaches `onError` - never the caller. An emit that resolves no
    destination is captured as `unresolved`, not an error.
 ```
 

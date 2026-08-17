@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 /**
  * Invariant 2's cross-process half. `scripts/determinism.ts` has existed since
- * plan 1 to be run twice and diffed by hand, and nothing ever ran it — the
+ * plan 1 to be run twice and diffed by hand, and nothing ever ran it - the
  * stronger claim the README makes by name, and the one the phase-12 docs
  * harness rests on ("a doc can promise exact bytes"), was asserted nowhere.
  *
@@ -31,7 +31,7 @@ test('two separate processes produce byte-identical output', () => {
   // The guards come BEFORE the comparison and are the point of them: two
   // crashed processes both print nothing and compare equal, so a broken
   // script would report determinism it never demonstrated. This is the exact
-  // shape the previous determinism proof had — it compared two responses to
+  // shape the previous determinism proof had - it compared two responses to
   // each other, which a fixed seed already guarantees, and passed with the
   // whole subsystem removed.
   assert.equal(first.status, 0, `first run failed: ${first.stderr}`)

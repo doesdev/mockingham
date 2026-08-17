@@ -92,7 +92,7 @@ test('recordKey composes the scope parts in order', () => {
 test('recordKey leaves bodyHash out of the key', () => {
   // If the fingerprint were part of the key, a different body would compute a
   // different key, the lookup would miss, and §11's own mismatch rule would be
-  // unreachable. `bodyHash` in the scope means "compare it" — see §2.7.
+  // unreachable. `bodyHash` in the scope means "compare it" - see §2.7.
   const operation = find('createOrder')
   assert.equal(
     recordKey({ key: 'abc', operation, scope: ['key', 'route', 'bodyHash'] }),
@@ -203,7 +203,7 @@ test('a stored response replays with the Idempotent-Replay header', async () => 
   assert.equal(response?.headers.get('content-type'), 'application/json')
   assert.equal(await response?.text(), '{"id":7}')
   assert.equal(ctx.decisions.idempotency, 'replayed')
-  // A replay must not re-claim the key — a spurious claim would let the single
+  // A replay must not re-claim the key - a spurious claim would let the single
   // exit overwrite the stored record with this replayed 201 as if it were a
   // fresh answer.
   assert.deepEqual(claimed, [])
@@ -220,12 +220,12 @@ test('a different body under the same key conflicts', async () => {
 
   // Reachable under the DEFAULT scope because the fingerprint is compared
   // rather than keyed (§2.7). The in-flight marker carries a fingerprint too,
-  // so a mismatch is reported as a mismatch rather than as mere concurrency —
+  // so a mismatch is reported as a mismatch rather than as mere concurrency -
   // and asserting the code, not just the 409, is what distinguishes them.
   assert.equal(response?.status, 409)
   assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_MISMATCH' }])
   assert.equal(ctx.decisions.idempotency, 'mismatch')
-  // A mismatch must not claim the key — a spurious claim would let the single
+  // A mismatch must not claim the key - a spurious claim would let the single
   // exit store this 409 as if it were the operation's real response.
   assert.deepEqual(second.claimed, [])
 })
@@ -245,7 +245,7 @@ test('a different body replays when the scope does not compare bodies', async ()
   assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_IN_FLIGHT' }])
   assert.equal(response?.status, 409)
   assert.equal(ctx.decisions.idempotency, 'in-flight')
-  // In flight must not claim the key — a spurious claim would let the single
+  // In flight must not claim the key - a spurious claim would let the single
   // exit store this 409 as if it were the operation's real response.
   assert.deepEqual(second.claimed, [])
 })
@@ -262,7 +262,7 @@ test('a matching body against an unresolved marker is in-flight', async () => {
   assert.equal(response?.status, 409)
   assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_IN_FLIGHT' }])
   assert.equal(ctx.decisions.idempotency, 'in-flight')
-  // In flight must not claim the key — a spurious claim would let the single
+  // In flight must not claim the key - a spurious claim would let the single
   // exit store this 409 as if it were the operation's real response.
   assert.deepEqual(second.claimed, [])
 })

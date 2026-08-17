@@ -4,7 +4,7 @@ import type { Schema } from '../spec/types.ts'
 import { classify, isNullable, mergeAllOf } from './walk.ts'
 
 /**
- * Compiles an OpenAPI schema to a zod schema THROUGH `classify()` — the same
+ * Compiles an OpenAPI schema to a zod schema THROUGH `classify()` - the same
  * interpretation value generation uses. That shared reading is the whole point:
  * what we generate and what we validate can never disagree about a schema.
  */
@@ -95,13 +95,13 @@ export function createCompiler(): Compiler {
       // Always released, even when `build` throws (an invalid `pattern`
       // reaching `new RegExp` is the realistic case). Otherwise this schema
       // stays permanently "active", and every later reference to it silently
-      // falls back to `z.unknown()` through the lazy branch above — a cache
+      // falls back to `z.unknown()` through the lazy branch above - a cache
       // entry that can never be set.
       active.delete(schema)
     }
 
     const nullable = isNullable(schema) ? built.nullable() : built
-    // Metadata only — `.describe()` never changes what parses or what fails,
+    // Metadata only - `.describe()` never changes what parses or what fails,
     // only what `z.toJSONSchema` reports. Attached last (outermost) so it
     // survives on the same node a provider actually reads, rather than
     // nesting inside the `anyOf` a nullable wrapper introduces.
@@ -117,7 +117,7 @@ export function createCompiler(): Compiler {
     const kind = classify(schema)
     // `classify` merges `allOf` internally to decide the shape, but
     // constraint keywords (`minLength`, `minimum`, `minItems`, ...) still need
-    // reading from the merged view — otherwise a bound that lives only on an
+    // reading from the merged view - otherwise a bound that lives only on an
     // `allOf` member is silently dropped here even though `classify` saw it.
     const merged = mergeAllOf(schema)
 
@@ -142,7 +142,7 @@ export function createCompiler(): Compiler {
         const variants = kind.variants.map((variant) => compile(variant))
         const key = kind.discriminator
         // zod 4 does not validate discriminated-union variants at
-        // construction — it throws on first parse instead. So the shape must
+        // construction - it throws on first parse instead. So the shape must
         // be checked here, or a document zod cannot model that way becomes a
         // crash at request time rather than a slower plain union.
         if (key !== undefined && kind.variants.every((variant) => usable(variant, key))) {

@@ -50,7 +50,7 @@ test('tools/call runs the real tool against the real document', async () => {
   assert.deepEqual(operations.map((entry) => entry.operationId), ['health'])
 })
 
-test('each request is independent — a second call succeeds', async () => {
+test('each request is independent - a second call succeeds', async () => {
   // The stateless transport throws if reused, so this fails loudly the moment
   // someone caches the server or transport across requests. Design §3.4.
   const mock = createMock(mcpDoc)

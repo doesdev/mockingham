@@ -15,7 +15,7 @@ test('off mode needs no provider configuration', () => {
 
 test('off mode short-circuits before the provider branch, even when a provider is named', () => {
   // If 'off' fell through to the provider branch, naming 'anthropic' here
-  // would throw the "requires @anthropic-ai/sdk" error unconditionally —
+  // would throw the "requires @anthropic-ai/sdk" error unconditionally -
   // that branch throws regardless of any other config. Not throwing proves
   // the mode==='off' return happens first.
   const resolved = resolveLlm({ mode: 'off', provider: 'anthropic' }, {})
@@ -26,7 +26,7 @@ test('off mode short-circuits before the provider branch, even when a provider i
 test('an llm mode without a base url fails loudly, with an instruction naming a concrete next step', () => {
   // A bare /baseUrl/ regex is satisfied even by an unguarded
   // `parsed.openai.baseUrl` throwing "Cannot read properties of undefined
-  // (reading 'baseUrl')" once the explicit guard is removed — that
+  // (reading 'baseUrl')" once the explicit guard is removed - that
   // TypeError happens to contain the literal word "baseUrl" too, so it
   // would pass a substring check for the wrong reason (verified: this
   // exact mutation left the brief's original assertion green). Requiring
@@ -54,7 +54,7 @@ test('an explicit source wins over the provider', () => {
 
 test('an explicit source bypasses the provider branch entirely, even a provider that always throws', () => {
   // provider: 'anthropic' with no source would throw ("requires
-  // @anthropic-ai/sdk") unconditionally — see the previous test file's
+  // @anthropic-ai/sdk") unconditionally - see the previous test file's
   // provider throw. Supplying a source alongside it and getting no throw is
   // direct proof the provider branch was never reached, not just that the
   // returned source happens to match.
@@ -73,7 +73,7 @@ test('an explicit source bypasses the provider branch entirely, even a provider 
 test('anthropicOptionsFrom threads model, apiKey, batchThreshold, and the shared budgets timeoutMs through', () => {
   // The precise, SDK-free check: resolveLlm's anthropic branch cannot be
   // proven to thread fields correctly by calling it and inspecting the
-  // returned source — createAnthropicSource's closure exposes only
+  // returned source - createAnthropicSource's closure exposes only
   // `generate`, and LlmConfig has no `client` field to inject a spy through.
   // This pure mapping function is what makes the threading observable.
   const options = anthropicOptionsFrom(
@@ -100,7 +100,7 @@ test('anthropicOptionsFrom passes undefined through for an absent anthropic bloc
 
 test('provider: anthropic actually reaches the branch and constructs a working ContentSource', () => {
   // resolveLlm must not throw (the old behavior, before this task) and must
-  // return a genuine ContentSource, not a stub — proven by checking it
+  // return a genuine ContentSource, not a stub - proven by checking it
   // exposes exactly the ContentSource surface (a `generate` function),
   // built via the real createAnthropicSource call, not merely truthy.
   const resolved = resolveLlm(
@@ -118,8 +118,8 @@ test('provider: anthropic actually reaches the branch and constructs a working C
 test('provider: anthropic wires into Mock.bake(): with the SDK genuinely absent, every attempt is a reported miss, not a crash', async () => {
   // End-to-end proof through the public surface (createMock/bake()), the
   // same posture as the "Mock.bake() fills the store" test below. There is
-  // no way to inject a client through the declarative config surface — by
-  // design, LlmConfig has no `client` field — so this exercises the real
+  // no way to inject a client through the declarative config surface - by
+  // design, LlmConfig has no `client` field - so this exercises the real
   // lazy-import path with the package genuinely not installed in this repo,
   // and confirms invariant 4 holds through the full pipeline: a miss, not a
   // thrown error that would abort the whole bake run.
@@ -157,12 +157,12 @@ test('an anthropic option in the openai block fails validation', () => {
 test('an unrecognized key inside the anthropic block fails validation too', () => {
   // The audit's own example scenario: a key that belongs to no provider
   // block at all, placed inside anthropic. This is a distinct .strict() call
-  // from the openai block's — proving it independently rather than assuming
+  // from the openai block's - proving it independently rather than assuming
   // one nested-strict test stands in for both.
   //
   // mode: 'off' is deliberate, not incidental. With mode: 'bake' (tried
   // first), this test stayed green even after deleting the anthropic
-  // block's .strict() — because with no `provider` given, resolution still
+  // block's .strict() - because with no `provider` given, resolution still
   // falls into the openai-compatible branch by default, which then throws
   // its own unrelated "openai.baseUrl is required" error (that message also
   // happens to contain the word "baseUrl", satisfying the regex for the
@@ -217,7 +217,7 @@ test('explicit budget values override the defaults rather than being ignored', (
 // params map (it has no concrete request to draw params from), while a real
 // request supplies whatever params the URL contains. On a parameterized
 // path those two fixture keys diverge and a baked fixture would never be
-// read back by fetch() — that divergence is real bake.ts behavior, not a
+// read back by fetch() - that divergence is real bake.ts behavior, not a
 // test bug, so this end-to-end proof deliberately uses a param-free
 // operation where the two keys coincide.
 const bakeDoc = {
@@ -257,8 +257,8 @@ test('Mock.bake() fills the store through the public surface: a baked fixture is
   })
   const summary = await instance.bake()
   assert.equal(summary.generated, 1)
-  // Proof the store was actually filled, read through fetch() — the public
-  // request path — rather than only trusting the summary count. A
+  // Proof the store was actually filled, read through fetch() - the public
+  // request path - rather than only trusting the summary count. A
   // freshly-seed-generated body would never coincidentally match these
   // literal strings.
   const response = await instance.fetch(new Request('http://mock/profile'))

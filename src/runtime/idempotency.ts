@@ -21,7 +21,7 @@ export interface IdempotencyConfig {
   inFlightTtlMs?: number
   /**
    * `key` and `route` compose the storage key, in the order given. `bodyHash`
-   * does NOT go in the key — it means "a different body under this key is a
+   * does NOT go in the key - it means "a different body under this key is a
    * conflict". Putting the fingerprint in the key would make a different body
    * compute a different key, miss the lookup, and leave §11's own
    * MOCK_IDEMPOTENCY_MISMATCH rule unreachable. See the phases 7-9 design §2.7.
@@ -80,7 +80,7 @@ export function resolveIdempotency(config: IdempotencyConfig = {}): ResolvedIdem
 /**
  * Per §11, an operation is idempotent when the document declares the key as a
  * header parameter, or when config names its method. The document wins nothing
- * and loses nothing — either route is sufficient.
+ * and loses nothing - either route is sufficient.
  */
 export function isIdempotent(operation: Operation, config: ResolvedIdempotency): boolean {
   const wanted = config.header.toLowerCase()
@@ -91,7 +91,7 @@ export function isIdempotent(operation: Operation, config: ResolvedIdempotency):
   return declared || config.methods.includes(operation.method.toUpperCase())
 }
 
-/** fnv1a over the raw request bytes — see `fnv1aBytes` for why not the parsed body. */
+/** fnv1a over the raw request bytes - see `fnv1aBytes` for why not the parsed body. */
 export function fingerprint(raw: Uint8Array): string {
   return fnv1aBytes(raw).toString(16).padStart(8, '0')
 }
@@ -106,7 +106,7 @@ export interface RecordKeyInput {
  * Composes the storage key from the scope's `key` and `route` parts, in the
  * configured order. The route part is the TEMPLATED path, so `/pets/1` and
  * `/pets/2` share a route and differ only through params, which belong to
- * neither part — deliberate, since a key is supposed to be unique per logical
+ * neither part - deliberate, since a key is supposed to be unique per logical
  * operation.
  *
  * `bodyHash` contributes nothing here on purpose; see `comparesBody`.
@@ -126,7 +126,7 @@ export function recordKey(input: RecordKeyInput): string {
  * Whether a stored fingerprint that differs from this request's is a conflict.
  *
  * This is what `bodyHash` in the scope actually controls. With it, the default
- * scope gives §11's stated behavior — same key, different body, 409. Without it,
+ * scope gives §11's stated behavior - same key, different body, 409. Without it,
  * any body replays the first response, which is what a caller asking for
  * `scope: ['key', 'route']` is asking for.
  */
@@ -149,7 +149,7 @@ export interface IdempotencyStageInput {
 }
 
 /**
- * Pipeline stage 5 — the read half. Stage 11, at the single exit, is the write
+ * Pipeline stage 5 - the read half. Stage 11, at the single exit, is the write
  * half. Idempotency spans two stages, which is why it is more invasive than its
  * size suggests.
  */
@@ -171,7 +171,7 @@ export function createIdempotencyStage(input: IdempotencyStageInput): Stage {
 
     // The claim is attempted FIRST, not after a lookup. A `get` followed by a
     // `set` leaves a window in which two concurrent identical requests both
-    // read `undefined`, both claim, and both execute — measured as `runs: 2`
+    // read `undefined`, both claim, and both execute - measured as `runs: 2`
     // in plan 5, which is what made MOCK_IDEMPOTENCY_IN_FLIGHT reachable only
     // for a wedged prior request rather than for a real race.
     //
@@ -189,7 +189,7 @@ export function createIdempotencyStage(input: IdempotencyStageInput): Stage {
       return undefined
     }
 
-    // Lost the claim, so an entry exists — read it and decide on its merits.
+    // Lost the claim, so an entry exists - read it and decide on its merits.
     // It can still be absent here if it expired in the interval, in which case
     // there is nothing to conflict with and this request proceeds unclaimed
     // rather than inventing a decision.

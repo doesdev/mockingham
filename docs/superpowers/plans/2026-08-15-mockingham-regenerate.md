@@ -1,13 +1,13 @@
 # mockingham regenerate_fixture Implementation Plan
 
 > **EXECUTED 2026-08-15**, branch `plan-12-regenerate`, 1050 → 1076 tests.
-> All four tasks landed. **Nothing is deferred after this** — every tool
+> All four tasks landed. **Nothing is deferred after this** - every tool
 > master §15 declares now ships.
 >
 > **The defect the plan did not anticipate, found reviewing the branch:** the
 > MCP tool always passes an `only` object, with undefined fields when the
 > caller gave no arguments, and undefined fields matched every operation. So
-> `regenerate_fixture` with no arguments re-baked the *entire document* —
+> `regenerate_fixture` with no arguments re-baked the *entire document* -
 > reproduced at three source calls against a three-operation document. A scope
 > that is present but identifies no operation now throws before anything
 > reaches the source. An absent scope still bakes everything, because that is
@@ -16,7 +16,7 @@
 > **What the docs harness caught that review did not:** the fixtures guide's
 > new prose claimed `getPayment` 404 would be reported as `skipped`. It has a
 > JSON body, so it is planned, attempted, and reported as `failed`. The
-> harness fails a wrong *explanation*, not just a wrong fence — which is most
+> harness fails a wrong *explanation*, not just a wrong fence - which is most
 > of why the guide's examples are executed rather than illustrative.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -26,7 +26,7 @@ re-bake, and `list_fixtures` as the read tool that makes it verifiable.
 
 **Architecture:** `bake()` already plans, chunks, narrows, hashes and stores.
 A scoped re-bake is that pipeline with a filter applied in the planning loop it
-already runs — not a second entry point. The MCP tools are thin adapters over
+already runs - not a second entry point. The MCP tools are thin adapters over
 `Mock.bake({ only })` and the fixture store's `records()`, which is the same
 "exposure over existing core" shape the twelve phase-10 tools have.
 
@@ -36,7 +36,7 @@ already runs — not a second entry point. The MCP tools are thin adapters over
 **Spec:** `docs/superpowers/specs/2026-08-15-mockingham-regenerate-design.md`
 Read it before Task 1. The master contract is
 `docs/superpowers/specs/2026-08-11-mockingham-design.md`; the delta wins where
-they disagree — including on what the tool IS, which the two documents describe
+they disagree - including on what the tool IS, which the two documents describe
 differently.
 
 ## Global Constraints
@@ -55,7 +55,7 @@ differently.
 - Tests live in `test/` mirroring `src/`. Write the test first, watch it fail.
 - `npm test` starts at 1050 passing; `npx tsc --noEmit` must stay clean.
 - **`docs/mcp.md` is executed and byte-compared, and Task 4 changes its tool
-  count and inventory — expect it to go red there by design.**
+  count and inventory - expect it to go red there by design.**
 
 ---
 
@@ -87,7 +87,7 @@ differently.
 
 **Ordering rationale:** the core filter lands first and is testable on its own
 through `bake()` with no MCP involved. Then the write tool, then the read tool
-that verifies it, then documentation — which is last because it must describe
+that verifies it, then documentation - which is last because it must describe
 what actually shipped, and because it is the task most likely to move fences.
 
 ---
@@ -152,7 +152,7 @@ test('a matched operation with nothing bakeable is skipped, not an error', async
 
 test('regenerating replaces the stored entry rather than appending', async () => {
   // The source MUST return a different value the second time. With an
-  // identical value this passes with the whole write removed — determinism
+  // identical value this passes with the whole write removed - determinism
   // makes replace-vs-noop invisible, shape 4 in the test-cannot-fail ledger.
   const store = createMemoryFixtureStore()
   await bake({ ...base, store, source: sourceReturning({ round: 'first' }) })
@@ -180,7 +180,7 @@ function matches(operation: Operation, only: BakeScope): boolean {
 }
 ```
 
-Note `operationSlug`, not `operation.operationId` — the slug is what the store
+Note `operationSlug`, not `operation.operationId` - the slug is what the store
 is keyed by, and an operation without a declared id still has one.
 
 Then: if `only` is set and no operation matches, throw naming what was asked
@@ -189,7 +189,7 @@ the response loop, `continue` when `only.status !== undefined && response.status
 !== only.status`.
 
 In `index.ts`, `bake(bakeOptions)` passes `only` straight through. The existing
-no-source throw stays exactly as it is and is checked first — a regenerate with
+no-source throw stays exactly as it is and is checked first - a regenerate with
 no source configured must say so, not report a filter miss.
 
 - [ ] **Step 3: Verify by mutation**
@@ -197,7 +197,7 @@ no source configured must say so, not report a filter miss.
 Three, one at a time:
 1. Make `matches` always return `true`. The one-operation test must fail on the
    `records()` assertion, not only on the count.
-2. Remove the no-match throw. The unknown-operation test must fail — and check
+2. Remove the no-match throw. The unknown-operation test must fail - and check
    it fails on the rejection rather than passing because something else threw.
 3. Make the second `bake` a no-op. The replacement test must fail on the value,
    which is what the differing source values are for.
@@ -234,14 +234,14 @@ test('regenerate_fixture is absent when write tools are disabled', async () => {
 - [ ] **Step 2: Implement**
 
 `McpContext` and `McpContextSource` gain `bake(options?)`. Add it to the
-`createMcpContext` literal — the doc comment there says it is the one
+`createMcpContext` literal - the doc comment there says it is the one
 construction path precisely so a second literal cannot drift.
 
 The tool takes `operationId`, `method`, `path`, `status` and passes them as
-`only`. It does **not** take a budget: §5 of the design — a tool that can raise
+`only`. It does **not** take a budget: §5 of the design - a tool that can raise
 its own spending limit can spend without asking.
 
-- [ ] **Step 3: Verify by mutation** — drop `regenerateFixture` from
+- [ ] **Step 3: Verify by mutation** - drop `regenerateFixture` from
 `WRITE_TOOLS` and confirm the gate test fails for absence rather than passing
 because the tool was never found either way.
 
@@ -276,14 +276,14 @@ test('list_fixtures is available with write tools disabled', async () => {
 
 `Mock.fixtures()` returns `fixtureStore.records()`. `McpContext.fixtures`
 likewise. `stale` compares `entry.meta?.schemaHash` against
-`schemaHashLookup(api, compiler)(operationId, status)` — the same helper the
+`schemaHashLookup(api, compiler)(operationId, status)` - the same helper the
 startup check uses, so the two can never disagree about what stale means.
 
-An entry with no stored `schemaHash` is **not** stale — it predates hashing or
+An entry with no stored `schemaHash` is **not** stale - it predates hashing or
 came from a schema neither path can convert. Say so in a comment; reporting it
 stale would send an agent regenerating something that is fine.
 
-- [ ] **Step 3: Verify by mutation** — hardcode `stale: true`, then `false`.
+- [ ] **Step 3: Verify by mutation** - hardcode `stale: true`, then `false`.
 Each must fail one half of the paired test.
 
 - [ ] **Step 4:** `npx tsc --noEmit`, full `npm test`.
@@ -307,29 +307,29 @@ Each must fail one half of the paired test.
 - **Delete the `## What isn't here yet` section, or replace its content.** It
   currently describes `regenerate_fixture` as "a tool to save a live-generated
   response as a committed fixture", which is not what shipped and was never
-  what master §15 specified. Correcting the sentence is not enough — the
+  what master §15 specified. Correcting the sentence is not enough - the
   section's whole purpose was to name the deferral, and there is none left.
 
 - [ ] **Step 2: The inventory test**
 
 `notShipped` becomes empty. **An empty array makes that loop vacuous**, which is
 the exact defect class this project tracks. Replace it with an assertion that
-the deferral section is gone — `assert.equal(guide.indexOf("## What isn't here
-yet"), -1)` — so the check still has teeth. Do not leave `const notShipped = []`
+the deferral section is gone - `assert.equal(guide.indexOf("## What isn't here
+yet"), -1)` - so the check still has teeth. Do not leave `const notShipped = []`
 in place with a loop over it.
 
-- [ ] **Step 3: `src/server/cli.ts`** — `MCP_USAGE`'s write-tool list gains
+- [ ] **Step 3: `src/server/cli.ts`** - `MCP_USAGE`'s write-tool list gains
 `regenerate_fixture`. `test/mcp/cli-mcp.test.ts` may assert on this text.
 
-- [ ] **Step 4: `docs/fixtures.md`** — the regenerate loop in prose: bake once,
+- [ ] **Step 4: `docs/fixtures.md`** - the regenerate loop in prose: bake once,
 find a stale fixture with `list_fixtures`, regenerate that one. Any runnable
 block is executed and byte-compared.
 
-- [ ] **Step 5: The master spec** — §1's `bake()` signature gains the optional
+- [ ] **Step 5: The master spec** - §1's `bake()` signature gains the optional
 argument and `fixtures()` joins the instance surface; §15's "Write tools mutate
 only runtime state" is amended per design §6.
 
-- [ ] **Step 6: The ledger** — close the phase 10 deferral, and record that
+- [ ] **Step 6: The ledger** - close the phase 10 deferral, and record that
 `docs/mcp.md` had described the tool incorrectly for a full cycle. Note in the
 entry that **nothing is deferred after this**, so the next reader knows the list
 is the non-blocking one.

@@ -7,7 +7,7 @@ export interface Store {
    *
    * Required rather than optional, deliberately. Idempotency's claim is a
    * lookup-then-write, and without an atomic primitive two concurrent
-   * identical requests both read `undefined`, both claim, and both execute —
+   * identical requests both read `undefined`, both claim, and both execute -
    * measured as `runs: 2` during plan 5. An optional method with a
    * get-then-set fallback would reintroduce exactly that race while the mock
    * advertised atomicity it did not have, so a custom `Store` must implement
@@ -28,7 +28,7 @@ interface Entry {
  * The in-process `Store`.
  *
  * `now` is injected because determinism forbids scattering wall-clock reads
- * through the runtime — tests drive expiry with a fake clock rather than by
+ * through the runtime - tests drive expiry with a fake clock rather than by
  * waiting. The default is a FUNCTION called fresh on every operation; the
  * invariant is that this parameter is the only `Date.now()` call site in the
  * runtime, not that it is read once. Snapshotting it at construction would

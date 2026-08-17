@@ -64,7 +64,7 @@ test('a cycle expressed through an allOf member is still recursive', () => {
   // object's identity instead of the original schema references, a cycle
   // routed through an allOf member would never repeat an identity and the
   // guard would miss it (and, separately, `mergeAllOf` recursing into an
-  // allOf member that is literally itself will stack-overflow regardless —
+  // allOf member that is literally itself will stack-overflow regardless -
   // that is a pre-existing hazard in mergeAllOf, not something isRecursive
   // introduces or can guard against). This schema exercises the case
   // isRecursive IS responsible for: the cyclic edge lives on a property
@@ -105,7 +105,7 @@ test('a request carries both schema representations', () => {
   })
   assert.ok(request)
 
-  // The plain JSON Schema is what makes a non-Anthropic source writable —
+  // The plain JSON Schema is what makes a non-Anthropic source writable -
   // design section 2.3. Check more than `type` so an implementation that
   // returns `{ type: 'object' }` and drops everything else does not pass.
   const json = request.jsonSchema as {
@@ -118,7 +118,7 @@ test('a request carries both schema representations', () => {
   assert.equal(json.properties?.['age']?.type, 'integer')
   assert.deepEqual(json.required, ['bio'])
 
-  // The zod schema must actually validate — accepting good input and
+  // The zod schema must actually validate - accepting good input and
   // rejecting bad input, not merely being present.
   assert.equal(request.zodSchema.safeParse({ bio: 'hi' }).success, true)
   assert.equal(request.zodSchema.safeParse({ age: 5 }).success, false, 'missing required bio')

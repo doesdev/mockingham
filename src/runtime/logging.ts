@@ -10,7 +10,7 @@ import type { Ctx, Decisions } from './types.ts'
  * plus an ordinal gives an id that is stable across processes and still distinct
  * across repeated identical calls.
  *
- * The ordinal MUST come from its own counter, not the chaos counter — the
+ * The ordinal MUST come from its own counter, not the chaos counter - the
  * failure stage increments that one per policy evaluation, and sharing it would
  * shift every subsequent chaos roll the moment logging was switched on. See the
  * phases 7-9 design §2.2.
@@ -31,16 +31,16 @@ export function requestIdFor(requestKey: string, ordinal: number): string {
  *
  * `ts` and `durationMs` come from the injected clock. They sit outside the
  * determinism invariant because a log record is an observational side channel
- * that never enters a response — see the phases 7-9 design §2.1.
+ * that never enters a response - see the phases 7-9 design §2.1.
  */
 export interface LogRecord {
   ts: number
   durationMs: number
   requestId: string
   method: string
-  /** The TEMPLATED path — a bounded tag. `'<unmatched>'` when no route matched. */
+  /** The TEMPLATED path - a bounded tag. `'<unmatched>'` when no route matched. */
   route: string
-  /** The resolved path — high cardinality, never a tag. */
+  /** The resolved path - high cardinality, never a tag. */
   path: string
   status: number
   bytesIn: number
@@ -71,7 +71,7 @@ export function reportError(sink: ErrorSink | undefined, error: unknown, ctx?: C
 
 /**
  * Fire-and-forget with error isolation: a throwing or rejecting logger must
- * never affect the response. The explicit `.catch()` matters — a bare floating
+ * never affect the response. The explicit `.catch()` matters - a bare floating
  * promise turns a logger's rejection into an unhandled rejection, which can take
  * the process down.
  */

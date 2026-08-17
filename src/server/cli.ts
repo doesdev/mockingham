@@ -15,7 +15,7 @@ import { schemaHashLookup } from '../fixtures/source.ts'
 import type { FixtureStore } from '../fixtures/store.ts'
 import { createCompiler } from '../schema/compile.ts'
 
-export const USAGE = `mockingham — OpenAPI driven HTTP mock server
+export const USAGE = `mockingham - OpenAPI driven HTTP mock server
 
   mockingham <document.json> [options]
 
@@ -125,7 +125,7 @@ export interface CliHandle {
 
 /**
  * `startCli` is for actually serving a document, so it still treats `--help`
- * as a request it cannot fulfill — there is no `CliHandle` to hand back, and
+ * as a request it cannot fulfill - there is no `CliHandle` to hand back, and
  * changing this to a union return type would force every caller (including
  * every existing test) to narrow it. The real entry point, `import.meta.main`
  * below, checks `--help` itself before ever calling this, so the process exits
@@ -192,7 +192,7 @@ export async function startCli(
         // A half-saved file must not take the server down. Keep serving the
         // last document that loaded and say why.
         const message = error instanceof Error ? error.message : String(error)
-        log(`mockingham: reload failed, still serving the previous document — ${message}`)
+        log(`mockingham: reload failed, still serving the previous document - ${message}`)
       }
     },
     async close() {
@@ -211,7 +211,7 @@ export async function startCli(
   return handle
 }
 
-export const BAKE_USAGE = `mockingham bake — generate fixture files from an OpenAPI document
+export const BAKE_USAGE = `mockingham bake - generate fixture files from an OpenAPI document
 
   mockingham bake <document.json> [options]
 
@@ -268,7 +268,7 @@ export function parseBakeArgs(argv: string[]): BakeArgs {
 
     if (token.startsWith('--')) {
       // `--flag=value` and `--flag value` are both common enough that supporting
-      // only one guarantees someone hits the other first — matches parseArgs.
+      // only one guarantees someone hits the other first - matches parseArgs.
       const split = token.indexOf('=')
       const name = split === -1 ? token : token.slice(0, split)
       if (!BAKE_NEEDS_VALUE.has(name)) {
@@ -296,7 +296,7 @@ export function parseBakeArgs(argv: string[]): BakeArgs {
 }
 
 /**
- * Environment reads live here and nowhere else — the pure core takes an
+ * Environment reads live here and nowhere else - the pure core takes an
  * explicit baseUrl. The Ollama default is what makes `mockingham bake doc.json`
  * work with no configuration at all.
  */
@@ -313,7 +313,7 @@ export function resolveBakeTarget(
 }
 
 /**
- * Unlike baseUrl there is no sensible default model — serving a request with
+ * Unlike baseUrl there is no sensible default model - serving a request with
  * the wrong model silently is worse than refusing to start. So this throws,
  * naming every way to supply one, rather than falling back to something a
  * user did not choose.
@@ -325,7 +325,7 @@ export function resolveBakeModel(
   const model = flags.model ?? env.MOCKINGHAM_LLM_MODEL ?? env.OPENAI_MODEL
   if (!model) {
     throw new Error(
-      'mockingham: a model is required for bake — pass --model, or set ' +
+      'mockingham: a model is required for bake - pass --model, or set ' +
         'MOCKINGHAM_LLM_MODEL or OPENAI_MODEL'
     )
   }
@@ -389,8 +389,8 @@ export async function startBake(
     { fetch: deps.fetch }
   )
   if (!resolved || !resolved.source) {
-    // Unreachable in practice — mode 'bake' with the openai-compatible
-    // provider and a baseUrl always yields a source — but narrows the type
+    // Unreachable in practice - mode 'bake' with the openai-compatible
+    // provider and a baseUrl always yields a source - but narrows the type
     // and fails loudly rather than crashing on `resolved.source` below if
     // that ever stops being true.
     throw new Error('mockingham: could not construct an LLM content source')
@@ -407,7 +407,7 @@ export async function startBake(
       now,
       onWarn: log,
       onError: (error) => {
-        log(`mockingham: bake error — ${error instanceof Error ? error.message : String(error)}`)
+        log(`mockingham: bake error - ${error instanceof Error ? error.message : String(error)}`)
       }
     })
 
@@ -424,7 +424,7 @@ export async function startBake(
   }
 }
 
-export const MCP_USAGE = `mockingham mcp — serve the MCP tools over stdio
+export const MCP_USAGE = `mockingham mcp - serve the MCP tools over stdio
 
   mockingham mcp <document.json> [options]
 
@@ -553,13 +553,13 @@ export async function startMcp(
 
 if (import.meta.main) {
   try {
-    // `--help` is not misuse — `mockingham --help` must exit 0, and this is
+    // `--help` is not misuse - `mockingham --help` must exit 0, and this is
     // the one call site that can act on that without changing `startCli`'s
     // contract. A genuinely missing document argument still reaches
     // `startCli` below and throws, which IS misuse and should exit non-zero.
     // `parseArgs` itself must stay inside this `try`: it can throw too (an
     // unknown flag, a bad `--port`), and before this wrapping that throw hit
-    // top-level module evaluation instead of this catch — a stack trace
+    // top-level module evaluation instead of this catch - a stack trace
     // instead of the same one clean line every other CLI misuse gets.
     const argv = process.argv.slice(2)
     if (argv[0] === 'mcp') {

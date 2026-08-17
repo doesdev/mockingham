@@ -2,7 +2,7 @@
  * OpenAPI runtime expressions, restricted to the subset the master spec §13
  * documents: `$url`, `$method`, `$statusCode`,
  * `$request.{header|query|path}.name`, `$request.body#/pointer`, and the
- * `$response` equivalents that make sense for a response — `header` and `body`.
+ * `$response` equivalents that make sense for a response - `header` and `body`.
  * `$response.query` and `$response.path` are not meaningful and are rejected.
  *
  * An expression may be a whole template or mixed with literal text, because a

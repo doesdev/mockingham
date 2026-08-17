@@ -40,7 +40,7 @@ test('write tools appear when write is enabled', () => {
 
 test('tools/call refuses a write tool when the gate is closed', async () => {
   // The second half of the gate. A gate that only hides the tools from
-  // tools/list is not a gate — an agent can still call one by name.
+  // tools/list is not a gate - an agent can still call one by name.
   const mock = createMock(mcpDoc)
   mock.mcp({ transport: 'http', path: '/mcp' })
 
@@ -108,7 +108,7 @@ test('set_seed and reset take effect through the tools', async () => {
   const ctx = contextForMock(mock)
 
   // Credentials required: getOrder inherits bearerAuth. /health would avoid
-  // auth entirely, but its body is a single boolean — too few values for a
+  // auth entirely, but its body is a single boolean - too few values for a
   // "the body changed with the seed" comparison to mean anything.
   const before = await (await mock.fetch(
     new Request('http://mock.local/orders/abc', { headers: AUTH })

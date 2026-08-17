@@ -1,4 +1,4 @@
-# mockingham — Design
+# mockingham - Design
 
 **Date:** 2026-08-11
 **Status:** Approved for planning
@@ -101,7 +101,7 @@ src/
 
 Each module has one job and is unit-testable in isolation. `schema/walk.ts` is
 shared by generation and zod compilation so a schema is interpreted exactly once,
-one way — divergence between "what we generate" and "what we validate" would be
+one way - divergence between "what we generate" and "what we validate" would be
 the worst possible bug class in this project.
 
 ### Instance surface
@@ -113,11 +113,11 @@ interface Mock {
   close(): Promise<void>
 
   // control plane
-  // Async, against this section's own `void` — the runtime-override cycle's
+  // Async, against this section's own `void` - the runtime-override cycle's
   // amendment 2.1 follows the code (the Store is async), the same drift §1
   // already had for failNext/outage below.
   override(target: string, value: RuntimeOverride): Promise<void>
-  // No target clears every operation in the document — the runtime-override
+  // No target clears every operation in the document - the runtime-override
   // delta §2, §3.1.
   clearOverrides(target?: string): Promise<void>
   failNext(target: string, opts: FailNextOptions): void
@@ -130,7 +130,7 @@ interface Mock {
   deliveries(filter?: DeliveryFilter): Delivery[]
   clearDeliveries(): void
 
-  // `only` narrows the walk to one operation and optionally one status — the
+  // `only` narrows the walk to one operation and optionally one status - the
   // scoped re-bake `regenerate_fixture` is built on. A scope matching no
   // operation throws rather than reporting a summary of zeroes. See the
   // regenerate delta §3.
@@ -144,7 +144,7 @@ interface Mock {
 
 The control plane is a clean programmatic API rather than HTTP endpoints, and
 both the MCP server (§15) and any future admin HTTP surface are thin adapters
-over it — the same relationship `node.ts` has to `fetch`. Every control-plane
+over it - the same relationship `node.ts` has to `fetch`. Every control-plane
 method is therefore designed to be callable by a machine: targets are strings,
 arguments are JSON-serializable, and results are structured.
 
@@ -162,11 +162,11 @@ Ordered stages. Any stage may short-circuit with a `Response`.
 | 4 | Request validation | 400 |
 | 5 | Idempotency lookup | replayed response |
 | 6 | Failure policy | 5xx / 429 |
-| 7 | Status selection | — |
-| 8 | Generate body + headers | — |
-| 9 | Apply override layers | — |
+| 7 | Status selection | - |
+| 8 | Generate body + headers | - |
+| 9 | Apply override layers | - |
 | 10 | Full response callback | replaces everything |
-| 11 | Store idempotent result, emit log | — |
+| 11 | Store idempotent result, emit log | - |
 
 ### Route matching
 
@@ -184,8 +184,8 @@ Unsupported request content types for an operation produce 415.
 ### Status selection
 
 Default is the lowest declared 2xx. Overridable per operation statically or by
-callback. Clients may request a specific outcome with `Prefer` — `Prefer: status=201`
-or `Prefer: example=empty-list` — matching the convention Prism established, so
+callback. Clients may request a specific outcome with `Prefer` - `Prefer: status=201`
+or `Prefer: example=empty-list` - matching the convention Prism established, so
 existing tooling and habits carry over.
 
 ---
@@ -212,7 +212,7 @@ runtime override > config override > fixture > spec example/examples > default >
 ```
 
 The runtime-override delta §4 is what gives "runtime override" its own tier,
-distinct from the config override that has always lived here — a live
+distinct from the config override that has always lived here - a live
 `mock.override()`/`set_override` call wins over `operations` in `createMock`'s
 options, which wins over everything below it.
 
@@ -228,11 +228,11 @@ Producers for: `date-time`, `date`, `time`, `duration`, `uuid`, `email`, `uri`,
 `minItems`, `maxItems`, `uniqueItems`, `enum`, `const`, `nullable`,
 `oneOf`/`anyOf` (seeded pick, discriminator-aware), `allOf` (merged).
 
-**Defined limitation — `pattern`.** A minimal regex generator covers literals,
+**Defined limitation - `pattern`.** A minimal regex generator covers literals,
 character classes, shorthand escapes, anchors, alternation, groups, and
 quantifiers, with unbounded `*` and `+` capped at three repeats. Anything outside
-that subset — lookaround, backreferences, named groups, unicode property escapes
-— falls back to `example`, then `default`, then a deterministic placeholder, and
+that subset (lookaround, backreferences, named groups, unicode property escapes)
+falls back to `example`, then `default`, then a deterministic placeholder, and
 warns once naming the pattern. Generating from arbitrary regex is out of scope;
 the escape hatch is an override or a fixture. A `pattern` takes precedence over
 a conflicting `format` and over `minLength`/`maxLength`, since padding or slicing
@@ -241,7 +241,7 @@ a generated value breaks the match.
 > **Corrected 2026-08-15 (correctness cycle).** This paragraph said "a single
 > startup warning". There is no startup warning and there cannot cheaply be one:
 > nothing walks every schema at construction, `compile()` is lazy and serves
-> request validation, and a response-only schema — the case this exists for — is
+> request validation, and a response-only schema - the case this exists for - is
 > never compiled at all. The warning fires once per pattern the first time such
 > a value is generated, deduplicated for the life of the handler. Implemented in
 > the correctness cycle; see
@@ -257,7 +257,7 @@ an empty object/array otherwise.
 
 ### Target strings
 
-One syntax addresses operations everywhere it is needed — `operations` keys,
+One syntax addresses operations everywhere it is needed - `operations` keys,
 `failure[].match`, and the control-plane methods:
 
 ```
@@ -334,7 +334,7 @@ code?)`, `log` (extra fields merged into the log record).
 ## 5. Headers
 
 Response headers are layered exactly like bodies. Listed in **increasing**
-precedence — later layers overwrite earlier ones:
+precedence - later layers overwrite earlier ones:
 
 1. Headers declared in the operation's response object, generated from their schemas.
 2. Global `headers` defaults from config.
@@ -372,7 +372,7 @@ twenty operations compiles once.
 
 ## 7. Errors stay on-contract
 
-When mockingham emits an error itself — 401, 400, 503, 429 — it first looks for
+When mockingham emits an error itself - 401, 400, 503, 429 - it first looks for
 that status in the operation's declared `responses`. If declared, it generates a
 body from *that* schema so the client's error-path parsing gets exercised too.
 Only if the status is undeclared does it fall back to its own envelope.
@@ -446,7 +446,7 @@ Rate rolls are drawn from the seeded PRNG so a run is reproducible; pass
 `chaosSeed` to vary chaos independently of content. **A `chaosSeed` that was
 not configured explicitly follows `setSeed`**; one that was is left alone.
 Note that `requestKey` also carries the seed, so reseeding changes the chaos
-roll either way — `chaosSeed` decouples chaos from *content*, not from the
+roll either way - `chaosSeed` decouples chaos from *content*, not from the
 seed entirely.
 
 All failure state lives in the `Store`, so it works across a multi-instance mock.
@@ -467,7 +467,7 @@ interface Store {
 Default `MemoryStore` is a `Map` with lazy TTL sweep on access plus a bounded
 periodic sweep. Idempotency records, chaos state, and `ctx.seq()` counters all sit
 on this one interface, so swapping in Redis makes a multi-instance mock work with
-no other changes. No entity persistence — a POST does not make the entity
+no other changes. No entity persistence - a POST does not make the entity
 retrievable by a later GET.
 
 ---
@@ -493,7 +493,7 @@ parameter. Behavior:
 - Key seen but no stored response yet → `409` with `MOCK_IDEMPOTENCY_IN_FLIGHT`.
   The lookup and the claim are two separate `Store` calls with no atomicity
   across the await, so this is reliably reachable only for a *wedged prior*
-  request — one whose process died mid-request, or whose handler threw before
+  request - one whose process died mid-request, or whose handler threw before
   the boundary catch released the marker. Two genuinely concurrent identical
   requests in the same process can both read no record and both proceed; a
   `Store` with a compare-and-set primitive would close that gap. See the
@@ -505,7 +505,7 @@ Both 409s are emitted on-contract per §7.
 
 ## 12. Logging
 
-A single `onLog(record)` callback, invoked fire-and-forget with error isolation —
+A single `onLog(record)` callback, invoked fire-and-forget with error isolation -
 a throwing logger never affects a response. The record is shaped for direct
 mapping onto Datadog/OTel-style sinks, with low-cardinality fields separated from
 high-cardinality ones:
@@ -513,8 +513,8 @@ high-cardinality ones:
 ```ts
 {
   ts, durationMs, requestId,
-  method, route,            // route is the TEMPLATED path — low cardinality tag
-  path,                     // resolved path — high cardinality, not a tag
+  method, route,            // route is the TEMPLATED path - low cardinality tag
+  path,                     // resolved path - high cardinality, not a tag
   status, bytesIn, bytesOut,
   params, query,
   seed, operationId,
@@ -524,7 +524,7 @@ high-cardinality ones:
 ```
 
 `onError(err, ctx)` is separate and covers internal faults. A Datadog mapping
-example lives in the docs, not in code — no dependency.
+example lives in the docs, not in code - no dependency.
 
 ---
 
@@ -533,9 +533,9 @@ example lives in the docs, not in code — no dependency.
 The mock emits outbound requests whose bodies conform to the document's declared
 schemas. Both OpenAPI shapes are supported:
 
-- **`webhooks`** (3.1, top-level) — outbound requests the API makes, described as
+- **`webhooks`** (3.1, top-level) - outbound requests the API makes, described as
   path items.
-- **`callbacks`** (3.0 and 3.1, per-operation) — out-of-band requests triggered by
+- **`callbacks`** (3.0 and 3.1, per-operation) - out-of-band requests triggered by
   a specific operation, whose destination is given by a runtime expression.
 
 Emission reuses the existing machinery wholesale: payloads come from §3
@@ -547,13 +547,13 @@ The only genuinely new code is delivery, expression resolution, and signing.
 
 Two, and deliberately no more.
 
-**Imperative** — the control plane and MCP:
+**Imperative** - the control plane and MCP:
 
 ```ts
 await mock.emit('onOrderShipped', { to: url, body: { id: 'o_1' } })
 ```
 
-**Operation-linked** — declared in config, fired after the response is returned:
+**Operation-linked** - declared in config, fired after the response is returned:
 
 ```ts
 operations: {
@@ -568,7 +568,7 @@ operations: {
 ```
 
 `afterMs` is a single awaited timer bound to the request's lifetime, not a
-scheduler entry — it is canceled by `close()` and cleared by `reset()`. There is
+scheduler entry - it is canceled by `close()` and cleared by `reset()`. There is
 no background job, no persistence, and no lifecycle to reason about. Emission
 never blocks or delays the triggering response; a delivery failure is logged and
 never affects it.
@@ -583,9 +583,9 @@ other than its own.
 Resolved in precedence order:
 
 1. Explicit `to:` on the `emit()` call.
-2. A URL captured at runtime from the callback's OpenAPI runtime expression —
-   `{$request.body#/callbackUrl}`, `{$request.query.url}`, `{$request.header.x-cb}`
-   — recorded in the Store when a client subscribed via a real request. This is
+2. A URL captured at runtime from the callback's OpenAPI runtime expression -
+   `{$request.body#/callbackUrl}`, `{$request.query.url}`, `{$request.header.x-cb}`,
+   recorded in the Store when a client subscribed via a real request. This is
    what makes the common "client POSTs its own callback URL" flow work.
 3. A static per-webhook `url` from config.
 4. Nothing resolves → the delivery is captured but not sent, and logged as
@@ -615,8 +615,8 @@ lives in the Store. Non-2xx responses retry, 4xx other than 408/429 do not.
 
 **Signing** is on whenever `secret` is set: HMAC-SHA256 over
 `timestamp + '.' + rawBody`, sent as `x-mockingham-signature: t=<ts>,v1=<hex>`
-using `node:crypto`. This exists so the client's signature-verification path —
-the security-critical one — is exercised before production rather than after.
+using `node:crypto`. This exists so the client's signature-verification path -
+the security-critical one - is exercised before production rather than after.
 
 **Capture mode** records every delivery instead of, or alongside, sending it:
 
@@ -669,14 +669,14 @@ staleness when the OpenAPI document changes and regenerate only affected fixture
 
 | Mode | LLM runs | For |
 |---|---|---|
-| `off` (default) | never | production, CI — serves whatever is on disk |
+| `off` (default) | never | production, CI - serves whatever is on disk |
 | `bake` | offline, via CLI or `mock.bake()` | populating the store |
 | `lazy` | on cache miss, inline, timeout → seeded fallback | local dev |
 | `live` | every request | demos, deliberate variance |
 
 `bake` walks every operation × declared status (× named examples). Beyond a
-configurable threshold it uses the Message Batches API — 50% cost, built for
-non-latency-sensitive bulk work — with a concurrent single-call path for small
+configurable threshold it uses the Message Batches API - 50% cost, built for
+non-latency-sensitive bulk work - with a concurrent single-call path for small
 runs and for `lazy`.
 
 ### Contract-guaranteed output
@@ -725,7 +725,7 @@ llm: {
 }
 ```
 
-That domain grounding is what buys coherence — a user whose name, email, company
+That domain grounding is what buys coherence - a user whose name, email, company
 and bio belong to the same fictional person, which no amount of seeded randomness
 produces.
 
@@ -776,44 +776,44 @@ return.
 
 ### Tools
 
-Read — introspection over the loaded document:
+Read - introspection over the loaded document:
 
 | Tool | Returns |
 |---|---|
 | `list_operations` | method, path, `operationId`, summary, tags; filterable by tag or path prefix |
-| `describe_operation` | params, request body schema, all declared response schemas, auth requirements, declared examples — for one operation |
+| `describe_operation` | params, request body schema, all declared response schemas, auth requirements, declared examples - for one operation |
 | `search_operations` | operations matching a free-text query over path, summary, description, tags |
-| `sample_response` | a **live generated response** for an operation/status, produced by the real pipeline — the exact bytes the agent's code will receive |
+| `sample_response` | a **live generated response** for an operation/status, produced by the real pipeline - the exact bytes the agent's code will receive |
 | `get_auth_requirements` | security schemes and per-operation requirements |
 | `list_webhooks` | declared webhooks and callbacks, with payload schemas and which operations emit them |
-| `list_deliveries` | what has been emitted so far — the agent's feedback loop for verifying its own handler |
+| `list_deliveries` | what has been emitted so far - the agent's feedback loop for verifying its own handler |
 | `list_fixtures` | what the fixture store holds, when each entry was generated, and whether the document has moved under it (added by the regenerate delta §7) |
 
 `sample_response` is the one that earns its place: an agent writing a parser
-against a schema is guessing, and an agent that has seen the concrete payload —
-identical to what it will get at runtime, because determinism guarantees it — is
+against a schema is guessing, and an agent that has seen the concrete payload -
+identical to what it will get at runtime, because determinism guarantees it - is
 not.
 
-Write — the control plane, exposed:
+Write - the control plane, exposed:
 
 | Tool | Effect |
 |---|---|
 | `set_override` | pin a value at a path for an operation/status |
 | `clear_overrides` | drop overrides, scoped or all |
 | `fail_next` / `outage` | drive error paths on demand |
-| `emit_webhook` | fire a webhook at a chosen URL — lets an agent test its own receiver without provoking the triggering flow |
+| `emit_webhook` | fire a webhook at a chosen URL - lets an agent test its own receiver without provoking the triggering flow |
 | `set_seed` | reshuffle all generated content |
 | `regenerate_fixture` | re-run the LLM for one operation, by operationId or method+path, optionally one status |
 | `reset` | clear chaos state, idempotency keys, counters, runtime overrides |
 
 Write tools never edit the user's config file, and `reset` fully restores the
-configured baseline — so an agent cannot leave the mock in a state the
+configured baseline - so an agent cannot leave the mock in a state the
 developer did not ask for and cannot explain.
 
 > **Corrected 2026-08-15 (regenerate cycle).** This paragraph began "Write
 > tools mutate only runtime state", which is too broad as written and became
 > false with `regenerate_fixture`. That tool calls `store.set`, and a
-> disk-backed fixture store writes through to the configured directory —
+> disk-backed fixture store writes through to the configured directory -
 > exactly as `bake()` does. The promise that matters, and that still holds, is
 > the one about configuration: no tool edits the user's config. The gate on
 > writing to a fixture directory is `write: true`, which is opt-in on both
@@ -824,7 +824,7 @@ developer did not ask for and cannot explain.
 Two ways to run it:
 
 ```sh
-mockingham mcp ./openapi.json          # stdio — local agent tooling
+mockingham mcp ./openapi.json          # stdio - local agent tooling
 ```
 
 ```ts
@@ -836,7 +836,7 @@ agent points at one URL for both the API it is mocking and the tools describing
 it, and the mock it introspects is provably the mock it calls.
 
 `@modelcontextprotocol/sdk` is an **optional peer dependency**, imported lazily
-when the MCP server starts — the same pattern as the Anthropic source in §14.
+when the MCP server starts - the same pattern as the Anthropic source in §14.
 Core stays zero-dependency; users who want MCP get a maintained protocol
 implementation instead of ~200 lines of owned JSON-RPC that has to track a moving
 spec.
@@ -882,13 +882,13 @@ immediately rather than silently doing nothing.
 **`node:test`** with `node --test`, no test-framework dependency at all. Node
 strips TypeScript natively, so tests are written in TypeScript and run directly
 with no build step and no transpiler in the loop. `mvt` is dropped from
-`devDependencies` — it predates the built-in runner and is TS-unaware.
+`devDependencies` - it predates the built-in runner and is TS-unaware.
 
 Node floor is **≥24** (native type stripping unflagged, stable `node:test`,
 `--experimental-test-coverage`); 26 is fine and nothing here depends on it. Type
 stripping requires erasable-syntax-only TypeScript in `src/` and `test/`: no
 `enum`, no `namespace`, no parameter properties. That is a constraint worth
-accepting for the build-free loop, and good practice regardless — `const` objects
+accepting for the build-free loop, and good practice regardless - `const` objects
 with `as const` replace enums cleanly.
 
 - **Unit** per module: `$ref` resolution incl. cycles, route matcher precedence,
@@ -910,7 +910,7 @@ with `as const` replace enums cleanly.
 - **LLM path** tested against a stub `ContentSource`; no network in the test suite.
 - **MCP tools** tested by calling handlers directly, plus one stdio round-trip
   smoke test. `sample_response` is asserted to equal what `mock.fetch()` returns
-  for the same operation — the two must never drift.
+  for the same operation - the two must never drift.
 
 ---
 
@@ -918,30 +918,30 @@ with `as const` replace enums cleanly.
 
 Each phase leaves the project in a working, tested state.
 
-1. **Foundations** — `spec/load`, `spec/refs`, `spec/routes`, `generate/rng`.
+1. **Foundations** - `spec/load`, `spec/refs`, `spec/routes`, `generate/rng`.
    Plus housekeeping: fix `"type": "esm"` → `"module"` in `package.json`, settle
    the `mockbox`/`mockingham` name mismatch, drop `mvt` and set
    `"test": "node --test"`, add `engines.node: ">=24"`, `.gitignore`, and
    `tsconfig.json` (`erasableSyntaxOnly`, `verbatimModuleSyntax`).
-2. **Generation** — `schema/walk`, `generate/values`, `generate/constraints`.
-3. **End-to-end minimum** — `server/handler`, `server/node`. Generates and
+2. **Generation** - `schema/walk`, `generate/values`, `generate/constraints`.
+3. **End-to-end minimum** - `server/handler`, `server/node`. Generates and
    responds. First integration test passes here.
-4. **Overrides** — `resolve/layer`, `runtime/context`, `runtime/headers`,
+4. **Overrides** - `resolve/layer`, `runtime/context`, `runtime/headers`,
    response callbacks.
-5. **Validation and auth** — `schema/compile`, `runtime/validate`, `runtime/auth`,
+5. **Validation and auth** - `schema/compile`, `runtime/validate`, `runtime/auth`,
    `runtime/errors`.
-6. **Failure** — `runtime/failure`, `runtime/store`, control plane.
-7. **Idempotency** — `runtime/idempotency`.
-8. **Webhooks** — `webhooks/expr`, `webhooks/sign`, `webhooks/deliver`,
+6. **Failure** - `runtime/failure`, `runtime/store`, control plane.
+7. **Idempotency** - `runtime/idempotency`.
+8. **Webhooks** - `webhooks/expr`, `webhooks/sign`, `webhooks/deliver`,
    `webhooks/emit`. Depends on generation, overrides, and the Store; nothing in
    phases 1–7 changes to accommodate it.
-9. **Logging and CLI** — `runtime/logging`, `server/cli`.
-10. **MCP server** — `mcp/tools`, `mcp/server`, stdio and HTTP transports.
+9. **Logging and CLI** - `runtime/logging`, `server/cli`.
+10. **MCP server** - `mcp/tools`, `mcp/server`, stdio and HTTP transports.
     Read tools depend only on phases 1–3 and can land as soon as generation works
     if the consuming agent needs them sooner; write tools need phases 6 and 8.
-11. **Fixtures** — `fixtures/store`, `fixtures/source`, `bake`, the Anthropic
+11. **Fixtures** - `fixtures/store`, `fixtures/source`, `bake`, the Anthropic
     source, batch path.
-12. **Docs** — README, a Datadog logging recipe, a fixture-workflow guide, a
+12. **Docs** - README, a Datadog logging recipe, a fixture-workflow guide, a
     webhook-testing guide, and an MCP setup guide with a ready-to-paste client
     config.
 
@@ -960,7 +960,7 @@ Each phase leaves the project in a working, tested state.
   and a length bound conflict, the pattern wins.
   *(2026-08-14 recorded that `pattern` was not honored at all, and that the
   "documented subset, warned at startup" claim was false in both halves. The
-  subset half is now true; the startup half was retired as unbuildable — see
+  subset half is now true; the startup half was retired as unbuildable - see
   §3's correction note. Deferred item 28, closed by the correctness cycle.)*
 - Recursive schemas terminate at `maxDepth` and are excluded from LLM generation.
 - No stateful CRUD: writes do not affect later reads.

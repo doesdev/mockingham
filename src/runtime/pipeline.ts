@@ -16,14 +16,14 @@ export interface RespondersInput {
   generateOptions: GenerateOptions
   /**
    * Reads the request context, which does not exist yet when the responders are
-   * built — ctx needs `generate`/`example` from here. A getter keeps the old
+   * built - ctx needs `generate`/`example` from here. A getter keeps the old
    * closure behavior: resolvers receive the live ctx at generation time.
    */
   ctx?: () => unknown
   /**
    * Consulted before generating. Returns a whole-body fixture, or undefined to
    * fall through. Synchronous by design: a store hit is a Map read, and a lazy
-   * fetch is awaited earlier in `produce()` — design section 2.12. A full
+   * fetch is awaited earlier in `produce()` - design section 2.12. A full
    * response callback therefore sees baked fixtures but never triggers a fetch.
    */
   fixture?: (status: number) => unknown
@@ -41,7 +41,7 @@ export interface Responders {
  * The response helper cluster, with status selection DEFERRED.
  *
  * Selection used to run before the pipeline's stage list, which inverted the
- * stage order the design specifies — auth is stage 3 and selection stage 7 — and
+ * stage order the design specifies - auth is stage 3 and selection stage 7 - and
  * leaked operation metadata to unauthenticated callers. Making it lazy lets every
  * stage run first, while `ctx.generate`/`ctx.example` still work inside a user
  * callback because they trigger selection on demand.

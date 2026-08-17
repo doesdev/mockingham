@@ -9,7 +9,7 @@ import { readFile } from 'node:fs/promises'
  * Node lets a package import itself by name ONLY when it declares `exports`,
  * so a self-referencing import is a genuine end-to-end check of the map: if
  * `exports` were removed, the first test here stops resolving. The rest of the
- * suite cannot cover this — every other test reaches into `src/` by relative
+ * suite cannot cover this - every other test reaches into `src/` by relative
  * path, which `exports` does not govern, and the docs harness rewrites
  * `from 'mockingham'` to a relative path before running a document.
  *

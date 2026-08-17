@@ -25,7 +25,7 @@ test('describe_operation returns params, bodies, responses, and security', async
 })
 
 test('describe_operation distinguishes a range response from an exact status', async () => {
-  // Both carry status 400 — a range's `status` is its bucket's lower bound —
+  // Both carry status 400 - a range's `status` is its bucket's lower bound -
   // so without the flag an agent sees two entries reporting the same status
   // with different schemas and no way to tell which is which.
   const doc = {

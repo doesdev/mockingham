@@ -51,8 +51,8 @@ export interface ResolvedConfig {
 
 /**
  * Matching configs are deliberately NOT merged into one object. A broad target
- * and a specific one both setting `200.body` must layer — the specific refining
- * the broad one's result — so bodies stay a list applied in sequence. Headers
+ * and a specific one both setting `200.body` must layer - the specific refining
+ * the broad one's result - so bodies stay a list applied in sequence. Headers
  * are flat, so a shallow merge in declaration order is already right.
  */
 export function resolveConfigs(

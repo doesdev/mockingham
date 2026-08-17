@@ -8,7 +8,7 @@ export interface OpenAiSourceOptions {
   apiKey?: string
   /**
    * What the server supports, declared rather than probed. A probe costs a
-   * round trip on every cold start and its result is not deterministic —
+   * round trip on every cold start and its result is not deterministic -
    * design section 4.
    */
   structuredOutput?: 'json_schema' | 'json_object' | 'none'
@@ -30,20 +30,20 @@ export interface OpenAiSourceOptions {
 /**
  * Only called when `strict` is true: that is the ONLY condition under which
  * this stripping is needed. Real OpenAI strict mode rejects a schema
- * outright — an HTTP error, not a silent ignore — if it carries any of
+ * outright - an HTTP error, not a silent ignore - if it carries any of
  * these numeric/string constraints or an unrecognized `format`. Stripping
  * is not a general improvement to apply unconditionally: with `strict:
  * false` (the default) OpenAI imposes no such subset restriction, and local
  * grammar-constrained decoders (GBNF in llama.cpp, outlines, xgrammar in
  * vLLM) genuinely use `minLength`, `maximum`, `pattern`, and friends as
- * generation guidance — stripping them there would only throw away signal
+ * generation guidance - stripping them there would only throw away signal
  * for no benefit. So this must stay gated on `strict`, not just on
  * `json_schema` mode. `request.zodSchema.safeParse` already enforces all of
  * these client-side on the way back in, unconditionally, in every mode
- * regardless of whether they were sent — the "enforce" half of
+ * regardless of whether they were sent - the "enforce" half of
  * strip-and-enforce was already built; this is the other half, applied only
  * where the alternative is an outright rejected request. `format` is
- * stripped in addition to the shared keyword set (not folded into it —
+ * stripped in addition to the shared keyword set (not folded into it -
  * see json-schema-strip.ts's doc comment) rather than allow-listing the
  * subset OpenAI accepts, since which formats are accepted is
  * model/version-specific and an over-permissive allow-list risks
@@ -114,7 +114,7 @@ export function createOpenAiSource(options: OpenAiSourceOptions): ContentSource 
         json_schema: {
           name: 'response_body',
           // Stripping is only justified when strict mode is what would
-          // otherwise reject these keywords — see stripForStrictMode's doc
+          // otherwise reject these keywords - see stripForStrictMode's doc
           // comment. With strict false, the full schema (constraints and
           // all) goes out as generation guidance instead.
           schema: strict ? stripForStrictMode(request.jsonSchema) : request.jsonSchema,

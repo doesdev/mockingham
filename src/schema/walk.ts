@@ -39,7 +39,7 @@ export function isNullable(schema: Schema): boolean {
  * One precedence rule, applied to every keyword alike: `allOf` members are
  * merged in declaration order so a later member overrides an earlier one, and
  * the outer schema's own keywords then override all members. `properties` and
- * `required` accumulate instead of replacing — properties union with the outer
+ * `required` accumulate instead of replacing - properties union with the outer
  * schema winning a key collision, required is a plain union.
  *
  * Every keyword is carried through, not just the structural ones. A constraint
@@ -55,8 +55,8 @@ export function mergeAllOf(schema: Schema): Schema {
  * `seen` carries the schemas being merged on the CURRENT path, and is copied
  * rather than shared so a cycle is skipped while a diamond is not.
  *
- * A member already on the path is a tautology — `A: { allOf: [A] }` says A must
- * satisfy A — so skipping it loses nothing and the merged result is exactly
+ * A member already on the path is a tautology - `A: { allOf: [A] }` says A must
+ * satisfy A - so skipping it loses nothing and the merged result is exactly
  * what the document means. Ref resolution makes every reference to a component
  * the same object, so such a schema really does contain itself, and merging it
  * used to recurse until the stack ran out.
@@ -120,7 +120,7 @@ export function classify(input: Schema): SchemaKind {
 
   // oneOf and anyOf differ: oneOf must match exactly one variant, anyOf at
   // least one. Only this module can preserve the distinction, so `mode` carries
-  // it — a validator built on `classify` cannot recover it any other way.
+  // it - a validator built on `classify` cannot recover it any other way.
   const variants = schema.oneOf ?? schema.anyOf
   if (Array.isArray(variants) && variants.length > 0) {
     return {

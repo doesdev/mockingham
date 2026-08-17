@@ -61,7 +61,7 @@ test('list_webhooks reports an empty emittedBy for a webhook nothing fires', asy
   }>
 
   // Honest and useful: the document declares it, but no operation config emits
-  // it — which is exactly the misconfiguration worth telling an agent about.
+  // it - which is exactly the misconfiguration worth telling an agent about.
   assert.deepEqual(result.find((entry) => entry.name === 'orderCreated')?.emittedBy, [])
 })
 
@@ -82,7 +82,7 @@ test('a callback keeps its declaring operation when a configured emitter exists'
   // Deferred item 29b. `emittedBy` reported the declaring operation only when
   // NOTHING was configured, so the moment any operation's `emits` named the
   // webhook, the operation that actually declares it disappeared from the
-  // list — even when it was not among the configured emitters.
+  // list - even when it was not among the configured emitters.
   const options = {
     operations: { 'GET /orders/{orderId}': { emits: [{ webhook: 'orderShipped' }] } },
     webhooks: { orderShipped: { url: 'https://example.test/hook' } }
@@ -105,8 +105,8 @@ test('a recursive webhook payload is reported, not dropped', async () => {
   // docstring says ("Recursion is NOT such a case"). Nothing this loader can
   // build was found to make the converter refuse.
   //
-  // The routing fix still landed — every other tool goes through the helper
-  // and the asymmetry was real — but it changes no observable output, so this
+  // The routing fix still landed - every other tool goes through the helper
+  // and the asymmetry was real - but it changes no observable output, so this
   // test asserts what IS true rather than a placeholder that never appears.
   const recursiveDoc = {
     openapi: '3.1.0',

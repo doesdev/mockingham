@@ -239,7 +239,7 @@ function docWithResponses(responses: Record<string, unknown>) {
 }
 
 test('a 4XX range key loads as status 400 flagged as a range', () => {
-  // 400, NOT 4 — Number.parseInt('4XX', 10) is 4, which is what shipped and
+  // 400, NOT 4 - Number.parseInt('4XX', 10) is 4, which is what shipped and
   // is why a declared error contract loaded under an unreachable status.
   const api = loadApi(docWithResponses({ '4XX': body }))
   const spec = api.operations[0]?.responses[0]

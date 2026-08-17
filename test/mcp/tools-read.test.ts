@@ -36,7 +36,7 @@ test('list_operations filters by path prefix', async () => {
 test('list_operations applies tag and prefix together', async () => {
   // `tag: 'write'` alone matches only createOrder (path /orders); `pathPrefix:
   // '/orders/'` alone matches only getOrder (path /orders/{orderId}). Neither
-  // operation satisfies both, so a correct AND yields nothing — chosen so
+  // operation satisfies both, so a correct AND yields nothing - chosen so
   // that a broken tag filter (still narrowed by prefix to getOrder) or a
   // broken prefix filter (still narrowed by tag to createOrder) each produce
   // a nonempty result and fail this assertion, unlike a same-direction pair

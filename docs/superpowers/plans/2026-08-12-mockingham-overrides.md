@@ -2,12 +2,12 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make every generated value overridable — by format, by property name, by
+**Goal:** Make every generated value overridable - by format, by property name, by
 schema name, by operation, or by replacing the whole response with a callback.
 
 **Architecture:** Override sources split by what they key on. `byFormat`, `byName`,
 and `bySchema` are schema-keyed, so they are consulted inside `generate.ts` at
-leaves the existing walk already visits — adding a second schema traversal is
+leaves the existing walk already visits - adding a second schema traversal is
 forbidden. `operations[...].body` is value-keyed, so it is a plain value-tree
 overlay in `resolve/layer.ts` applied afterward. `handler.ts` becomes an
 orchestrator calling uniform stage functions in the design's §2.3 order.
@@ -17,7 +17,7 @@ Node >= 24, `node:test`, `zod` (present as a dependency; not used until plan 3).
 
 **Design document:** `docs/superpowers/specs/2026-08-12-mockingham-phases-4-6-design.md`.
 **Master spec:** `docs/superpowers/specs/2026-08-11-mockingham-design.md` §4 and §5.
-Read the design document's §1 (amendments) before starting — it overrides the
+Read the design document's §1 (amendments) before starting - it overrides the
 master spec in six places, two of which affect this plan.
 
 ## Global Constraints
@@ -37,11 +37,11 @@ requirements implicitly include this section.
   reason resolvers live inside `generate.ts` rather than in a post-pass.
 - **Determinism:** no `Math.random()`, no `Date.now()`, and no iteration over an
   unordered `Set` or object anywhere in a generation path. Randomness comes only
-  from `generate/rng.ts`. The guarantee covers values *mockingham* generates —
+  from `generate/rng.ts`. The guarantee covers values *mockingham* generates -
   user-supplied override functions are explicitly exempt (design §8).
 - **The core is pure.** Nothing reachable from `server/handler.ts` may import a
   `node:` module. Node-only code lives in `server/node.ts`.
-- **US English spelling** everywhere — `honor`, `behavior`, `serialize`,
+- **US English spelling** everywhere - `honor`, `behavior`, `serialize`,
   `normalize`, `canceled`.
 - **Shell:** one plain command per Bash call, single-quoted arguments, no `&&`
   chains, no heredocs, no redirects, never `cd`. Multi-paragraph commits use
@@ -51,18 +51,18 @@ requirements implicitly include this section.
 
 | File | Responsibility |
 |---|---|
-| `src/spec/refs.ts` | **Modified** — also returns the schema-name table |
-| `src/spec/types.ts` | **Modified** — `Api` gains `schemaNames` |
-| `src/spec/load.ts` | **Modified** — threads `schemaNames` onto the `Api` |
+| `src/spec/refs.ts` | **Modified** - also returns the schema-name table |
+| `src/spec/types.ts` | **Modified** - `Api` gains `schemaNames` |
+| `src/spec/load.ts` | **Modified** - threads `schemaNames` onto the `Api` |
 | `src/resolve/target.ts` | Target string → operation predicate |
 | `src/runtime/body.ts` | Content negotiation and body parsing (stage 2) |
-| `src/runtime/types.ts` | `Ctx`, `Resolvers`, override node types — shared vocabulary |
+| `src/runtime/types.ts` | `Ctx`, `Resolvers`, override node types - shared vocabulary |
 | `src/runtime/context.ts` | `Ctx` construction and the sequence counters |
 | `src/resolve/resolvers.ts` | Compiles `byFormat`/`byName`/`bySchema` into one lookup |
-| `src/generate/generate.ts` | **Modified** — consults the resolver lookup at each leaf |
+| `src/generate/generate.ts` | **Modified** - consults the resolver lookup at each leaf |
 | `src/resolve/layer.ts` | Value-tree override overlay, async-aware |
 | `src/runtime/headers.ts` | Response header generation and layering |
-| `src/server/handler.ts` | **Modified** — stage orchestrator |
+| `src/server/handler.ts` | **Modified** - stage orchestrator |
 
 `src/runtime/types.ts` exists to break a cycle: `runtime/context.ts` imports
 `generateValue`, and `generate.ts` needs the `Ctx` type to type resolver
@@ -77,7 +77,7 @@ Task 3 (body parsing) ─ Task 4 (context + types) ─┬─ Task 6 (layer) ─�
                                                   └─ Task 7 (headers)─┘
 ```
 
-**Parallel batch A:** Tasks 1, 2, 3 — no shared files.
+**Parallel batch A:** Tasks 1, 2, 3 - no shared files.
 **Then:** Task 4 (needs 3), Task 5 (needs 1).
 **Parallel batch B:** Tasks 6 and 7 (both need 4).
 **Serial tail:** Task 8 → Task 9.
@@ -89,7 +89,7 @@ Task 3 (body parsing) ─ Task 4 (context + types) ─┬─ Task 6 (layer) ─�
 `bySchema: { User: … }` keys on a component name, but after `$ref` resolution a
 schema object no longer records that it came from `components.schemas.User`.
 Resolution already makes every reference to `User` the same object, so identity is
-enough — this task records what resolution already knows.
+enough - this task records what resolution already knows.
 
 **Files:**
 - Modify: `src/spec/refs.ts`
@@ -102,7 +102,7 @@ enough — this task records what resolution already knows.
 - Consumes: `Schema` from `src/spec/types.ts`.
 - Produces: `resolveDocument(doc: Record<string, unknown>): ResolvedDocument`,
   where `ResolvedDocument` is `{ document: Record<string, unknown>; schemaNames: Map<Schema, string> }`.
-  **This is a breaking signature change** — it previously returned the document
+  **This is a breaking signature change** - it previously returned the document
   directly. `Api` gains `schemaNames: Map<Schema, string>`.
 
 - [ ] **Step 1: Migrate the existing ref tests to the new shape**
@@ -247,7 +247,7 @@ test('schemas outside components are absent from the table', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/spec/refs.test.ts`
-Expected: FAIL — `resolveDocument(...).document` is undefined, and the three new
+Expected: FAIL - `resolveDocument(...).document` is undefined, and the three new
 tests fail on `schemaNames` being undefined.
 
 - [ ] **Step 3: Change `resolveDocument` to return the table**
@@ -458,7 +458,7 @@ test('a path with no method is rejected with a usable message', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/resolve/target.test.ts`
-Expected: FAIL — cannot find module `../../src/resolve/target.ts`.
+Expected: FAIL - cannot find module `../../src/resolve/target.ts`.
 
 - [ ] **Step 3: Implement `src/resolve/target.ts`**
 
@@ -482,7 +482,7 @@ function split(path: string): string[] {
  *   '* /users/{id}'      any method
  *   'GET /orders/*'      '*' matches one segment, '**' matches the rest
  *
- * Path matching is against the template, not against a concrete request path —
+ * Path matching is against the template, not against a concrete request path -
  * `{id}` is a literal segment here, so '/users/{id}' targets the operation and
  * '/users/42' targets nothing.
  */
@@ -524,7 +524,7 @@ export function compileTarget(target: string): TargetMatcher {
 
 /**
  * Resolves a target against a document's operations. A target matching nothing
- * is a configuration error rather than an empty result — it means an override,
+ * is a configuration error rather than an empty result - it means an override,
  * failure policy, or control-plane call would silently never fire.
  */
 export function resolveTarget(
@@ -699,7 +699,7 @@ test('an operation declaring no request body accepts anything', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/runtime/body.test.ts`
-Expected: FAIL — cannot find module `../../src/runtime/body.ts`.
+Expected: FAIL - cannot find module `../../src/runtime/body.ts`.
 
 - [ ] **Step 3: Implement `src/runtime/body.ts`**
 
@@ -817,7 +817,7 @@ git commit -m 'feat: add request body parsing and content negotiation' -m 'Parse
   `createCounters(): Counters` where `Counters` is `{ next(name: string): number; reset(): void }`,
   and `createContext(input: ContextInput): Ctx`.
 
-`Ctx` in this plan omits `auth`, `store`, `schema.*`, and `deny()` — those arrive
+`Ctx` in this plan omits `auth`, `store`, `schema.*`, and `deny()` - those arrive
 with plans 3 and 4. Per design amendment 1.2, `seq` is **synchronous**.
 
 - [ ] **Step 1: Write the failing test**
@@ -919,7 +919,7 @@ test('log starts as an empty object callbacks can add to', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/runtime/context.test.ts`
-Expected: FAIL — cannot find module `../../src/runtime/context.ts`.
+Expected: FAIL - cannot find module `../../src/runtime/context.ts`.
 
 - [ ] **Step 3: Create `src/runtime/types.ts`**
 
@@ -935,7 +935,7 @@ import type { Rng } from '../generate/rng.ts'
  * full response callbacks.
  *
  * `auth`, `store`, `schema.*`, and `deny()` are specified in the master spec §4
- * and arrive with plans 3 and 4. `seq` is synchronous by design decision 1.2 —
+ * and arrive with plans 3 and 4. `seq` is synchronous by design decision 1.2 -
  * it is per-instance identity, not shared state.
  */
 export interface Ctx {
@@ -959,7 +959,7 @@ export type Resolver = (ctx: Ctx) => unknown
 
 export interface Resolvers {
   byFormat?: Record<string, Resolver>
-  /** Ordered — the first matching entry wins. Strings are globs. */
+  /** Ordered - the first matching entry wins. Strings are globs. */
   byName?: Array<[string | RegExp, Resolver]>
   bySchema?: Record<string, Record<string, Resolver>>
 }
@@ -1012,7 +1012,7 @@ export interface ContextInput {
 
 export function createContext(input: ContextInput): Ctx {
   // Built by iterating searchParams in order of appearance rather than through
-  // a Set, so the result is deterministic — invariant 2 forbids unordered
+  // a Set, so the result is deterministic - invariant 2 forbids unordered
   // iteration anywhere a generated value can depend on it.
   const query: Record<string, string | string[]> = {}
   for (const [key, value] of input.url.searchParams) {
@@ -1217,7 +1217,7 @@ test('a resolver may return a promise, left unsettled for the override pass', ()
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/resolve/resolvers.test.ts test/generate/generate.test.ts`
-Expected: FAIL — cannot find module `../../src/resolve/resolvers.ts`.
+Expected: FAIL - cannot find module `../../src/resolve/resolvers.ts`.
 
 - [ ] **Step 3: Implement `src/resolve/resolvers.ts`**
 
@@ -1322,7 +1322,7 @@ so the hook must come before those checks:
     )
     // A resolver may legitimately return undefined, so hit is checked rather
     // than the value. A returned promise is left in the tree for the override
-    // pass to settle — generation itself stays synchronous.
+    // pass to settle - generation itself stays synchronous.
     if (hook?.hit) return hook.value
 
     if (preferExamples && current.example !== undefined) return current.example
@@ -1364,7 +1364,7 @@ Expected: PASS, 10 resolver tests and the existing generate tests plus 4 new one
 - [ ] **Step 6: Run the whole suite and typecheck**
 
 Run: `npm test`
-Expected: PASS. Existing generation output must be unchanged — with no resolvers
+Expected: PASS. Existing generation output must be unchanged - with no resolvers
 configured the hook always misses, so the determinism tests stay green.
 
 Run: `npx tsc --noEmit`
@@ -1385,7 +1385,7 @@ git commit -m 'feat: consult schema-keyed resolvers during generation' -m 'byFor
 
 `operations[...].body` is value-keyed and needs no schema knowledge, so it is a
 plain value-tree overlay. This module also settles the promises resolvers left
-behind, so every async leaf in the response — resolver or override — is awaited
+behind, so every async leaf in the response - resolver or override - is awaited
 in one batch.
 
 **Files:**
@@ -1485,7 +1485,7 @@ test('every async leaf is started before any is awaited', async () => {
 test('a promise resolving to a value containing promises is settled too', async () => {
   // The inner promise only becomes reachable after the outer one settles, so a
   // single-pass settle would leave it pending in the result. Do NOT weaken this
-  // to `async () => Promise.resolve(x)` — JS auto-flattens that, and the test
+  // to `async () => Promise.resolve(x)` - JS auto-flattens that, and the test
   // then passes without the loop it exists to prove.
   const out = await applyOverrides(
     { a: 0 }, { a: async () => ({ b: Promise.resolve(3), c: 4 }) }, ctx
@@ -1501,7 +1501,7 @@ test('an override at the root replaces everything', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/resolve/layer.test.ts`
-Expected: FAIL — cannot find module `../../src/resolve/layer.ts`.
+Expected: FAIL - cannot find module `../../src/resolve/layer.ts`.
 
 - [ ] **Step 3: Implement `src/resolve/layer.ts`**
 
@@ -1514,7 +1514,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * Pass one. Builds the result tree, calling override functions as it goes and
- * leaving whatever they return — including promises — in place.
+ * leaving whatever they return - including promises - in place.
  *
  * Containers are always freshly built, never mutated, so a spec `example`
  * object reachable from the generated tree is never written through.
@@ -1740,7 +1740,7 @@ test('resolvers do not invent headers that no layer set', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/runtime/headers.test.ts`
-Expected: FAIL — cannot find module `../../src/runtime/headers.ts`.
+Expected: FAIL - cannot find module `../../src/runtime/headers.ts`.
 
 - [ ] **Step 3: Implement `src/runtime/headers.ts`**
 
@@ -2009,7 +2009,7 @@ Note: `createPet` declares a 201 with no content, so the override adds the body.
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/server/overrides.test.ts`
-Expected: FAIL — `resolvers` and `operations` are not accepted options, so
+Expected: FAIL - `resolvers` and `operations` are not accepted options, so
 overrides have no effect and the assertions miss.
 
 - [ ] **Step 3: Rewrite `src/server/handler.ts`**
@@ -2075,8 +2075,8 @@ function preferred(request: Request, key: string): string | undefined {
  * Every configured target that matches, in declaration order.
  *
  * These are deliberately not merged into one config object. A broad target and
- * a specific one both setting `200.body` must layer — the specific one refining
- * the broad one's result — and merging with Object.assign would drop the broad
+ * a specific one both setting `200.body` must layer - the specific one refining
+ * the broad one's result - and merging with Object.assign would drop the broad
  * body entirely. Body overrides are instead applied in sequence below.
  */
 function matchingConfigs(
@@ -2108,7 +2108,7 @@ export function createHandler(
   const counters: Counters = createCounters()
 
   return async function handle(request: Request): Promise<Response> {
-    // Stage 1 — route match.
+    // Stage 1 - route match.
     const url = new URL(request.url)
     const matched = router.match(request.method, url.pathname)
 
@@ -2142,7 +2142,7 @@ export function createHandler(
       if (entry.respond !== undefined) respond = entry.respond
     }
 
-    // Stage 2 — body parse and content negotiation.
+    // Stage 2 - body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
       return Response.json(
@@ -2154,7 +2154,7 @@ export function createHandler(
     // Stages 3, 4, 5, and 6 (auth, validation, idempotency, failure) arrive
     // with plans 3 and 4.
 
-    // Stage 7 — status selection.
+    // Stage 7 - status selection.
     const key = requestKey(operation, params, seed)
     const wanted = preferred(request, 'status')
     const exampleName = preferred(request, 'example')
@@ -2230,7 +2230,7 @@ export function createHandler(
       example: exampleFor
     })
 
-    // Stage 8 — generate the body.
+    // Stage 8 - generate the body.
     // Collect this status's overrides across every matching config. Bodies stay
     // a list so they layer; headers are flat, so a shallow merge in declaration
     // order is already the right precedence.
@@ -2268,11 +2268,11 @@ export function createHandler(
       body = exampleFor(chosen.status, exampleName)
     }
     // Deliberately the same call ctx.generate(status) makes, rather than a
-    // second copy of it — a response callback and the pipeline must never
+    // second copy of it - a response callback and the pipeline must never
     // produce different bodies for the same status.
     if (body === undefined) body = generateFor(chosen.status)
 
-    // Stage 9 — apply the override layers, broad targets first so specific ones
+    // Stage 9 - apply the override layers, broad targets first so specific ones
     // refine their result rather than replacing it.
     if (bodyOverrides.length === 0) {
       // Still worth one pass: resolvers may have left promises in the tree.
@@ -2287,7 +2287,7 @@ export function createHandler(
       return new Response(null, { status: chosen.status, headers })
     }
 
-    // Layer 5 — transport headers, applied last so nothing can override them.
+    // Layer 5 - transport headers, applied last so nothing can override them.
     // Content-Length is left to Response, per design amendment 1.4.
     headers.set('content-type', JSON_TYPE)
     return new Response(JSON.stringify(body), { status: chosen.status, headers })
@@ -2303,7 +2303,7 @@ Expected: PASS, 16 tests.
 - [ ] **Step 5: Run the whole suite and typecheck**
 
 Run: `npm test`
-Expected: PASS. The plan-1 determinism and handler tests must still be green —
+Expected: PASS. The plan-1 determinism and handler tests must still be green -
 with no overrides configured the pipeline produces byte-identical output.
 
 Run: `npx tsc --noEmit`
@@ -2449,7 +2449,7 @@ test('an operation without respond is unaffected', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/server/respond.test.ts`
-Expected: FAIL — `respond` is declared but never called, so statuses stay 200.
+Expected: FAIL - `respond` is declared but never called, so statuses stay 200.
 
 - [ ] **Step 3: Honor `respond` in `src/server/handler.ts`**
 
@@ -2457,7 +2457,7 @@ Insert this block immediately after the `ctx` is constructed with `createContext
 before the "Stage 8" comment:
 
 ```ts
-    // Stage 10 — the full response callback replaces stages 7 through 10.
+    // Stage 10 - the full response callback replaces stages 7 through 10.
     // It runs after ctx exists so the callback can reach ctx.generate and
     // ctx.example, both of which are bound to the selected response.
     if (respond) {
@@ -2496,7 +2496,7 @@ for (const path of ['/pets', '/pets/7', '/pets/mine']) {
 Run: `node scripts/determinism.ts`
 
 Run it a second time and compare the two outputs by eye. They must be identical,
-and they must still match what plan 1 produced — override machinery in the path
+and they must still match what plan 1 produced - override machinery in the path
 must not shift generated values.
 
 - [ ] **Step 7: Commit**

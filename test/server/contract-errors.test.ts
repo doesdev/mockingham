@@ -194,7 +194,7 @@ test('an operation whose only response is a range still serves', async () => {
   // range of 200 to 599", blaming mockingham for the document's valid OpenAPI.
   //
   // What actually closes this is the LOADER giving the range a status of 400
-  // instead of 4, not the servable() guard in select.ts — that guard exists
+  // instead of 4, not the servable() guard in select.ts - that guard exists
   // only for `1XX`, whose bound of 100 is still below the 200 floor. Verified
   // by mutation: neutering servable() leaves this test passing.
   const handle = createHandler(rangeApi, { seed: 'contract' }).fetch
@@ -205,7 +205,7 @@ test('an operation whose only response is a range still serves', async () => {
 test('a 1XX-only operation degrades instead of throwing', async () => {
   // `new Response` rejects any status below 200, so a `1XX` bound of 100 has
   // no servable form. Selection skips it, which lands on the ordinary
-  // no-response path — a 501 the mock chooses, not a RangeError escaping as
+  // no-response path - a 501 the mock chooses, not a RangeError escaping as
   // MOCK_INTERNAL. The message says "declares no responses", which is loose
   // for a document that declares a 1XX; it is the pre-existing wording for
   // "nothing selectable" and is left alone rather than special-cased.

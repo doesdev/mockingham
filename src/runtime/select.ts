@@ -8,7 +8,7 @@ export interface Selection {
 }
 
 /**
- * A `default` response carries a schema but no status of its own — in OpenAPI it
+ * A `default` response carries a schema but no status of its own - in OpenAPI it
  * means "any status not otherwise declared". When it is all an operation has,
  * the mock must still choose something, and 200 is the only sensible success.
  */
@@ -19,7 +19,7 @@ const MIN_SERVABLE_STATUS = 200
 
 /**
  * A range response (`4XX`) carries its bucket's lower bound in `status`, which
- * for 2XX-5XX is already the status it should go on the wire as — 400 for
+ * for 2XX-5XX is already the status it should go on the wire as - 400 for
  * `4XX`, and so on. So no restamping is needed, and only one case has to be
  * excluded: `1XX`, whose bound of 100 is below the 200 floor `new Response`
  * enforces. Selecting it threw a RangeError and surfaced the document's own
@@ -95,7 +95,7 @@ export function responseForStatus(
   if (declared) return declared
   // OpenAPI precedence: an exact status, then the range whose bucket contains
   // it, then `default`. Restamped with the REQUESTED status, not the bucket's
-  // bound — a 422 served from a `4XX` contract is a 422.
+  // bound - a 422 served from a `4XX` contract is a 422.
   const ranged = operation.responses.find(
     (response) =>
       response.range === true &&

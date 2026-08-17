@@ -12,7 +12,7 @@ export function numberBounds(schema: Schema): { min: number; max: number } {
   let max = schema.maximum ?? DEFAULT_NUMBER_MAX
 
   // A numeric exclusive bound (3.1) and a plain bound may both be present, and
-  // both must hold — so take whichever is tighter rather than letting the last
+  // both must hold - so take whichever is tighter rather than letting the last
   // branch win. The boolean form (3.0) only modifies its own plain bound.
   if (typeof schema.exclusiveMinimum === 'number') {
     min = Math.max(min, schema.exclusiveMinimum + 1)
@@ -27,7 +27,7 @@ export function numberBounds(schema: Schema): { min: number; max: number } {
   }
 
   // As with `bounded`, an explicit bound is never violated. When the two
-  // sides conflict, only the side that came from a default yields — a lone
+  // sides conflict, only the side that came from a default yields - a lone
   // explicit maximum below the default minimum of 0 must win, not be
   // silently overwritten back up to 0.
   const hasExplicitMin =
@@ -58,7 +58,7 @@ export function applyMultipleOf(value: number, schema: Schema): number {
  * Resolves an optional min/max pair against defaults, guaranteeing `max >= min`.
  *
  * An explicitly declared bound is never violated. When only one is given, the
- * default on the other side yields to it — including when a lone `max` sits
+ * default on the other side yields to it - including when a lone `max` sits
  * below the default minimum, which is the case that silently corrupted output
  * before: `maxLength: 2` must not resolve to a minimum of 5.
  */

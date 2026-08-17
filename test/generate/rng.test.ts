@@ -67,6 +67,6 @@ test('fnv1aBytes hashes raw bytes', () => {
 test('fnv1aBytes matches fnv1a for ASCII', () => {
   // fnv1a walks charCodeAt; for ASCII those are the same numbers as the bytes,
   // so the two must agree. They diverge above U+007F, which is exactly why the
-  // byte version exists — a body is bytes, not a string.
+  // byte version exists - a body is bytes, not a string.
   assert.equal(fnv1aBytes(new TextEncoder().encode('hello')), fnv1a('hello'))
 })

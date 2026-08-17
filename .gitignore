@@ -1,5 +1,5 @@
 # No trailing slash: worktrees symlink node_modules rather than copying it, and a
-# trailing slash matches directories only — so `git add -A` in a worktree would
+# trailing slash matches directories only - so `git add -A` in a worktree would
 # stage the symlink.
 node_modules
 dist/

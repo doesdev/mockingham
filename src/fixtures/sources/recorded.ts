@@ -9,7 +9,7 @@ export interface RecordedEntry {
 }
 
 /**
- * Answers from responses recorded upstream. No network, no dependency — this
+ * Answers from responses recorded upstream. No network, no dependency - this
  * source only ever reads what it was handed.
  */
 export function createRecordedSource(entries: RecordedEntry[]): ContentSource {

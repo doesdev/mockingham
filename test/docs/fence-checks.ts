@@ -8,11 +8,11 @@ import { parseArgs, parseBakeArgs, parseMcpArgs } from '../../src/server/cli.ts'
  * THE one quote scanner. There were three, and they disagreed: two treated any
  * quote preceded by a backslash as escaped, and `splitArgs` had no escape
  * handling at all. The two-character lookback is wrong for a DOUBLED
- * backslash — in `console.log('a\\', payload)` the final `\` is itself
+ * backslash - in `console.log('a\\', payload)` the final `\` is itself
  * escaped, so the `'` after it closes the string, but the lookback saw a
  * backslash and decided the string continued. The scan then never returned to
  * depth 1, the "single argument" check never ran, and a two-argument call was
- * accepted. Counting escapes properly, in one place, is the fix — the same
+ * accepted. Counting escapes properly, in one place, is the fix - the same
  * reasoning invariant 1 applies to schema traversal. Deferred item 35.
  */
 export interface QuoteScan {
@@ -73,7 +73,7 @@ export function quoteMap(input: string): Array<string | undefined> {
  * Every route to stdout or stderr other than a single-argument `console.log`.
  * The rule the harness enforces is that a document's output is stable and
  * byte-comparable, and `assertPrintableLogs` used to look only for the literal
- * `console.log(` — so `process.stdout.write(util.inspect(x))`, or a
+ * `console.log(` - so `process.stdout.write(util.inspect(x))`, or a
  * `console.error`, sidestepped it entirely while still writing to a stream the
  * harness compares. Deferred item 34.
  */
@@ -124,7 +124,7 @@ export function assertPrintableLogs(block: string, file: string, line: number): 
     if (!ok) {
       throw new Error(
         `${file}:${line}: console.log must print a string, a template literal, ` +
-          'or JSON.stringify(value, null, 2) — util.inspect output is not stable ' +
+          'or JSON.stringify(value, null, 2) - util.inspect output is not stable ' +
           'across Node versions.'
       )
     }
@@ -140,7 +140,7 @@ export function assertPrintableLogs(block: string, file: string, line: number): 
       else if (char === ')') depth--
       else if (char === ',' && depth === 1) {
         throw new Error(
-          `${file}:${line}: console.log must receive a single argument — ` +
+          `${file}:${line}: console.log must receive a single argument - ` +
             'only strings, template literals, and JSON.stringify are portable ' +
             'across readers.'
         )
@@ -151,7 +151,7 @@ export function assertPrintableLogs(block: string, file: string, line: number): 
 
 /**
  * The docs must import the way a reader can. A relative path into `src/` would
- * run fine here and be uncopyable there — the exact drift this harness exists
+ * run fine here and be uncopyable there - the exact drift this harness exists
  * to catch.
  */
 export function assertBareSpecifier(block: string, file: string, line: number): void {
@@ -160,7 +160,7 @@ export function assertBareSpecifier(block: string, file: string, line: number): 
     const specifier = match[1] as string
     if (specifier.startsWith('node:') || specifier === 'mockingham') continue
     throw new Error(
-      `${file}:${line}: import from "${specifier}" — docs must use the bare ` +
+      `${file}:${line}: import from "${specifier}" - docs must use the bare ` +
         'specifier \'mockingham\' or a node: builtin.'
     )
   }
@@ -276,7 +276,7 @@ export function checkShellFence(content: string, file: string, line: number): vo
  *
  * The check used to read `parsed.mcpServers` and return the moment it was
  * absent, so a client config shaped for a host that uses a different top-level
- * key received no argument checking at all — while the docs-design §2.3 table
+ * key received no argument checking at all - while the docs-design §2.3 table
  * described the check as applying to a client config unconditionally. Walking
  * for the shape rather than for one key is what makes the description true.
  * Deferred item 38.
@@ -313,7 +313,7 @@ export function checkJsonFence(content: string, file: string, line: number): voi
     parsed = JSON.parse(content)
   } catch (error) {
     throw new Error(
-      `${file}:${line}: fence is not valid JSON — ${(error as Error).message}`
+      `${file}:${line}: fence is not valid JSON - ${(error as Error).message}`
     )
   }
 
@@ -329,7 +329,7 @@ export function checkJsonFence(content: string, file: string, line: number): voi
     try {
       checkMockinghamArgs(argv.slice(start))
     } catch (error) {
-      throw new Error(`${file}:${line}: ${path} — ${(error as Error).message}`)
+      throw new Error(`${file}:${line}: ${path} - ${(error as Error).message}`)
     }
   }
 }

@@ -75,7 +75,7 @@ test('a 500 retries to the attempt limit, sleeping the exact seeded sequence', a
   // Literal rather than computed: deriving the expectation from backoffFor()
   // would make any mutation to it change both sides of this assertion equally,
   // and the test could never fail. These are the seeded values for
-  // seed 'plan6', webhook 'onOrderShipped', attempts 0 and 1 — a change to the
+  // seed 'plan6', webhook 'onOrderShipped', attempts 0 and 1 - a change to the
   // seed, the jitter formula, or the PRNG is expected to change them.
   assert.deepEqual(h.slept, [243, 371])
 })
@@ -132,7 +132,7 @@ test('the delivery carries the body and headers it was given', async () => {
   assert.equal(delivery.url, 'http://hooks.test/x')
 })
 
-test('GET and HEAD never carry a body — undici throws otherwise', async () => {
+test('GET and HEAD never carry a body - undici throws otherwise', async () => {
   // Regression from I5's method plumbing: undici (and fetch generally) throws
   // "Request with GET/HEAD method cannot have body" rather than dropping it.
   // Before the fix, a webhook declared `get:` or `head:` burned every retry

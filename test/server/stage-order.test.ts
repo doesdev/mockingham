@@ -95,12 +95,12 @@ const orderWith = (key: string, body: string) =>
 
 test('idempotency answers after validation: a malformed request never claims its key', async () => {
   // handler.ts pushes the idempotency stage after validation specifically so
-  // "a malformed request must never claim a key it cannot honor" — if that
+  // "a malformed request must never claim a key it cannot honor" - if that
   // ordering regressed, the invalid request below would claim the key before
   // validation ever ran, and its 400 (not excluded by stage 11's "never store
   // a 5xx" rule) would be stored under it. A same-keyed, corrected retry would
   // then find that record and see its own body fingerprint disagree with the
-  // stored one — 409 MOCK_IDEMPOTENCY_MISMATCH — rather than actually
+  // stored one - 409 MOCK_IDEMPOTENCY_MISMATCH - rather than actually
   // executing. Mutation-verified: swapping the two `stages.push` calls in
   // handler.ts turns this test's 201 into a 409.
   const handle = createHandler(orderable, { seed: 'order' }).fetch

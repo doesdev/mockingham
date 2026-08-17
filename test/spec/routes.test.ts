@@ -65,7 +65,7 @@ test('a malformed percent-escape is a non-match, not a crash', () => {
 })
 
 test('templateFor finds the path template on segments alone, ignoring method', () => {
-  // Used for a 405's log record — the method is wrong but the route is known.
+  // Used for a 405's log record - the method is wrong but the route is known.
   const router = createRouter([
     op('get', '/pets/{petId}', 'showPet'),
     op('post', '/pets/{petId}', 'updatePet')

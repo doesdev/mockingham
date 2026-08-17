@@ -31,7 +31,7 @@ requirements implicitly include this section.
 - **`zod` is the only permitted hard runtime dependency.** Add no other.
 - **One schema interpretation.** `src/schema/walk.ts` is shared by value
   generation and zod compilation. Never add a second traversal. The zod compiler
-  in Task 5 exists to consume `classify()`, not to re-read schemas its own way —
+  in Task 5 exists to consume `classify()`, not to re-read schemas its own way -
   if generation and validation disagree about a schema, that is the worst bug
   class in this project.
 - **Determinism:** no `Math.random()`, no `Date.now()`, and no iteration over an
@@ -43,7 +43,7 @@ requirements implicitly include this section.
   user callback throws.
 - **Errors stay on-contract.** Emit the operation's declared error schema when
   one exists; fall back to the built-in envelope only when it does not.
-- **US English spelling** everywhere — `honor`, `behavior`, `serialize`,
+- **US English spelling** everywhere - `honor`, `behavior`, `serialize`,
   `normalize`, `canceled`.
 - **Shell:** one plain command per Bash call, single-quoted arguments, no `&&`
   chains, no pipes, no `$(...)`, no heredocs, no redirects, never `cd`.
@@ -54,19 +54,19 @@ requirements implicitly include this section.
 
 | File | Responsibility |
 |---|---|
-| `src/runtime/config.ts` | **New** — target compilation and per-operation config resolution |
-| `src/runtime/select.ts` | **New** — status selection, `Prefer` parsing, `default` response lookup |
-| `src/runtime/render.ts` | **New** — generate, overlay, header assembly, transport headers |
-| `src/runtime/errors.ts` | **New** — error envelope, callback tagging, on-contract error bodies |
-| `src/schema/compile.ts` | **New** — OpenAPI schema → zod, memoized on schema identity |
-| `src/runtime/validate.ts` | **New** — pipeline stage 4 |
-| `src/runtime/auth.ts` | **New** — pipeline stage 3 |
-| `src/runtime/types.ts` | **Modified** — gains `Stage`, `Principal`, `ctx.auth`, `ctx.deny` |
-| `src/runtime/headers.ts` | **Modified** — settles through `resolve/layer.ts` |
-| `src/resolve/layer.ts` | **Modified** — tags user-callback failures |
-| `src/spec/types.ts` | **Modified** — security schemes and requirements |
-| `src/spec/load.ts` | **Modified** — parses `securitySchemes` and `security` |
-| `src/server/handler.ts` | **Modified** — becomes a thin orchestrator |
+| `src/runtime/config.ts` | **New** - target compilation and per-operation config resolution |
+| `src/runtime/select.ts` | **New** - status selection, `Prefer` parsing, `default` response lookup |
+| `src/runtime/render.ts` | **New** - generate, overlay, header assembly, transport headers |
+| `src/runtime/errors.ts` | **New** - error envelope, callback tagging, on-contract error bodies |
+| `src/schema/compile.ts` | **New** - OpenAPI schema → zod, memoized on schema identity |
+| `src/runtime/validate.ts` | **New** - pipeline stage 4 |
+| `src/runtime/auth.ts` | **New** - pipeline stage 3 |
+| `src/runtime/types.ts` | **Modified** - gains `Stage`, `Principal`, `ctx.auth`, `ctx.deny` |
+| `src/runtime/headers.ts` | **Modified** - settles through `resolve/layer.ts` |
+| `src/resolve/layer.ts` | **Modified** - tags user-callback failures |
+| `src/spec/types.ts` | **Modified** - security schemes and requirements |
+| `src/spec/load.ts` | **Modified** - parses `securitySchemes` and `security` |
+| `src/server/handler.ts` | **Modified** - becomes a thin orchestrator |
 
 ## Task Dependency Graph
 
@@ -77,7 +77,7 @@ Task 4 (security in the Api model) ───────────────
 Task 5 (zod compiler) ───────────────────────────────────────────────────────────────┘
 ```
 
-**Parallel batch A:** Tasks 1, 4, 5 — no shared files.
+**Parallel batch A:** Tasks 1, 4, 5 - no shared files.
 **Serial spine:** Task 1 → 2 → 3 (all touch `handler.ts`; never run in parallel).
 **Then:** Task 6, then Tasks 7 and 8 in parallel.
 
@@ -101,10 +101,10 @@ returns 501, because status selection never consults `Operation.defaultResponse`
 - Consumes: `Operation`, `ResponseSpec` from `src/spec/types.ts`; `compileTarget`,
   `resolveTarget` from `src/resolve/target.ts`; `Ctx`, `OverrideNode` from
   `src/runtime/types.ts`.
-- Produces: from `config.ts` — `StatusConfig`, `OperationConfig`, `CompiledConfig`,
+- Produces: from `config.ts` - `StatusConfig`, `OperationConfig`, `CompiledConfig`,
   `compileConfigs(operations, known): CompiledConfig[]`,
   `resolveConfigs(operation, compiled): ResolvedConfig`.
-  From `select.ts` — `StatusSource`, `Selection`,
+  From `select.ts` - `StatusSource`, `Selection`,
   `preferred(request, key): string | undefined`,
   `selectResponse(operation, request, staticStatus): Selection | undefined`,
   `responseForStatus(operation, status): ResponseSpec | undefined`.
@@ -273,7 +273,7 @@ test('responseForStatus returns undefined when neither exists', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/runtime/config.test.ts test/runtime/select.test.ts`
-Expected: FAIL — neither module exists.
+Expected: FAIL - neither module exists.
 
 - [ ] **Step 3: Create `src/runtime/config.ts`**
 
@@ -321,8 +321,8 @@ export interface ResolvedConfig {
 
 /**
  * Matching configs are deliberately NOT merged into one object. A broad target
- * and a specific one both setting `200.body` must layer — the specific refining
- * the broad one's result — so bodies stay a list applied in sequence. Headers
+ * and a specific one both setting `200.body` must layer - the specific refining
+ * the broad one's result - so bodies stay a list applied in sequence. Headers
  * are flat, so a shallow merge in declaration order is already right.
  */
 export function resolveConfigs(
@@ -378,7 +378,7 @@ export interface Selection {
 }
 
 /**
- * A `default` response carries a schema but no status of its own — in OpenAPI it
+ * A `default` response carries a schema but no status of its own - in OpenAPI it
  * means "any status not otherwise declared". When it is all an operation has,
  * the mock must still choose something, and 200 is the only sensible success.
  */
@@ -525,7 +525,7 @@ Expected: PASS, 7 config tests and 12 select tests.
 - [ ] **Step 7: Run the whole suite and typecheck**
 
 Run: `npm test`
-Expected: PASS. All 210 pre-existing tests must pass **without modification** —
+Expected: PASS. All 210 pre-existing tests must pass **without modification** -
 this is a pure refactor plus one bug fix, and no existing behavior changes.
 
 Run: `npx tsc --noEmit`
@@ -668,7 +668,7 @@ test('a pending value inside a header array is settled', async () => {
   // The distinguishing case for settling through resolve/layer.ts: a one-level
   // Promise.all leaves the inner promise untouched inside the array, which
   // stringifies to 'a,[object Promise]'. Do NOT weaken this to
-  // `async () => Promise.resolve(x)` — JS auto-flattens that, and the test then
+  // `async () => Promise.resolve(x)` - JS auto-flattens that, and the test then
   // passes against the very implementation it exists to rule out.
   const headers = await build({ 'x-list': ['a', Promise.resolve('b')] })
   assert.equal(headers.get('x-list'), 'a,b')
@@ -678,7 +678,7 @@ test('a pending value inside a header array is settled', async () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/runtime/render.test.ts test/runtime/headers.test.ts`
-Expected: FAIL — `render.ts` does not exist.
+Expected: FAIL - `render.ts` does not exist.
 
 - [ ] **Step 3: Create `src/runtime/render.ts`**
 
@@ -747,7 +747,7 @@ export async function renderResponse(input: RenderInput): Promise<Response> {
   if (input.exampleName !== undefined) {
     body = input.example(chosen.status, input.exampleName)
   }
-  // The same call ctx.generate(status) makes, not a second copy — a response
+  // The same call ctx.generate(status) makes, not a second copy - a response
   // callback and the pipeline must never produce different bodies.
   if (body === undefined) body = input.generate(chosen.status)
 
@@ -870,7 +870,7 @@ git commit -m 'refactor: extract response rendering' -m 'Generation, override ap
 
 The third refactor step. Introduces the `Stage` signature the design specifies,
 turns `handler.ts` into an orchestrator, and splits a genuine internal failure
-from a user-callback failure — plan 2's boundary catch reports both as
+from a user-callback failure - plan 2's boundary catch reports both as
 `MOCK_CALLBACK_FAILED`.
 
 **Files:**
@@ -882,9 +882,9 @@ from a user-callback failure — plan 2's boundary catch reports both as
 - Test: `test/server/robustness.test.ts` (append)
 
 **Interfaces:**
-- Produces: from `errors.ts` — `envelope(code, message): { error: { code, message } }`,
+- Produces: from `errors.ts` - `envelope(code, message): { error: { code, message } }`,
   `markCallback(error): unknown`, `isCallbackError(error): boolean`.
-  From `types.ts` — `Stage = (ctx: Ctx) => Promise<Response | undefined>`.
+  From `types.ts` - `Stage = (ctx: Ctx) => Promise<Response | undefined>`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -945,7 +945,7 @@ test('an internal failure is not reported as a callback failure', async () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/runtime/errors.test.ts test/server/robustness.test.ts`
-Expected: FAIL — `errors.ts` does not exist; the internal failure reports
+Expected: FAIL - `errors.ts` does not exist; the internal failure reports
 `MOCK_CALLBACK_FAILED`.
 
 - [ ] **Step 3: Create `src/runtime/errors.ts`**
@@ -1035,7 +1035,7 @@ function evaluate(node: OverrideNode, ctx: unknown): unknown {
 
 **Resolvers are user callbacks too**, and this is the site most easily missed.
 In `src/resolve/resolvers.ts`, import `markCallback` from `../runtime/errors.ts`
-and route all FOUR user-function invocations through one helper — the `bySchema`,
+and route all FOUR user-function invocations through one helper - the `bySchema`,
 `byName`, and `byFormat` branches of `resolve()`, plus the one in
 `resolveHeader()`:
 
@@ -1125,7 +1125,7 @@ Expected: PASS, 5 error tests and the existing robustness tests plus the new one
 
 Run: `npm test`
 Expected: PASS. The pre-existing robustness tests asserting
-`MOCK_CALLBACK_FAILED` for a throwing user override must still pass unmodified —
+`MOCK_CALLBACK_FAILED` for a throwing user override must still pass unmodified -
 those throws are now tagged, so the code is unchanged for them.
 
 Run: `npx tsc --noEmit`
@@ -1157,7 +1157,7 @@ Auth has nothing to enforce until the loader keeps `securitySchemes` and
 
 **Do NOT add security to `test/fixtures/petstore.ts`.** Ten or more existing
 tests request `/pets/7`, and once Task 8 enforces auth every one of them would
-start failing on 401 — a large, noisy diff that buries any real regression.
+start failing on 401 - a large, noisy diff that buries any real regression.
 Auth tests build their own small documents instead.
 
 **Interfaces:**
@@ -1243,7 +1243,7 @@ test('an absent security field stays undefined when the document declares none',
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/spec/load.test.ts`
-Expected: FAIL — `securitySchemes` and `security` are undefined.
+Expected: FAIL - `securitySchemes` and `security` are undefined.
 
 - [ ] **Step 3: Extend `src/spec/types.ts`**
 
@@ -1319,8 +1319,8 @@ Inside `loadApi`, after `const { document: resolved, schemaNames } = resolveDocu
     asRecord(resolved['components'])['securitySchemes']
   )
   // A document-level `security` is the default for operations that declare
-  // none. An operation's own `security: []` must survive as an empty array —
-  // it opts out of that default — so the fallback tests for `undefined`, not
+  // none. An operation's own `security: []` must survive as an empty array -
+  // it opts out of that default - so the fallback tests for `undefined`, not
   // for emptiness.
   const documentSecurity = toSecurity(resolved['security'])
 ```
@@ -1519,7 +1519,7 @@ test('the same schema object compiles once', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/schema/compile.test.ts`
-Expected: FAIL — cannot find module `../../src/schema/compile.ts`.
+Expected: FAIL - cannot find module `../../src/schema/compile.ts`.
 
 - [ ] **Step 3: Implement `src/schema/compile.ts`**
 
@@ -1530,7 +1530,7 @@ import type { Schema } from '../spec/types.ts'
 import { classify, isNullable } from './walk.ts'
 
 /**
- * Compiles an OpenAPI schema to a zod schema THROUGH `classify()` — the same
+ * Compiles an OpenAPI schema to a zod schema THROUGH `classify()` - the same
  * interpretation value generation uses. That shared reading is the whole point:
  * what we generate and what we validate can never disagree about a schema.
  */
@@ -1664,7 +1664,7 @@ export function compileSchema(schema: Schema): ZodType {
 > these; do not implement Step 3 as written.
 >
 > **1. The `z.discriminatedUnion` try/catch is dead code.** zod 4 does not throw
-> at construction for malformed variants — it defers validation to first parse,
+> at construction for malformed variants - it defers validation to first parse,
 > so the throw lands outside the `try` and crashes at request time. Replace the
 > try/catch with a construction-time pre-check, and add the helper:
 >
@@ -1692,7 +1692,7 @@ export function compileSchema(schema: Schema): ZodType {
 >       }
 > ```
 >
-> **2. `allOf`-nested constraints are dropped — in TWO files.** `build` passes the
+> **2. `allOf`-nested constraints are dropped - in TWO files.** `build` passes the
 > un-merged `schema` to the constraint helpers, so `{ allOf: [{ type: 'string',
 > minLength: 5 }] }` accepts `'ab'`. Import `mergeAllOf` from `./walk.ts`, compute
 > `const merged = mergeAllOf(schema)` once at the top of `build`, and pass
@@ -1703,13 +1703,13 @@ export function compileSchema(schema: Schema): ZodType {
 > `generateInteger`, `generateNumber`, and `arrayLength`, leaving the
 > `example`/`default` reads on the original node. Fixing only the compiler would
 > make validation stricter than generation, so mockingham could generate a value
-> its own validator rejects — the exact drift invariant 1 exists to prevent.
+> its own validator rejects - the exact drift invariant 1 exists to prevent.
 >
 > **3. `build()` needs a `try/finally`.** If it throws (an invalid `pattern`
 > reaching `new RegExp` is the realistic case), `active.delete(schema)` never
 > runs and that schema is stuck active forever, so later references resolve to
 > `z.lazy(() => cache.get(schema) ?? z.unknown())` with a cache entry that can
-> never be set — silently accepting anything:
+> never be set - silently accepting anything:
 >
 > ```ts
 >     active.add(schema)
@@ -1721,7 +1721,7 @@ export function compileSchema(schema: Schema): ZodType {
 >     }
 > ```
 >
-> **4. Add these tests.** The `allOf` ones must wrap a PRIMITIVE — object-level
+> **4. Add these tests.** The `allOf` ones must wrap a PRIMITIVE - object-level
 > `allOf` is flattened by `classify()` and does NOT reproduce the bug, so a test
 > using it passes against the broken implementation:
 >
@@ -1743,7 +1743,7 @@ export function compileSchema(schema: Schema): ZodType {
 > })
 > ```
 >
-> and in `test/generate/generate.test.ts`, guarding the generation half — the
+> and in `test/generate/generate.test.ts`, guarding the generation half - the
 > bound is far outside the default 5-to-12 range so it cannot pass by luck:
 >
 > ```ts
@@ -1951,7 +1951,7 @@ test('buildError with no operation uses the envelope', async () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/server/contract-errors.test.ts test/runtime/errors.test.ts`
-Expected: FAIL — `buildError` does not exist.
+Expected: FAIL - `buildError` does not exist.
 
 - [ ] **Step 3: Extend `src/runtime/errors.ts`**
 
@@ -1994,7 +1994,7 @@ export interface ErrorInput {
  * Builds the body for a status mockingham emits itself.
  *
  * In `contract` mode it first looks for the status among the operation's own
- * declared responses — falling back to the operation's `default` — and generates
+ * declared responses - falling back to the operation's `default` - and generates
  * from that schema, so a client's error-path parsing is exercised too. Only when
  * the operation declares nothing usable does the built-in envelope appear.
  *
@@ -2013,7 +2013,7 @@ export async function buildError(input: ErrorInput): Promise<Response> {
     // The flattened failure list goes HERE, not into the body. In contract mode
     // the body comes from the document's own error schema, and adding an
     // `errors` key to it would violate the very schema the client was told to
-    // expect — which is what contract mode exists to preserve. One line, because
+    // expect - which is what contract mode exists to preserve. One line, because
     // header values cannot carry line breaks.
     const detail = input.errors?.length
       ? `${input.code}: ${input.message}; ` +
@@ -2097,7 +2097,7 @@ Replace the `MOCK_NO_RESPONSE` 501 return with a `fail` call the same way.
 
 **Do NOT route `Prefer`-selected statuses through `fail`.** A client asking for
 `Prefer: status=404` is mockingham *serving a declared response*, not emitting an
-error of its own — normal rendering already generates it from that response's
+error of its own - normal rendering already generates it from that response's
 declared schema, which is the on-contract behavior. Sending it through `fail`
 would both duplicate that and change existing behavior.
 
@@ -2301,7 +2301,7 @@ test('validation can be turned off', async () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/runtime/validate.test.ts test/server/validation.test.ts`
-Expected: FAIL — `validate.ts` does not exist.
+Expected: FAIL - `validate.ts` does not exist.
 
 - [ ] **Step 3: Implement `src/runtime/validate.ts`**
 
@@ -2405,7 +2405,7 @@ export function validateRequest(
 - [ ] **Step 4: Add it to the stage list in `src/server/handler.ts`**
 
 Add `validateRequests?: boolean` to `HandlerOptions`. Task 3 already declares
-`const stages: Stage[] = []` inside `run`, immediately before the stage loop —
+`const stages: Stage[] = []` inside `run`, immediately before the stage loop -
 push onto that list, between its declaration and the loop. It has to be per
 request because the stage closes over `operation` and `key`:
 
@@ -2436,7 +2436,7 @@ Expected: PASS, 13 validate tests and 3 server tests.
 
 Run: `npm test`
 Expected: PASS. Watch for pre-existing tests that send requests now considered
-invalid — if one appears, the test is exercising a real validation gap and the
+invalid - if one appears, the test is exercising a real validation gap and the
 fix belongs in the request, not in weakening validation. Report any such case.
 
 Run: `npx tsc --noEmit`
@@ -2562,7 +2562,7 @@ test('a present credential passes a presence-only check', async () => {
 })
 
 test('requirements are OR across the array', async () => {
-  // bearerAuth is absent, apiKey is present — one satisfied object is enough.
+  // bearerAuth is absent, apiKey is present - one satisfied object is enough.
   const outcome = await checkAuth({
     security: [{ bearerAuth: [] }, { apiKey: [] }],
     schemes,
@@ -2732,7 +2732,7 @@ test('unmet scopes are a 403', async () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/runtime/auth.test.ts test/server/auth.test.ts`
-Expected: FAIL — `auth.ts` does not exist.
+Expected: FAIL - `auth.ts` does not exist.
 
 - [ ] **Step 3: Implement `src/runtime/auth.ts`**
 
@@ -2807,8 +2807,8 @@ function missing(scheme: string): AuthOutcome {
 
 /**
  * OpenAPI security semantics, which are easy to invert:
- *  - the `security` array is OR — any ONE requirement object satisfied is enough
- *  - within one object it is AND — every scheme named must be satisfied
+ *  - the `security` array is OR - any ONE requirement object satisfied is enough
+ *  - within one object it is AND - every scheme named must be satisfied
  *  - `security: []` means auth is explicitly NOT required, which is different
  *    from an absent `security` field
  */
@@ -2913,7 +2913,7 @@ entry in `createContext`.
 - [ ] **Step 5: Add the auth stage to `src/server/handler.ts`**
 
 Add `auth?: AuthConfig` to `HandlerOptions` and import `checkAuth` and
-`AuthConfig`. Push the stage BEFORE the validation stage — auth is stage 3 and
+`AuthConfig`. Push the stage BEFORE the validation stage - auth is stage 3 and
 validation stage 4, and an unauthenticated caller should not learn whether their
 body was well-formed:
 
@@ -2946,13 +2946,13 @@ Expected: PASS, 16 auth unit tests and 5 server tests.
 Run: `npm test`
 Expected: PASS with every pre-existing test unmodified. The shared petstore
 fixture deliberately declares no security, so no existing test starts hitting a
-401. If one does, something enforced auth where the document asked for none —
+401. If one does, something enforced auth where the document asked for none -
 investigate rather than adding credentials to the test.
 
 Run: `npx tsc --noEmit`
 
 Run: `node scripts/determinism.ts`
-Expected: unchanged, and `scripts/determinism.ts` needs no edit — the petstore
+Expected: unchanged, and `scripts/determinism.ts` needs no edit - the petstore
 declares no security.
 
 - [ ] **Step 8: Commit**
@@ -2985,7 +2985,7 @@ git commit -m 'feat: enforce spec-driven auth' -m 'securitySchemes and per-opera
 ## What plan 4 picks up
 
 Phase 6 of the design: `runtime/store.ts` (the `Store` interface and a
-`MemoryStore` with an injectable clock), `runtime/failure.ts` (pipeline stage 6 —
+`MemoryStore` with an injectable clock), `runtime/failure.ts` (pipeline stage 6 -
 `decide`, `failNext`, outage, circuit, rate, latency, with chaos seeded per
 invocation), and the async control plane on `src/index.ts`. Pipeline stages 5 and
-11 — idempotency and logging — follow in plan 5 along with the CLI.
+11 - idempotency and logging - follow in plan 5 along with the CLI.

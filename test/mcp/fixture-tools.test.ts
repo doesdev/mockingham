@@ -38,7 +38,7 @@ function docWith(bioType = 'string') {
 /**
  * A source whose value can change between runs. Regeneration replacing a
  * stored entry is only observable when the second run returns something
- * different — with a constant value the assertion passes against a
+ * different - with a constant value the assertion passes against a
  * regeneration that never wrote anything.
  */
 function mutableSource(): { state: { value: unknown }; source: ContentSource } {
@@ -189,7 +189,7 @@ test('list_fixtures reports what is stored, without values by default', async ()
   )
   assert.ok(
     listed.every((entry) => !Object.hasOwn(entry, 'value')),
-    'values are opt-in — a whole document of them is a lot to hand an agent'
+    'values are opt-in - a whole document of them is a lot to hand an agent'
   )
   assert.equal(listed[0]?.generatedAt, new Date(1_000).toISOString())
 })

@@ -154,7 +154,7 @@ test('generation is unchanged when nothing is configured', async () => {
 
 test('a runtime override layers on top of a config override', async () => {
   // All five layers present at once. A test with fewer proves nothing about
-  // ordering — it passes with the whole composition removed.
+  // ordering - it passes with the whole composition removed.
   const store = createMemoryStore()
   const handler = createHandler(api, {
     store,
@@ -175,7 +175,7 @@ test('a runtime override layers on top of a config override', async () => {
 
 test('a runtime override forces the selected status, beating a config status', async () => {
   // A config `status` of 200 is set on the same operation so this test can
-  // only pass if `runtime.status` genuinely wins over `config.status` — a
+  // only pass if `runtime.status` genuinely wins over `config.status` - a
   // test with no competing config value cannot distinguish
   // `runtime.status ?? config.status` from the reverse.
   const store = createMemoryStore()
@@ -232,7 +232,7 @@ test('debugHeaders reports that an override applied', async () => {
 
 test('debugHeaders does not report an override scoped to a status that was not selected', async () => {
   // A record exists for this operation, but it targets 404 while the request
-  // resolves to 200 — nothing about the response actually came from it, so
+  // resolves to 200 - nothing about the response actually came from it, so
   // the header must stay off. `runtime !== EMPTY_OVERRIDE` alone would get
   // this wrong, since a record exists.
   const store = createMemoryStore()
@@ -314,7 +314,7 @@ test('clearOverrides(target) restores the generated body', async () => {
 
 test('clearOverrides() with no target clears every operation', async () => {
   // '* /**' is the documented match-everything wildcard (any method, any
-  // path). A bare '*' is not special-cased by compileTarget — with no space
+  // path). A bare '*' is not special-cased by compileTarget - with no space
   // it is looked up as an operationId, so it matches nothing and throws; see
   // test/runtime/failure.test.ts for the same distinction asserted directly.
   const mock = createMock(petstore, { seed: 'runtime' })
@@ -337,11 +337,11 @@ test('clearOverrides() with no target clears every operation', async () => {
 test('a wildcard target overrides every operation it matches', async () => {
   // /pets/7 (showPetById) and /pets/mine (myPet) both resolve a single Pet
   // object. listPets (/pets) returns an array, and layering an object-shaped
-  // override over an array body is semantics this cycle never established —
+  // override over an array body is semantics this cycle never established -
   // using it here would let the test fail for a reason unrelated to
   // wildcards.
   // '* /**' is the documented match-everything wildcard (any method, any
-  // path). A bare '*' is not special-cased by compileTarget — see the note
+  // path). A bare '*' is not special-cased by compileTarget - see the note
   // above.
   const mock = createMock(petstore, { seed: 'runtime' })
   await mock.override('* /**', { 200: { body: { name: 'everywhere' } } })
@@ -377,7 +377,7 @@ test('a non-serializable override is refused at the door', async () => {
 
 test('a non-status override key is refused at the door, naming the key', async () => {
   // overrideAsResolved only ever reads `value.status` and `value[numericStatus]`
-  // — a key that is neither can never be read back, so accepting it would
+  // - a key that is neither can never be read back, so accepting it would
   // silently do nothing. The same "configuration error, not an empty result"
   // shape `resolveTarget` already enforces for an unmatched target, one level
   // down. Design amendment 2.2.
@@ -391,7 +391,7 @@ test('a non-status override key is refused at the door, naming the key', async (
 test('a rejected non-status key writes nothing', async () => {
   // The Store is the only honest witness here. `debugHeaders` is off (as this
   // mock is constructed), so `x-mock-override` is never emitted regardless of
-  // whether a write happened — asserting on it would pass unconditionally.
+  // whether a write happened - asserting on it would pass unconditionally.
   // And turning `debugHeaders` on would not help either: the rejected value
   // (`{ notAStatus: { body: {} } }`) contributes no body layer, no header, and
   // no matching status even if it WERE written, so "did an override apply"
@@ -425,7 +425,7 @@ test('a rejected override writes nothing, not even for operations resolved befor
   // assertSerializable runs BEFORE any store write, so a wildcard that
   // resolves to several operations either applies to all of them or none.
   // A comment claiming this is not the same as a test that would notice if
-  // it changed — this is that test. See task-3-report.md, Step 7, for the
+  // it changed - this is that test. See task-3-report.md, Step 7, for the
   // reordering evidence that motivated it.
   const mock = createMock(petstore, { seed: 'runtime' })
 
@@ -447,7 +447,7 @@ test('a rejected override writes nothing, not even for operations resolved befor
 
 test('override() stores a copy, immune to mutating the caller\'s object afterward', async () => {
   // `assertSerializable` only proves the value CAN survive a serializing
-  // Store, not that this one does — the in-process Store keeps whatever
+  // Store, not that this one does - the in-process Store keeps whatever
   // reference it is handed. Mutating the object after the call must not
   // change what the mock serves.
   const mock = createMock(petstore, { seed: 'runtime' })
@@ -478,7 +478,7 @@ test('the second override for one target replaces the first', async () => {
 test('an off-contract override body is served, not rejected', async () => {
   // Design section 5.2: an override body is NOT validated against the
   // response schema. That is already true of config overrides, and a runtime
-  // override that behaved differently would be a second validation path — the
+  // override that behaved differently would be a second validation path - the
   // divergence invariant 1 exists to prevent. `name` is declared a string and
   // required; this replaces it with a number and the mock serves it.
   const mock = createMock(petstore, { seed: 'runtime' })

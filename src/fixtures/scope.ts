@@ -14,7 +14,7 @@ export function isScoped(config?: ScopeConfig): boolean {
  * Reduces a full value to only the parts the scope config claims, so a scoped
  * fixture stores prose and nothing else and the rest stays seeded and fast.
  *
- * Walks THROUGH `classify()` — the same reading generation and compilation use.
+ * Walks THROUGH `classify()` - the same reading generation and compilation use.
  * A second interpretation of a schema here is the worst bug class in this
  * project, and "what we asked the model for" diverging from "what we generate"
  * is exactly that bug wearing a different hat.
@@ -53,7 +53,7 @@ export function narrow(
       // Index-keyed object, not a literal array. `overlay()` in
       // `src/resolve/layer.ts` only merges an override into a base array
       // per index when the override node is a plain object keyed by index
-      // (or '*') — a literal array override replaces the base wholesale. An
+      // (or '*') - a literal array override replaces the base wholesale. An
       // omitted index means "nothing in scope here", which overlay() then
       // reads as "leave the generated item at this index alone" rather than
       // blanking it.

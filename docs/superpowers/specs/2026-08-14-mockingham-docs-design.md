@@ -1,4 +1,4 @@
-# mockingham — docs (phase 12) design delta
+# mockingham - docs (phase 12) design delta
 
 **Status:** approved 2026-08-14
 **Amends:** `2026-08-11-mockingham-design.md` §18 (sequencing, phase 12), §1
@@ -24,12 +24,12 @@ executed by the test suite**, and a document that lies fails `npm test`.
 
 **In:**
 
-- `README.md` — the public front door. There is no README in the repo today.
-- `docs/example.json` — one canonical OpenAPI document that every guide runs
+- `README.md` - the public front door. There is no README in the repo today.
+- `docs/example.json` - one canonical OpenAPI document that every guide runs
   against.
 - `docs/logging-datadog.md`, `docs/fixtures.md`, `docs/webhooks.md`,
-  `docs/mcp.md` — the four guides master §18 names.
-- `test/docs/` — the extraction-and-execution harness, plus one subtest per
+  `docs/mcp.md` - the four guides master §18 names.
+- `test/docs/` - the extraction-and-execution harness, plus one subtest per
   document.
 - Corrections to non-code artifacts the docs prove wrong: `CLAUDE.md`, master
   §1, master §19.
@@ -43,7 +43,7 @@ executed by the test suite**, and a document that lies fails `npm test`.
   `regenerate_fixture`, and master §1's `Mock.override()` are the next cycle's
   work; the docs name them as absent rather than omitting them.
 
-**Amendment 1.1 — phase 12 gains two deliverables master §18 does not list.**
+**Amendment 1.1 - phase 12 gains two deliverables master §18 does not list.**
 §18 names five documents. It does not name the example document they share or
 the harness that runs them. Both are load-bearing: without a shared document
 each guide invents its own API and the reader learns five; without the harness
@@ -58,7 +58,7 @@ the other five deliverables are unverifiable prose. They are in scope.
 Every ```ts fence in a document concatenates, in source order, into a single
 module. The harness rewrites `from 'mockingham'` to an absolute path into
 `src/index.ts`, writes the module to a temp directory, and runs it in a child
-process under plain `node` — Node 24 strips the types itself, which is the same
+process under plain `node` - Node 24 strips the types itself, which is the same
 execution path the reader is on.
 
 Concatenation rather than per-block isolation is deliberate. Prose builds state:
@@ -77,7 +77,7 @@ nonzero exit fails the subtest with the child's stderr attached.
 
 One comparison covers both directions of drift: an unclaimed `console.log` and
 a stale expected line are the same failure. There is no sidecar expectations
-file to fall out of sync, and no test-only scaffolding in the prose — the
+file to fall out of sync, and no test-only scaffolding in the prose - the
 expectation is the thing the reader already wanted to see.
 
 This is only possible because of invariant 2. The same request produces
@@ -92,7 +92,7 @@ A project without that invariant could not have this harness.
 | `console` | the expectation for the run |
 | `sh` | each `mockingham …` line is parsed by the real CLI parser; every other line must match a small allow-set (`npm install`, `ollama pull`, `ollama serve`, `npm test`, `npx tsc --noEmit`) |
 | `json` / `jsonc` | parsed; an MCP client config's `args` array is additionally fed through the real `mockingham mcp` parser |
-| `txt` | inert — directory listings and file trees |
+| `txt` | inert - directory listings and file trees |
 | anything else | **test failure** |
 
 Failing on an unrecognized info string is the point. A checked-in list of
@@ -142,16 +142,16 @@ it exists because the alternative is a suite that cries wolf.
 One payments API, shared by all five documents, chosen because idempotency keys
 and webhooks are self-evidently motivated there rather than contrived:
 
-- `POST /payments` — bearer auth, idempotent, `201` plus a declared error
+- `POST /payments` - bearer auth, idempotent, `201` plus a declared error
   schema, and a `paymentSucceeded` callback.
-- `GET /payments/{id}` — path parameter, declared `404`.
-- `GET /payments` — paged, with an array query parameter.
-- `POST /refunds` — API-key auth, to show two schemes in one document.
+- `GET /payments/{id}` - path parameter, declared `404`.
+- `GET /payments` - paged, with an array query parameter.
+- `POST /refunds` - API-key auth, to show two schemes in one document.
 - A top-level `paymentFailed` webhook.
 
 Schema content worth generating: `uuid`, `date-time`, a `number` with
 `minimum`/`multipleOf`, an `enum` status, and a `pattern` field that
-demonstrates master §19's known limitation — generation does not honor
+demonstrates master §19's known limitation - generation does not honor
 `pattern` at all. Tags on every operation, so `list_operations` and
 `search_operations` have something real to return.
 
@@ -166,21 +166,21 @@ a CLI reference for `mockingham`, `mockingham bake`, and `mockingham mcp`; and
 the known limitations, stated up front the way master §19 does.
 
 The Node ≥ 24.2 native-type-stripping requirement is stated as a deliberate
-choice with its reason — no build step, the published source is the source you
-debug — not buried as a footnote. It is the first thing that will surprise
+choice with its reason - no build step, the published source is the source you
+debug - not buried as a footnote. It is the first thing that will surprise
 someone, so it goes near the top.
 
 The tour's determinism claim is demonstrated rather than asserted. The runnable
 block builds two mocks on the same seed and prints that their bytes match; the
 prose then points at `scripts/determinism.ts` for the stronger cross-process
-claim — **corrected 2026-08-14 (Task 9/10): no test spawns or imports that
+claim - **corrected 2026-08-14 (Task 9/10): no test spawns or imports that
 script.** Nothing in `test/` does either; `test/fixtures/determinism.test.ts`
 is a real, passing test, but it proves a narrower claim (a baked fixture store
 serves the stored value byte-identically across independently constructed
 handlers, all within one process), not the cross-process case. The README
-says what is true — run the script, run it again, and diff the two runs by
-hand — rather than claiming an automated test covers it. The README does not
-spawn a subprocess of its own to prove it — that would duplicate an existing
+says what is true - run the script, run it again, and diff the two runs by
+hand - rather than claiming an automated test covers it. The README does not
+spawn a subprocess of its own to prove it - that would duplicate an existing
 check inside a document, which §4 exists to prevent. See
 `docs/superpowers/deferred-items.md` (item 31, phase 12).
 
@@ -204,7 +204,7 @@ can never reach a response.
 The four modes (`off`, `bake`, `lazy`, `live`), local model first: bake against
 `http://localhost:11434/v1`, commit the fixture files, serve them with
 `--fixtures`. Then the staleness warning when the document moves underneath a
-fixture, `scope.byName` / `scope.bySchema`, `persona`, and `budget` — carrying
+fixture, `scope.byName` / `scope.bySchema`, `persona`, and `budget` - carrying
 the recorded caveat that **`maxConcurrency` is a per-call batch size, not a
 concurrency bound**. `createRecordedSource` for tests. Anthropic as the hosted
 alternative, second.
@@ -219,7 +219,7 @@ has taken the right thing.
 ### 3.5 `docs/webhooks.md`
 
 Declaring callbacks and top-level webhooks, configuring destinations, and what
-triggers a fire — then the testing loop that is the actual reason to read it:
+triggers a fire - then the testing loop that is the actual reason to read it:
 `captureOnly: true` → `settled()` → `deliveries()` → assert → `clearDeliveries()`.
 Signing and manual `emit()` follow. Invariant 6 is stated plainly: emission
 never affects the response.
@@ -230,7 +230,7 @@ States the known limitation that `reset()` leaves emission timers pending while
 
 ### 3.6 `docs/mcp.md`
 
-Both transports — `mockingham mcp <doc>` over stdio, and
+Both transports - `mockingham mcp <doc>` over stdio, and
 `mock.mcp({ transport: 'http' })` mounted on the mock's own fetch surface,
 which works before or after `listen()`. The twelve shipped tools, one line
 each. A ready-to-paste client config, whose flags the harness parses (§2.3).
@@ -274,7 +274,7 @@ has never existed. §3.1 makes the command work rather than deleting it.
 **5.2 Master §1 advertises a method that has never existed.** The instance
 surface lists `override(target: string, value: Override): void`. It has never
 been implemented at any point in the project. It is marked as deferred to the
-runtime-override cycle rather than left reading as shipped — a public README
+runtime-override cycle rather than left reading as shipped - a public README
 derived from a surface listing a phantom method is how a phantom method gets
 into someone's code.
 
@@ -285,7 +285,7 @@ corrected at the source rather than diverging silently.
 **5.4 The missing `exports` map is recorded, not fixed.** The docs tell readers
 to `import { createMock } from 'mockingham'`, which resolves today only because
 `package.json` declares no `exports` map. That is a real packaging question with
-a real blast radius — it decides what is public forever — and it is not a docs
+a real blast radius - it decides what is public forever - and it is not a docs
 decision. Deferred with this ruling attached.
 
 ---
@@ -320,7 +320,7 @@ Every one of them will be recorded and none will be fixed here.
 
 The cost is that some guides will document a rough edge instead of a smooth
 one. That is the right trade for a cycle whose entire value is that its output
-is trustworthy — a docs cycle that also changes behavior produces documents
+is trustworthy - a docs cycle that also changes behavior produces documents
 describing code that changed while they were being written, which is the drift
 this design exists to prevent, arriving through the front door.
 
@@ -328,7 +328,7 @@ this design exists to prevent, arriving through the front door.
 
 ## 8. Sequencing
 
-1. `docs/example.json` — everything runs against it.
+1. `docs/example.json` - everything runs against it.
 2. The harness, mutation-proven against a throwaway document (§6).
 3. The four guides. Independent of each other; parallelizable.
 4. `README.md`, which links to all four.
@@ -340,8 +340,8 @@ this design exists to prevent, arriving through the front door.
 
 The runtime-override cycle: `set_override`, `clear_overrides`,
 `regenerate_fixture`, and master §1's never-implemented `Mock.override()`. Its
-design has to settle precedence — runtime override vs. config override vs.
-fixture vs. spec example — in `resolve/layer.ts`, the layer that has produced
+design has to settle precedence - runtime override vs. config override vs.
+fixture vs. spec example - in `resolve/layer.ts`, the layer that has produced
 more defects than any other in this project.
 
 Plus whatever §5.4 and §7 accumulate in `deferred-items.md` while these

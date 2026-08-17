@@ -39,7 +39,7 @@ import { readOverride } from '../runtime/overrides.ts'
 
 export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
-/** Passed to `Handler.emit` — the imperative trigger. */
+/** Passed to `Handler.emit` - the imperative trigger. */
 export interface EmitOptions {
   /** Destination tier 1: wins over a captured or configured url. */
   to?: string
@@ -52,7 +52,7 @@ export interface Handler {
   store: Store
   setSeed(next: string): void
   /**
-   * Clears the store it was given — not only the store it created. The two
+   * Clears the store it was given - not only the store it created. The two
    * surfaces disagreed until plan 5: `Mock.reset()` wiped a caller-supplied
    * store while `Handler.reset()` left it untouched. Agreeing on "reset clears
    * the store it was given" is the honest contract now that idempotency records
@@ -62,12 +62,12 @@ export interface Handler {
   reset(): Promise<void>
   /**
    * The imperative trigger. Resolves with a `Delivery` in every case,
-   * including `unresolved` and an exhausted retry — §13's "an emit never
+   * including `unresolved` and an exhausted retry - §13's "an emit never
    * hard-fails" is a property of the return type, not only of the
    * implementation. An undeclared webhook name throws: that is a typo, and
    * `compileTarget`/`resolveTarget` already throw on those rather than
    * silently never firing. Calling `emit()` after `close()` rejects too, for
-   * the same reason — the handler has stopped accepting new emissions, and
+   * the same reason - the handler has stopped accepting new emissions, and
    * silently sending anyway would be surprising rather than useful. Tracked
    * the same way an operation-linked emission is, so `settled()` and
    * `close()` genuinely wait for it rather than racing ahead of it.
@@ -77,14 +77,14 @@ export interface Handler {
   deliveries(): Delivery[]
   clearDeliveries(): void
   /**
-   * Resolves once every pending emission — from either trigger — has settled.
+   * Resolves once every pending emission - from either trigger - has settled.
    * The response never waits for one (§13), so a test needs this to await what
    * `fetch()` already let go of.
    */
   settled(): Promise<void>
   /**
    * Stops accepting new emissions and drains those already pending. An
-   * emission still waiting on its `afterMs` is dropped, not delivered late —
+   * emission still waiting on its `afterMs` is dropped, not delivered late -
    * §13's close() cancels rather than flushes.
    */
   close(): Promise<void>
@@ -114,7 +114,7 @@ export interface HandlerOptions {
    * else.
    *
    * **Pinning this to a constant makes the logged `durationMs` exactly `0` on
-   * every request** — both ends of the measurement read this same clock, so a
+   * every request** - both ends of the measurement read this same clock, so a
    * frozen one measures no elapsed time rather than a repeatable non-zero
    * value. That is by design: a second, separate monotonic source would put a
    * non-injectable time reading back inside the request path, which is what
@@ -125,7 +125,7 @@ export interface HandlerOptions {
   onLog?: LogSink
   onError?: ErrorSink
   /**
-   * Where startup warnings go — an unsupported runtime expression, for one.
+   * Where startup warnings go - an unsupported runtime expression, for one.
    * Injectable so a test can assert on it without capturing the console, and
    * so an embedding application can route it.
    */
@@ -137,7 +137,7 @@ export interface HandlerOptions {
   fetch?: typeof fetch
   fixtures?: { store?: FixtureStore }
   /**
-   * Already resolved — `createMock` validates the user-facing `LlmConfig` and
+   * Already resolved - `createMock` validates the user-facing `LlmConfig` and
    * constructs the source. The handler only ever sees a `ContentSource`, which
    * keeps provider modules out of the pure core.
    */
@@ -145,7 +145,7 @@ export interface HandlerOptions {
 }
 
 // Module scope: a per-request TextEncoder would be one more allocation on
-// every logged request for no behavioral difference — the encoder itself is
+// every logged request for no behavioral difference - the encoder itself is
 // stateless.
 const encoder = new TextEncoder()
 
@@ -189,7 +189,7 @@ export function createHandler(
   const policies = compilePolicies(options.failure, api.operations)
   // Follows `seed` when no explicit `chaosSeed` was configured, so `setSeed`
   // reaches it. It was captured once at construction, which meant "the seed
-  // control does not control this seed" — chaos still varied, because
+  // control does not control this seed" - chaos still varied, because
   // `requestKey` carries the seed, but a reader who set a chaos seed and
   // watched it not take effect had no way to tell that from a bug.
   // Deferred item 8.
@@ -197,21 +197,21 @@ export function createHandler(
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   const chaosCounts = new Map<string, number>()
   // Its OWN counter. Sharing the chaos counter would shift every chaos roll the
-  // moment logging was enabled — phases 7-9 design §2.2.
+  // moment logging was enabled - phases 7-9 design §2.2.
   const requestOrdinals = new Map<string, number>()
 
   const mode: ErrorBodyMode = options.errorBody ?? 'contract'
 
   const warn = options.onWarn ?? ((message: string) => console.warn(message))
 
-  // Warned once per pattern for the life of this handler, not once per value —
+  // Warned once per pattern for the life of this handler, not once per value -
   // a per-request warning for a field on a hot path is noise nobody reads.
   //
   // This deliberately is NOT a startup warning, which is what master §3
   // originally specified: nothing walks every schema at construction.
   // `compile()` is lazy and serves request validation, so a response-only
   // schema is never compiled at all, and a warning hung off compilation would
-  // miss exactly the case this exists for. Membership only — the set is never
+  // miss exactly the case this exists for. Membership only - the set is never
   // iterated, so determinism is untouched.
   const warnedPatterns = new Set<string>()
   const onUnsupportedPattern = (pattern: string): void => {
@@ -226,7 +226,7 @@ export function createHandler(
   }
 
   // Compiled once. An expression outside the documented subset warns here
-  // rather than silently never firing — the same reasoning as `compileTarget`
+  // rather than silently never firing - the same reasoning as `compileTarget`
   // throwing on a target that matches nothing.
   const callbacks = api.operations.map((operation) => ({
     operation,
@@ -243,7 +243,7 @@ export function createHandler(
   }))
 
   // One object, three call sites. They were already identical field for field,
-  // and a fifth option added to two of the three would be a silent gap — the
+  // and a fifth option added to two of the three would be a silent gap - the
   // unsupported-pattern warning firing for a rendered body but not for an
   // error body is exactly the kind of asymmetry nobody notices.
   const baseGenerateOptions: GenerateOptions = {
@@ -276,8 +276,8 @@ export function createHandler(
   }
 
   // A promise `close()` resolves. Racing an `afterMs` wait against it is the
-  // only way to unblock an INJECTED `sleep` — there is no timer handle to
-  // cancel on one of those — so this is what makes `close()` return promptly
+  // only way to unblock an INJECTED `sleep` - there is no timer handle to
+  // cancel on one of those - so this is what makes `close()` return promptly
   // regardless of which `sleep` implementation is in play. Finding I3.
   let resolveClosedSignal: () => void = () => {}
   const closedSignal = new Promise<void>((resolve) => { resolveClosedSignal = resolve })
@@ -286,7 +286,7 @@ export function createHandler(
   // when no `options.sleep` was injected), so `close()` can clear them.
   // Racing against `closedSignal` above unblocks the `await`, but the
   // underlying `setTimeout` keeps running and holds the event loop open until
-  // it is cleared too — that is what let a real shutdown hang for up to
+  // it is cleared too - that is what let a real shutdown hang for up to
   // `afterMs` even though `close()` had already "returned" the wait.
   const pendingTimers = new Set<{ handle: ReturnType<typeof setTimeout>; resolve: () => void }>()
 
@@ -329,7 +329,7 @@ export function createHandler(
 
   /**
    * One emission, from either trigger. Records into the delivery log whatever
-   * comes back — including `unresolved` — because §13 says an emit never
+   * comes back - including `unresolved` - because §13 says an emit never
    * hard-fails and the log is where an operator sees that it did not.
    */
   async function runEmit(
@@ -381,7 +381,7 @@ export function createHandler(
    * What the single exit needs to know about a request, filled in by `produce`
    * as it learns it. A mutable record rather than a return value because the
    * boundary catch has to observe a request that threw before producing
-   * anything — and that is precisely the request an operator most wants logged.
+   * anything - and that is precisely the request an operator most wants logged.
    */
   interface Trace {
     operation?: Operation
@@ -393,8 +393,8 @@ export function createHandler(
     /** Set by stage 5 when this request claimed a key; read by the single exit. */
     claimed?: { key: string; fingerprint: string }
     /**
-     * Set on the paths that never build a `Ctx` — an unmatched route and a
-     * body-parse failure — so the log's `requestId` fallback does not collapse
+     * Set on the paths that never build a `Ctx` - an unmatched route and a
+     * body-parse failure - so the log's `requestId` fallback does not collapse
      * every such request in the process onto the same id. `ctx.requestId` wins
      * when a `Ctx` exists; this is the equivalent for when it does not.
      */
@@ -409,7 +409,7 @@ export function createHandler(
   }
 
   async function produce(request: Request, trace: Trace): Promise<Response> {
-    // Stage 1 — route match.
+    // Stage 1 - route match.
     const url = new URL(request.url)
     const matched = router.match(request.method, url.pathname)
 
@@ -418,7 +418,7 @@ export function createHandler(
       // honest byte count available.
       trace.bytesIn = Number(request.headers.get('content-length') ?? 0) || 0
 
-      // A pure function of the request — never the matched path's `key` below,
+      // A pure function of the request - never the matched path's `key` below,
       // which feeds the seeded PRNG. This one only ever reaches the log, so
       // giving it its own ordinal (rather than a fixed 0) is what makes
       // repeated identical unmatched requests get distinct ids too.
@@ -433,7 +433,7 @@ export function createHandler(
       const fail = failWith(undefined, seed)
       const allowed = router.allowedMethods(url.pathname)
       if (allowed.length > 0) {
-        // The router matched the path on segments alone — the method is what's
+        // The router matched the path on segments alone - the method is what's
         // wrong, not the route. That template is knowable even though no
         // `Operation` was matched; `operationId` is not, since it differs by
         // method and no single one answered this request.
@@ -455,7 +455,7 @@ export function createHandler(
     // selection below and selection runs well before the body is rendered, so
     // one read serves both. Design section 4.
     const runtime = await readOverride(store, operation)
-    // Computed once — it was built twice per request before this refactor.
+    // Computed once - it was built twice per request before this refactor.
     const key = requestKey(operation, params, seed)
     const fail = failWith(operation, key)
 
@@ -464,10 +464,10 @@ export function createHandler(
     trace.requestKey = key
     trace.emits = config.emits
 
-    // Stage 2 — body parse and content negotiation.
+    // Stage 2 - body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
-      // The bytes were fully read to even discover the parse failure — a 415
+      // The bytes were fully read to even discover the parse failure - a 415
       // storm should not log as zero traffic.
       trace.bytesIn = parsed.raw.length
       // No `Ctx` exists yet on this path, so the log's fallback would otherwise
@@ -483,7 +483,7 @@ export function createHandler(
     const exampleName = preferred(request, 'example')
 
     // Declared above `responders`; assigned after resolution (stage 7.5, once
-    // the status is known), read by the `fixture` hook at generation time —
+    // the status is known), read by the `fixture` hook at generation time -
     // the same deferral the `ctx` getter above already uses.
     let resolvedWhole: unknown
     let selectedStatus: number | undefined
@@ -496,11 +496,11 @@ export function createHandler(
       generateOptions: baseGenerateOptions,
       // ctx is declared just below; this getter is only invoked later (inside
       // generateValue, at generation time), by which point the assignment has
-      // already run — the same deferral the old inline closure relied on.
+      // already run - the same deferral the old inline closure relied on.
       ctx: () => ctx,
       // A response callback (stage 10, before status selection) calls this
       // through `ctx.generate()` with no `resolvedWhole` set yet, so it always
-      // falls through to `peek` — a synchronous store read, never a fetch.
+      // falls through to `peek` - a synchronous store read, never a fetch.
       // The pipeline's own call, after status selection, hits the fast path.
       fixture: (status) =>
         resolvedWhole !== undefined && status === selectedStatus
@@ -547,7 +547,7 @@ export function createHandler(
       stages.push(createValidationStage({ operation, fail }))
     }
 
-    // Stage 5 — idempotency lookup. After validation so a malformed request
+    // Stage 5 - idempotency lookup. After validation so a malformed request
     // never claims a key it will not be able to honor.
     stages.push(
       createIdempotencyStage({
@@ -587,7 +587,7 @@ export function createHandler(
       if (short) return short
     }
 
-    // Stage 10 — the full response callback replaces stages 7 through 10,
+    // Stage 10 - the full response callback replaces stages 7 through 10,
     // status selection included, so it runs BEFORE the selection check: an
     // operation declaring no responses has nothing to select, yet the callback
     // must still answer.
@@ -599,7 +599,7 @@ export function createHandler(
       }
     }
 
-    // Stage 7 — status selection, now that every short-circuiting stage has run
+    // Stage 7 - status selection, now that every short-circuiting stage has run
     // and no callback has taken over.
     const selected = responders.selection()
     if (!selected) {
@@ -613,7 +613,7 @@ export function createHandler(
     const chosen = selected.spec
 
     // After selection, because the fixture key is per status. Awaited here so
-    // the generate seam below stays synchronous — design section 2.12.
+    // the generate seam below stays synchronous - design section 2.12.
     const fixture = await fixtureResolver.resolve(operation, chosen.status, params)
     resolvedWhole = fixture?.whole
     selectedStatus = chosen.status
@@ -625,7 +625,7 @@ export function createHandler(
     const runtimeHeaders = runtime.headers(chosen.status)
     // `runtime !== EMPTY_OVERRIDE` only proves a record exists for this
     // operation, not that it did anything at the status that was actually
-    // selected — an override scoped to a different status, or an empty
+    // selected - an override scoped to a different status, or an empty
     // override object, would both stamp a false "applied". The header must
     // instead reflect what actually contributed: a body layer, a header, or
     // a runtime `status` that forced the selection that happened.
@@ -667,7 +667,7 @@ export function createHandler(
    * A message for anything that was thrown, including things that resist
    * being described. `String(error)` invokes a user-supplied `toString`, and a
    * throwable whose `toString` itself throws would escape the boundary 500 and
-   * make `fetch()` reject with no response at all — the last hole in the
+   * make `fetch()` reject with no response at all - the last hole in the
    * response-always-returned guarantee (deferred item 16).
    */
   function describeThrown(error: unknown): string {
@@ -680,8 +680,8 @@ export function createHandler(
   }
 
   /**
-   * The boundary 500. Every user callback — resolvers, override functions,
-   * header overrides, response callbacks — runs somewhere inside `produce`, and
+   * The boundary 500. Every user callback - resolvers, override functions,
+   * header overrides, response callbacks - runs somewhere inside `produce`, and
    * invariant 4 says the mock keeps serving whatever they do. One catch rather
    * than one per leaf: a per-leaf catch would let a half-built body reach the
    * client as if it were real.
@@ -733,7 +733,7 @@ export function createHandler(
   }
 
   /**
-   * THE SINGLE EXIT. Every response leaves through here — a 404 built before any
+   * THE SINGLE EXIT. Every response leaves through here - a 404 built before any
    * operation was known, a body-parse 400, a stage short-circuit, a rendered
    * body, and the boundary 500 alike. Stage 11 (idempotency capture, then the
    * log record), callback capture (trigger one), and emission (trigger two)
@@ -765,7 +765,7 @@ export function createHandler(
 
     // ── Stage 11 ──
     // From here on, `response` is what the caller gets back, no matter what.
-    // Each concern below — body capture, idempotency storage, log emission —
+    // Each concern below - body capture, idempotency storage, log emission -
     // is wrapped in its own try/catch and routed to `onError` rather than
     // allowed to reject `handle()`. A caller-supplied `Store` and `onLog` are
     // user code, and invariant 4 says the mock keeps serving whatever they do;
@@ -797,20 +797,20 @@ export function createHandler(
     if (claimed !== undefined) {
       try {
         // A 5xx is never stored, and neither is a status the mock itself
-        // injected rather than the operation genuinely answering with — an
+        // injected rather than the operation genuinely answering with - an
         // open circuit's `then: 429` is exactly that. Storing either would
         // make every retry replay the injected failure until the TTL expired,
         // defeating the retry the idempotency key exists to make safe. §2.6
         // draws the line at "did the mock invent this," not at a status
         // threshold. Releasing the key on a throw is the other half of the
-        // wedge fix from the phases 7-9 design §2.4 — the TTL covers a
+        // wedge fix from the phases 7-9 design §2.4 - the TTL covers a
         // process that dies, this covers a callback that threw.
         if (
           trace.error !== undefined ||
           response.status >= 500 ||
           trace.ctx?.decisions.failure === 'injected' ||
           // A capture that failed would be stored as `body: null`, pinning a
-          // bodiless replay for the whole TTL — a transient failure turned
+          // bodiless replay for the whole TTL - a transient failure turned
           // into a persistently wrong response the client cannot recover from
           // until expiry. Storing nothing lets a retry re-execute and succeed.
           captureFailed
@@ -904,7 +904,7 @@ export function createHandler(
     }
 
     // Trigger two. Fires only for a response the operation actually
-    // succeeded at producing — the same reasoning as the callback-capture
+    // succeeded at producing - the same reasoning as the callback-capture
     // block above, applied more strongly: capturing a redirected destination
     // is a data-integrity risk, but sending a signed outbound request that
     // announces a 401, a failed validation, an injected failure, or the
@@ -933,7 +933,7 @@ export function createHandler(
           //
           // This synchronous construction is now inside the same try/catch as
           // the delivery loop below it, matching the callback-capture block
-          // above. It is unreachable today — nothing here throws — but it was
+          // above. It is unreachable today - nothing here throws - but it was
           // the one seam at this exit left asymmetric with its sibling.
           const emitCtx: EmitCtx = {
             ...ctx,
@@ -950,7 +950,7 @@ export function createHandler(
                 const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
                 if (delay !== undefined && delay > 0) {
                   // The race is only needed for an INJECTED sleep, which has
-                  // no timer handle for `close()`/`reset()` to clear — for the
+                  // no timer handle for `close()`/`reset()` to clear - for the
                   // default sleep, clearPendingTimers() already resolves this
                   // wait directly.
                   //
@@ -998,8 +998,8 @@ export function createHandler(
       requestOrdinals.clear()
       generation += 1
       // Symmetric with close(). Bumping `generation` alone already drops the
-      // emission — the `at !== generation` check inside the delayed IIFE
-      // catches it — but the underlying setTimeout kept running and held the
+      // emission - the `at !== generation` check inside the delayed IIFE
+      // catches it - but the underlying setTimeout kept running and held the
       // event loop open, so settled() straight after reset() blocked for the
       // full afterMs (3005ms measured for 3000). Design §2.3 treats close()
       // canceling and reset() clearing as one sentence; this makes them one
@@ -1010,7 +1010,7 @@ export function createHandler(
     },
     emit: (name, opts = {}) => {
       // Finding I2. The imperative trigger used to call `runEmit` directly,
-      // untracked — `settled()` and `close()` genuinely waited only for the
+      // untracked - `settled()` and `close()` genuinely waited only for the
       // operation-linked path, contradicting both docstrings and design §2.3.
       if (closed) {
         return Promise.reject(new Error(
@@ -1019,7 +1019,7 @@ export function createHandler(
         ))
       }
       const delivery = runEmit(name, opts)
-      // The tracked promise never itself rejects — track()/settled() only
+      // The tracked promise never itself rejects - track()/settled() only
       // need to know when the emission has settled, not how. The caller's own
       // `delivery` promise is unaffected and still rejects on, e.g., an
       // undeclared webhook name.

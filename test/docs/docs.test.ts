@@ -18,12 +18,12 @@ const DOCUMENTS = [
 
 /**
  * Reader-facing markdown that is deliberately not executed, each with a reason.
- * An exemption is a decision someone makes by name — the point of the sweep is
+ * An exemption is a decision someone makes by name - the point of the sweep is
  * that nothing becomes uncovered by accident.
  */
 const EXEMPT = new Map<string, string>([
   ['CLAUDE.md', 'operating manual for agents working ON this repo, not for its readers'],
-  ['docs/superpowers', 'design specs, plans, and the deferred-items ledger — internal process records'],
+  ['docs/superpowers', 'design specs, plans, and the deferred-items ledger - internal process records'],
   ['test/docs/fixtures', 'deliberately broken documents that exist to prove the harness rejects them']
 ])
 
@@ -66,7 +66,7 @@ test('every reader-facing markdown file is covered by the harness', async () => 
   )
 
   // The run list must not name a file that no longer exists, which the old
-  // sweep could not catch for README.md — it was a literal entry, exercised
+  // sweep could not catch for README.md - it was a literal entry, exercised
   // only because its own subtest happened to run.
   for (const document of DOCUMENTS) {
     assert.ok(all.includes(document), `${document} is in the run list but not on disk`)

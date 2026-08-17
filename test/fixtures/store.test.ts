@@ -19,7 +19,7 @@ test('a miss returns undefined rather than throwing', () => {
   assert.equal(store.get('nope', 200, 'deadbeef'), undefined)
 })
 
-test('an entry without meta is accepted — hand-written fixtures have none', () => {
+test('an entry without meta is accepted - hand-written fixtures have none', () => {
   const store = createMemoryFixtureStore()
   store.set('getUser', 200, 'a3f19c2e', { value: 1 })
   assert.equal(store.get('getUser', 200, 'a3f19c2e')?.meta, undefined)

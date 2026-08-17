@@ -6,7 +6,7 @@
 
 **Architecture:** A document is resolved (`$ref`s inlined), normalized into an internal `Api` model, and compiled into a route table. On each request the router finds the operation, a seeded PRNG derived from the request identity drives value generation over the response schema, and the result is returned as a `Response`. The core is a pure `(Request) => Promise<Response>`; a thin `node:http` adapter wraps it.
 
-**Tech Stack:** TypeScript 7 (types stripped natively by Node, never compiled), Node >= 24, `node:test`, `zod` (not yet used in this plan — it enters in plan 2).
+**Tech Stack:** TypeScript 7 (types stripped natively by Node, never compiled), Node >= 24, `node:test`, `zod` (not yet used in this plan - it enters in plan 2).
 
 **Scope:** This is plan 1 of 4. It covers spec §1–3 and phases 1–3 of spec §18. Overrides, validation, auth, failure simulation, idempotency, webhooks, logging, MCP, and fixtures are later plans.
 
@@ -28,7 +28,7 @@ Copied verbatim from the spec and `CLAUDE.md`. Every task's requirements implici
 |---|---|
 | `package.json` | Fixed module type, `node --test` script, Node engine floor |
 | `tsconfig.json` | Typecheck-only config; `erasableSyntaxOnly`, `allowImportingTsExtensions` |
-| `src/spec/types.ts` | The internal `Api` model — every other module's shared vocabulary |
+| `src/spec/types.ts` | The internal `Api` model - every other module's shared vocabulary |
 | `src/spec/refs.ts` | Internal `$ref` resolution with cycle tolerance |
 | `src/spec/load.ts` | Raw document → normalized `Api` |
 | `src/spec/routes.ts` | Path templates → matcher with static-beats-dynamic precedence |
@@ -55,7 +55,7 @@ Task 1 (scaffolding)
   └─ Task 7 (constraints) ─┘          │
 ```
 
-**Parallel batch A** (after Task 1): Tasks 2, 4, 5, 6, 7 — five independent modules, no shared files.
+**Parallel batch A** (after Task 1): Tasks 2, 4, 5, 6, 7 - five independent modules, no shared files.
 **Parallel batch B** (after batch A): Tasks 3 and 8.
 **Serial tail:** Tasks 9 → 10 → 11.
 
@@ -71,7 +71,7 @@ Task 1 (scaffolding)
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: every type in `src/spec/types.ts` — `Schema`, `Parameter`, `ResponseSpec`, `Operation`, `Api`, `HTTP_METHODS`. Every later task imports from here.
+- Produces: every type in `src/spec/types.ts` - `Schema`, `Parameter`, `ResponseSpec`, `Operation`, `Api`, `HTTP_METHODS`. Every later task imports from here.
 
 - [x] **Step 1: Fix `package.json`**
 
@@ -139,11 +139,11 @@ Replace the whole file. Note `"type": "module"` (the current `"esm"` is invalid)
 
 Run: `npm install`
 
-> **Note for the implementer:** `"main": "src/index.ts"` works for local development and tests, because Node strips types in your own source. It is **not** publishable as-is — Node does not strip types inside `node_modules`. Packaging is deliberately out of scope for this plan and is handled in plan 4; do not add a build step now.
+> **Note for the implementer:** `"main": "src/index.ts"` works for local development and tests, because Node strips types in your own source. It is **not** publishable as-is - Node does not strip types inside `node_modules`. Packaging is deliberately out of scope for this plan and is handled in plan 4; do not add a build step now.
 
 - [x] **Step 4: Write the failing test**
 
-This test exists to prove the toolchain works end to end — that `node --test` discovers a `.ts` file, strips its types, and resolves a `.ts` import specifier. If any of that is wrong, everything downstream fails confusingly.
+This test exists to prove the toolchain works end to end - that `node --test` discovers a `.ts` file, strips its types, and resolves a `.ts` import specifier. If any of that is wrong, everything downstream fails confusingly.
 
 Create `test/scaffolding.test.ts`:
 
@@ -163,7 +163,7 @@ test('toolchain strips types and resolves .ts imports', () => {
 - [x] **Step 5: Run the test to verify it fails**
 
 Run: `npm test`
-Expected: FAIL — cannot find module `../src/spec/types.ts`.
+Expected: FAIL - cannot find module `../src/spec/types.ts`.
 
 If instead it reports **zero tests found**, the runner is not discovering `.ts` files. Change the `test` script to `node --test 'test/**/*.test.ts'` and re-run before continuing.
 
@@ -274,7 +274,7 @@ git commit -m 'chore: scaffold TypeScript project and Api model' -m 'Fixes the i
 
 **Interfaces:**
 - Consumes: nothing (operates on raw JSON, before the `Api` model exists).
-- Produces: `resolveDocument(doc: Record<string, unknown>): Record<string, unknown>` — returns a deep copy with every internal `$ref` replaced by the referenced node. Recursive schemas become real object cycles; callers must bound their own recursion. Throws on external and unresolvable refs.
+- Produces: `resolveDocument(doc: Record<string, unknown>): Record<string, unknown>` - returns a deep copy with every internal `$ref` replaced by the referenced node. Recursive schemas become real object cycles; callers must bound their own recursion. Throws on external and unresolvable refs.
 
 - [x] **Step 1: Write the failing test**
 
@@ -380,7 +380,7 @@ test('does not mutate the input document', () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/spec/refs.test.ts`
-Expected: FAIL — cannot find module `../../src/spec/refs.ts`.
+Expected: FAIL - cannot find module `../../src/spec/refs.ts`.
 
 - [x] **Step 3: Implement `src/spec/refs.ts`**
 
@@ -389,7 +389,7 @@ object's own children are walked. A `$ref` pointing back at an ancestor therefor
 returns the ancestor's live output object, and the cycle forms naturally as the
 ancestor finishes filling in. The `resolving` set is a separate guard, for the
 pathological case of references that resolve only to further references with no
-schema in between — `byNode` cannot break those, because a bare `$ref` node never
+schema in between - `byNode` cannot break those, because a bare `$ref` node never
 gets registered.
 
 ```ts
@@ -439,13 +439,13 @@ export function resolveDocument(
     if (typeof ref === 'string') {
       const target = lookup(ref)
       // A target already in byNode is a real schema, mid-construction. Return
-      // its live object so the cycle forms — however many alias hops away it is.
+      // its live object so the cycle forms - however many alias hops away it is.
       // This check must precede the `resolving` guard, or an alias chain like
       // `A -> B` where B recurses back through A is rejected as circular.
       if (byNode.has(target)) return byNode.get(target)
       if (resolving.has(ref)) {
         throw new Error(
-          `mockingham: circular $ref chain at "${ref}" — a reference resolves ` +
+          `mockingham: circular $ref chain at "${ref}" - a reference resolves ` +
             'only to further references, with no schema between them.'
         )
       }
@@ -625,7 +625,7 @@ test('throws when the document has no openapi version', () => {
 - [x] **Step 3: Run the test to verify it fails**
 
 Run: `node --test test/spec/load.test.ts`
-Expected: FAIL — cannot find module `../../src/spec/load.ts`.
+Expected: FAIL - cannot find module `../../src/spec/load.ts`.
 
 - [x] **Step 4: Implement `src/spec/load.ts`**
 
@@ -835,7 +835,7 @@ test('reports allowed methods for a known path', () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/spec/routes.test.ts`
-Expected: FAIL — cannot find module `../../src/spec/routes.ts`.
+Expected: FAIL - cannot find module `../../src/spec/routes.ts`.
 
 - [x] **Step 3: Implement `src/spec/routes.ts`**
 
@@ -1043,7 +1043,7 @@ test('fnv1a is stable and differs across inputs', () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/generate/rng.test.ts`
-Expected: FAIL — cannot find module `../../src/generate/rng.ts`.
+Expected: FAIL - cannot find module `../../src/generate/rng.ts`.
 
 - [x] **Step 3: Implement `src/generate/rng.ts`**
 
@@ -1230,7 +1230,7 @@ test('an empty schema is unknown', () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/schema/walk.test.ts`
-Expected: FAIL — cannot find module `../../src/schema/walk.ts`.
+Expected: FAIL - cannot find module `../../src/schema/walk.ts`.
 
 - [x] **Step 3: Implement `src/schema/walk.ts`**
 
@@ -1276,7 +1276,7 @@ export function isNullable(schema: Schema): boolean {
  * One precedence rule, applied to every keyword alike: `allOf` members are
  * merged in declaration order so a later member overrides an earlier one, and
  * the outer schema's own keywords then override all members. `properties` and
- * `required` accumulate instead of replacing — properties union with the outer
+ * `required` accumulate instead of replacing - properties union with the outer
  * schema winning a key collision, required is a plain union.
  *
  * Every keyword is carried through, not just the structural ones. A constraint
@@ -1335,7 +1335,7 @@ export function classify(input: Schema): SchemaKind {
 
   // oneOf and anyOf differ: oneOf must match exactly one variant, anyOf at
   // least one. Only this module can preserve the distinction, so `mode` carries
-  // it — a validator built on `classify` cannot recover it any other way.
+  // it - a validator built on `classify` cannot recover it any other way.
   const variants = schema.oneOf ?? schema.anyOf
   if (Array.isArray(variants) && variants.length > 0) {
     return {
@@ -1468,7 +1468,7 @@ test('array length keeps max at or above min', () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/generate/constraints.test.ts`
-Expected: FAIL — cannot find module `../../src/generate/constraints.ts`.
+Expected: FAIL - cannot find module `../../src/generate/constraints.ts`.
 
 - [x] **Step 3: Implement `src/generate/constraints.ts`**
 
@@ -1487,7 +1487,7 @@ export function numberBounds(schema: Schema): { min: number; max: number } {
   let max = schema.maximum ?? DEFAULT_NUMBER_MAX
 
   // A numeric exclusive bound (3.1) and a plain bound may both be present, and
-  // both must hold — so take whichever is tighter rather than letting the last
+  // both must hold - so take whichever is tighter rather than letting the last
   // branch win. The boolean form (3.0) only modifies its own plain bound.
   if (typeof schema.exclusiveMinimum === 'number') {
     min = Math.max(min, schema.exclusiveMinimum + 1)
@@ -1502,7 +1502,7 @@ export function numberBounds(schema: Schema): { min: number; max: number } {
   }
 
   // As with `bounded`, an explicit bound is never violated. When the two sides
-  // conflict, only the side that came from a default yields — a lone explicit
+  // conflict, only the side that came from a default yields - a lone explicit
   // maximum below the default minimum of 0 must win, not be silently
   // overwritten back up to 0.
   const hasExplicitMin =
@@ -1533,7 +1533,7 @@ export function applyMultipleOf(value: number, schema: Schema): number {
  * Resolves an optional min/max pair against defaults, guaranteeing `max >= min`.
  *
  * An explicitly declared bound is never violated. When only one is given, the
- * default on the other side yields to it — including when a lone `max` sits
+ * default on the other side yields to it - including when a lone `max` sits
  * below the default minimum, which is the case that silently corrupted output
  * before: `maxLength: 2` must not resolve to a minimum of 5.
  */
@@ -1592,7 +1592,7 @@ git commit -m 'feat: resolve schema constraints into generation bounds' -m 'Hand
 **Interfaces:**
 - Consumes: `Rng` from Task 5; the constraint helpers from Task 7; `Schema` from Task 1.
 - Produces: `generateString(schema: Schema, rng: Rng): string`, `generateNumber(schema: Schema, rng: Rng): number`, `generateInteger(schema: Schema, rng: Rng): number`, `generateBoolean(rng: Rng): boolean`.
-  `generateString` is format-aware: `email`, `uuid`, `uri`, `hostname`, `ipv4`, `date`, `date-time`. Unknown formats fall back to a plain word. **`pattern` is not supported** — when present with no `example` or `default`, the plain word is returned; the caller warns.
+  `generateString` is format-aware: `email`, `uuid`, `uri`, `hostname`, `ipv4`, `date`, `date-time`. Unknown formats fall back to a plain word. **`pattern` is not supported** - when present with no `example` or `default`, the plain word is returned; the caller warns.
 
 - [x] **Step 1: Write the failing test**
 
@@ -1684,11 +1684,11 @@ test('booleans are booleans', () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/generate/values.test.ts`
-Expected: FAIL — cannot find module `../../src/generate/values.ts`.
+Expected: FAIL - cannot find module `../../src/generate/values.ts`.
 
 - [x] **Step 3: Implement `src/generate/values.ts`**
 
-Note the fixed epoch constant — invariant 2 forbids `Date.now()` in a generation path, because it would make output non-reproducible across runs.
+Note the fixed epoch constant - invariant 2 forbids `Date.now()` in a generation path, because it would make output non-reproducible across runs.
 
 ```ts
 import type { Schema } from '../spec/types.ts'
@@ -1791,7 +1791,7 @@ export function generateBoolean(rng: Rng): boolean {
 }
 ```
 
-> **Note for the implementer:** this file must use no Node globals and no `node:` imports — it is reachable from the pure core (invariant 3). That is why `byte` builds a base64-shaped string from an alphabet rather than reaching for `Buffer`. The output is well-formed base64 characters, not an encoding of anything meaningful, which is all a mock needs.
+> **Note for the implementer:** this file must use no Node globals and no `node:` imports - it is reachable from the pure core (invariant 3). That is why `byte` builds a base64-shaped string from an alphabet rather than reaching for `Buffer`. The output is well-formed base64 characters, not an encoding of anything meaningful, which is all a mock needs.
 
 - [x] **Step 4: Run the test to verify it passes**
 
@@ -1914,7 +1914,7 @@ test('an unknown schema generates null', () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/generate/generate.test.ts`
-Expected: FAIL — cannot find module `../../src/generate/generate.ts`.
+Expected: FAIL - cannot find module `../../src/generate/generate.ts`.
 
 - [x] **Step 3: Implement `src/generate/generate.ts`**
 
@@ -1990,7 +1990,7 @@ export function generateValue(
 }
 ```
 
-> **Note for the implementer:** every optional property is generated, not just required ones. That is deliberate — a client written against the mock should see the full shape. Selective omission arrives with overrides in plan 2.
+> **Note for the implementer:** every optional property is generated, not just required ones. That is deliberate - a client written against the mock should see the full shape. Selective omission arrives with overrides in plan 2.
 
 - [x] **Step 4: Run the test to verify it passes**
 
@@ -2066,7 +2066,7 @@ test('differs across different path parameters', async () => {
   const b = await (await handler(new Request('http://x/pets/43'))).json()
   assert.notDeepEqual(a, b)
 })
-// If this assertion fails it is NOT flaky — generation is deterministic, so
+// If this assertion fails it is NOT flaky - generation is deterministic, so
 // these two seeds genuinely collided on every field. Change 42/43 to two other
 // ids and it will stay passing. Do not weaken the assertion.
 
@@ -2115,7 +2115,7 @@ test('a response with no content yields 204-style empty body', async () => {
 - [x] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/server/handler.test.ts`
-Expected: FAIL — cannot find module `../../src/server/handler.ts`.
+Expected: FAIL - cannot find module `../../src/server/handler.ts`.
 
 - [x] **Step 3: Implement `src/server/handler.ts`**
 
@@ -2361,7 +2361,7 @@ test('exposes the loaded api', () => {
 - [x] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/server/node.test.ts test/integration.test.ts`
-Expected: FAIL — cannot find module `../../src/index.ts`.
+Expected: FAIL - cannot find module `../../src/index.ts`.
 
 - [x] **Step 3: Implement `src/server/node.ts`**
 

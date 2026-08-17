@@ -2,7 +2,7 @@
  * Asserts the published tarball carries what it should and nothing else.
  *
  * `package.json`'s `files` field is checked by `test/packaging.test.ts`, but
- * that reads the manifest — it cannot see what npm actually resolves the field
+ * that reads the manifest - it cannot see what npm actually resolves the field
  * to. This runs the real pack and inspects the result, which is the only way
  * to catch a stray include, a new top-level directory, or an `.npmignore`
  * someone adds later.

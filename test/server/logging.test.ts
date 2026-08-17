@@ -40,7 +40,7 @@ function collector() {
 
 test('a short-circuited response is logged', async () => {
   // THE test this whole refactor exists for. A 401 never reaches the renderer,
-  // so before the single exit there was nowhere to observe it — and a 401 is
+  // so before the single exit there was nowhere to observe it - and a 401 is
   // exactly the record an operator most wants.
   const sink = collector()
   const handle = createHandler(api, { seed: 'log', onLog: sink.onLog }).fetch
@@ -74,7 +74,7 @@ test('an unmatched route is logged too', async () => {
 
 test('two 404s on different paths get distinct requestIds', async () => {
   // I4.1: `trace.requestKey` used to stay seeded to `seed` on the unmatched
-  // path, so every 404/405 the process ever served shared one id — not even
+  // path, so every 404/405 the process ever served shared one id - not even
   // distinct across different paths, let alone repeated calls to the same one.
   const sink = collector()
   const handle = createHandler(api, { seed: 'log', onLog: sink.onLog }).fetch
@@ -99,7 +99,7 @@ test('two 404s on the same path also get distinct requestIds', async () => {
 
 test('a 405 logs the route it matched on segments, but no operationId', async () => {
   // I4.3: the router knows the templated path even though no single Operation
-  // answered — the method was wrong, not the route. operationId stays
+  // answered - the method was wrong, not the route. operationId stays
   // undefined because it genuinely differs by method here.
   const sink = collector()
   const handle = createHandler(api, { seed: 'log', onLog: sink.onLog }).fetch
@@ -113,7 +113,7 @@ test('a 405 logs the route it matched on segments, but no operationId', async ()
 })
 
 test('bytesIn is counted on a body-parse failure, not left at zero', async () => {
-  // I4.2: the bytes were fully read to even discover the parse failure — a
+  // I4.2: the bytes were fully read to even discover the parse failure - a
   // 415/400 storm must not log as zero traffic.
   const sink = collector()
   const handle = createHandler(api, { seed: 'log', onLog: sink.onLog }).fetch
@@ -260,7 +260,7 @@ test('bytesIn counts the raw request bytes, not its characters', async () => {
 test('a throw while assembling the log record cannot reach the caller', async () => {
   // Deferred item 20: the log block's own try/catch was untested, on the
   // grounds that nothing inside it could realistically throw now that
-  // `emitLog` self-isolates. That is true of the SINK — and it is not true of
+  // `emitLog` self-isolates. That is true of the SINK - and it is not true of
   // the block, which reads the clock for `durationMs` inside the same guard.
   // An untested guard is indistinguishable from an absent one.
   const errors: unknown[] = []

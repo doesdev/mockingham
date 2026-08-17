@@ -1,14 +1,14 @@
-# mockingham Plan 5 — Single Exit, Idempotency, Logging, CLI
+# mockingham Plan 5 - Single Exit, Idempotency, Logging, CLI
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the request pipeline a single exit point, then build the two
-things that need one — idempotency (phase 7) and logging (phase 9) — and ship the
+things that need one - idempotency (phase 7) and logging (phase 9) - and ship the
 CLI that makes the mock runnable without writing a script.
 
 **Architecture:** `handler.ts`'s `run()` is split into a producer (`produce`,
 which may answer from any of four places) and a single exit inside `handle()`,
-through which every response passes — a 404, a body-parse 400, an auth 401, a
+through which every response passes - a 404, a body-parse 400, an auth 401, a
 chaos 503, a rendered 200, and the boundary 500 alike. Stage 11 lives at that
 exit: it captures the response body once as a string, stores it as an idempotency
 record when a first request claimed the key, and emits the log record. Each
@@ -20,14 +20,14 @@ module that owns it, so `handler.ts` only orders them.
 
 ## Source documents
 
-- `docs/superpowers/specs/2026-08-11-mockingham-design.md` — the master contract.
+- `docs/superpowers/specs/2026-08-11-mockingham-design.md` - the master contract.
   §10 Store, §11 Idempotency, §12 Logging, §16 config surface, §17 testing,
   §18 phases 7 and 9.
-- `docs/superpowers/specs/2026-08-12-mockingham-phases-7-9-design.md` — the delta
+- `docs/superpowers/specs/2026-08-12-mockingham-phases-7-9-design.md` - the delta
   design for this plan. **Where the two disagree, the delta wins.** Its §1 (the
   prerequisite refactor) and §2.1–2.5 (five amendments) are the contract for
   Tasks 1–8.
-- `docs/superpowers/deferred-items.md` — items 1, 2, 3, 4, 5, and 9 are settled by
+- `docs/superpowers/deferred-items.md` - items 1, 2, 3, 4, 5, and 9 are settled by
   this plan. Items 6, 8, 10–14 stay deferred.
 
 ## Global Constraints
@@ -35,7 +35,7 @@ module that owns it, so `handler.ts` only orders them.
 Every task's requirements implicitly include these. Breaking one is a defect even
 if the task's own tests pass.
 
-- **Node ≥ 24, ESM, `"type": "module"`.** Types are stripped natively — no build
+- **Node ≥ 24, ESM, `"type": "module"`.** Types are stripped natively - no build
   step, no transpiler.
 - **Erasable syntax only.** No `enum`, no `namespace`, no parameter properties.
   Use `const X = {...} as const`.
@@ -44,7 +44,7 @@ if the task's own tests pass.
 - **Determinism.** The same request must produce byte-identical output across
   processes. No `Math.random()`, no `Date.now()`, no iteration over an unordered
   `Set`/object in a generation path. Randomness comes from `generate/rng.ts`; time
-  comes from an injected clock. **Log records are exempt** — see delta §2.1 — but
+  comes from an injected clock. **Log records are exempt** - see delta §2.1 - but
   only because a log record never enters a response.
 - **The core is pure.** `server/handler.ts` and everything it imports must not
   touch Node APIs. Node-only code lives in `server/node.ts` and `server/cli.ts`.
@@ -58,7 +58,7 @@ if the task's own tests pass.
 - **`zod` is the only hard runtime dependency.** `@anthropic-ai/sdk` and
   `@modelcontextprotocol/sdk` stay optional and lazily imported. This plan adds no
   dependency at all.
-- **US English spelling** everywhere — identifiers, test names, comments, docs.
+- **US English spelling** everywhere - identifiers, test names, comments, docs.
   `honor`, `behavior`, `serialize`, `normalize`, `canceled`.
 - **Tests live in `test/` mirroring `src/`**, written in TypeScript, run by
   `node:test`. Write the test first, watch it fail, then implement.
@@ -92,7 +92,7 @@ Task 11.
    the in-flight marker so the retry re-runs the operation. Task 7.
 2. **`reset()` clears the store on both surfaces.** `Handler.reset()` gains
    `await store.clear()` and becomes `Promise<void>`, matching `Mock.reset()`. The
-   documented contract is "reset() clears the store it was given" — do not share
+   documented contract is "reset() clears the store it was given" - do not share
    one store with your application. Task 2.
 3. **Deferred items 4 and 5 (circuit decay, per-policy circuit keys) join this
    plan.** Item 6 (`Mock.override()`) stays deferred to plan 6. Task 9.
@@ -103,7 +103,7 @@ Task 11.
 `409 MOCK_IDEMPOTENCY_MISMATCH` for "same key, different body fingerprint". Those
 two sentences cannot both hold. If `bodyHash` is part of the storage key, a
 different body computes a *different* key, the lookup misses, the request is
-treated as a first request — and the mismatch branch is unreachable dead code
+treated as a first request - and the mismatch branch is unreachable dead code
 under the very default that is supposed to exercise it.
 
 **The resolution: `bodyHash` in `scope` means "compare the fingerprint", not
@@ -176,7 +176,7 @@ live in this plan specifically:
 
 ## Task 1: Single exit and named stage factories
 
-Deferred items 1, 2, and 9. This is a **refactor with no behavior change** — the
+Deferred items 1, 2, and 9. This is a **refactor with no behavior change** - the
 408 existing tests are the safety net and every one of them must still pass
 unchanged. Nothing in this task adds a feature; it builds the seam the rest of the
 plan hangs on.
@@ -207,9 +207,9 @@ which every response passes."
   `createContext` / `createCounters` (`src/runtime/context.ts`).
 - Produces:
   - `type Fail = (status: number, code: string, message: string, ctx?: Ctx, errors?: Array<{ path: string; message: string }>) => Promise<Response>`
-  - `createAuthStage(input: AuthStageInput): Stage` — returns a function named `authStage`
-  - `createValidationStage(input: ValidationStageInput): Stage` — returns `validationStage`
-  - `createFailureStage(input: FailureStageInput): Stage` — returns `failureStage`
+  - `createAuthStage(input: AuthStageInput): Stage` - returns a function named `authStage`
+  - `createValidationStage(input: ValidationStageInput): Stage` - returns `validationStage`
+  - `createFailureStage(input: FailureStageInput): Stage` - returns `failureStage`
   - `buildCtx(...)` test helper in `test/helpers/ctx.ts`
   - Inside `handler.ts` (not exported): `interface Trace`, `produce(request, trace)`,
     and the exit block in `handle`.
@@ -217,7 +217,7 @@ which every response passes."
 - [ ] **Step 1: Write the test helper**
 
 Create `test/helpers/ctx.ts`. Stages take only a `Ctx`, so a stage can now be
-tested without a server — that is the point of the refactor and this helper is
+tested without a server - that is the point of the refactor and this helper is
 what makes it cheap.
 
 ```ts
@@ -391,7 +391,7 @@ test('failureStage answers when decide() returns a directive', async () => {
 
 Run: `node --test test/runtime/stages.test.ts`
 
-Expected: FAIL — `createAuthStage is not a function` (and the same for the other
+Expected: FAIL - `createAuthStage is not a function` (and the same for the other
 two factories).
 
 - [ ] **Step 4: Add the `Fail` type**
@@ -554,7 +554,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
    * What the single exit needs to know about a request, filled in by `produce`
    * as it learns it. A mutable record rather than a return value because the
    * boundary catch has to observe a request that threw before producing
-   * anything — and that is precisely the request an operator most wants logged.
+   * anything - and that is precisely the request an operator most wants logged.
    */
   interface Trace {
     operation?: Operation
@@ -566,7 +566,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
   }
 
   async function produce(request: Request, trace: Trace): Promise<Response> {
-    // Stage 1 — route match.
+    // Stage 1 - route match.
     const url = new URL(request.url)
     const matched = router.match(request.method, url.pathname)
 
@@ -590,7 +590,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
 
     const { operation, params } = matched
     const config = resolveConfigs(operation, compiled)
-    // Computed once — it was built twice per request before this refactor.
+    // Computed once - it was built twice per request before this refactor.
     const key = requestKey(operation, params, seed)
     const fail = failWith(operation, key)
 
@@ -598,7 +598,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
     trace.params = params
     trace.requestKey = key
 
-    // Stage 2 — body parse and content negotiation.
+    // Stage 2 - body parse and content negotiation.
     const parsed = await parseBody(request, operation)
     if (!parsed.ok) {
       return await fail(parsed.status, parsed.code, parsed.message)
@@ -620,7 +620,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
       },
       // ctx is declared just below; this getter is only invoked later (inside
       // generateValue, at generation time), by which point the assignment has
-      // already run — the same deferral the old inline closure relied on.
+      // already run - the same deferral the old inline closure relied on.
       ctx: () => ctx
     })
 
@@ -680,7 +680,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
       if (short) return short
     }
 
-    // Stage 10 — the full response callback replaces stages 7 through 10,
+    // Stage 10 - the full response callback replaces stages 7 through 10,
     // status selection included, so it runs BEFORE the selection check: an
     // operation declaring no responses has nothing to select, yet the callback
     // must still answer.
@@ -692,7 +692,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
       }
     }
 
-    // Stage 7 — status selection, now that every short-circuiting stage has run
+    // Stage 7 - status selection, now that every short-circuiting stage has run
     // and no callback has taken over.
     const selected = responders.selection()
     if (!selected) {
@@ -728,8 +728,8 @@ Replace the body of `createHandler` from the `fail` helper through the end of
   }
 
   /**
-   * The boundary 500. Every user callback — resolvers, override functions,
-   * header overrides, response callbacks — runs somewhere inside `produce`, and
+   * The boundary 500. Every user callback - resolvers, override functions,
+   * header overrides, response callbacks - runs somewhere inside `produce`, and
    * invariant 4 says the mock keeps serving whatever they do. One catch rather
    * than one per leaf: a per-leaf catch would let a half-built body reach the
    * client as if it were real.
@@ -746,7 +746,7 @@ Replace the body of `createHandler` from the `fail` helper through the end of
   }
 
   /**
-   * THE SINGLE EXIT. Every response leaves through here — a 404 built before any
+   * THE SINGLE EXIT. Every response leaves through here - a 404 built before any
    * operation was known, a body-parse 400, a stage short-circuit, a rendered
    * body, and the boundary 500 alike. Stage 11 (idempotency capture, then the
    * log record) hangs off this one point; that is the whole reason `produce` was
@@ -772,13 +772,13 @@ Update the imports at the top of the file: add `createAuthStage` to the auth
 import, `createValidationStage` to the validate import, `createFailureStage` to
 the failure import, and `Fail` to the type import from `../runtime/types.ts`.
 `checkAuth`, `validateRequest`, and `checkFailure` are no longer referenced by
-`handler.ts` — remove those three imports.
+`handler.ts` - remove those three imports.
 
 - [ ] **Step 10: Run the whole suite**
 
 Run: `npm test`
 
-Expected: PASS — 414 tests (408 existing plus the 6 new stage tests). **Any
+Expected: PASS - 414 tests (408 existing plus the 6 new stage tests). **Any
 existing test that fails is a behavior change, and this task must not change
 behavior.** If one fails, fix the refactor, not the test.
 
@@ -807,7 +807,7 @@ Deferred item 3. Must land before idempotency records start living in the Store.
 **The ruling:** both surfaces clear the store. `Handler.reset()` gains
 `await store.clear()` and returns `Promise<void>`; `Mock.reset()` delegates to it
 rather than calling `store.clear()` itself. The documented contract is **"reset()
-clears the store it was given"** — a caller who shares a store with their
+clears the store it was given"** - a caller who shares a store with their
 application should supply a dedicated one instead. §10 already says the Store
 holds mock state only (idempotency records, chaos state, `ctx.seq()` counters) and
 that there is no entity persistence, so a shared store was never an intended use.
@@ -819,7 +819,7 @@ that there is no entity persistence, so a shared store was never an intended use
 
 **Interfaces:**
 - Consumes: `Store.clear()` from Task 0 state (`src/runtime/store.ts`, unchanged).
-- Produces: `Handler.reset(): Promise<void>` — was `void`. `Mock.reset()` keeps
+- Produces: `Handler.reset(): Promise<void>` - was `void`. `Mock.reset()` keeps
   its existing `Promise<void>` signature, so `index.ts`'s public surface does not
   change.
 
@@ -851,7 +851,7 @@ file's imports. `api` is already `loadApi(petstore)` at the top of the file.
 
 Run: `node --test test/server/handler.test.ts`
 
-Expected: FAIL — `left-behind` is still `1`, and `handler.reset()` returns
+Expected: FAIL - `left-behind` is still `1`, and `handler.reset()` returns
 `undefined` rather than a Promise.
 
 - [ ] **Step 3: Make `Handler.reset` async and store-clearing**
@@ -864,7 +864,7 @@ export interface Handler {
   store: Store
   setSeed(next: string): void
   /**
-   * Clears the store it was given — not only the store it created. The two
+   * Clears the store it was given - not only the store it created. The two
    * surfaces disagreed until plan 5: `Mock.reset()` wiped a caller-supplied
    * store while `Handler.reset()` left it untouched. Agreeing on "reset clears
    * the store it was given" is the honest contract now that idempotency records
@@ -943,9 +943,9 @@ natural value to echo for correlation.
 - Consumes: `fnv1a` (`src/generate/rng.ts`), `createMemoryStore(now)`
   (`src/runtime/store.ts`).
 - Produces:
-  - `requestIdFor(requestKey: string, ordinal: number): string` — 16 lowercase hex characters
+  - `requestIdFor(requestKey: string, ordinal: number): string` - 16 lowercase hex characters
   - `Ctx.requestId: string`
-  - `ContextInput.requestId: string` (required — every caller of `createContext` must supply it)
+  - `ContextInput.requestId: string` (required - every caller of `createContext` must supply it)
   - `HandlerOptions.now?: () => number`
 
 - [ ] **Step 1: Write the failing unit test**
@@ -983,7 +983,7 @@ test('requestIdFor is 16 lowercase hex characters', () => {
 
 Run: `node --test test/runtime/logging.test.ts`
 
-Expected: FAIL — cannot find module `src/runtime/logging.ts`.
+Expected: FAIL - cannot find module `src/runtime/logging.ts`.
 
 - [ ] **Step 3: Create `src/runtime/logging.ts`**
 
@@ -999,7 +999,7 @@ import { fnv1a } from '../generate/rng.ts'
  * plus an ordinal gives an id that is stable across processes and still distinct
  * across repeated identical calls.
  *
- * The ordinal MUST come from its own counter, not the chaos counter — the
+ * The ordinal MUST come from its own counter, not the chaos counter - the
  * failure stage increments that one per policy evaluation, and sharing it would
  * shift every subsequent chaos roll the moment logging was switched on. See the
  * phases 7-9 design §2.2.
@@ -1041,7 +1041,7 @@ test('requestId is deterministic across handlers and distinct across calls', asy
   const one = await idFrom(first)
   const two = await idFrom(first)
 
-  // A fresh handler with the same seed replays the same sequence — that is what
+  // A fresh handler with the same seed replays the same sequence - that is what
   // "stable across processes" means for a correlation id.
   const replay = await idFrom(createHandler(api, echo).fetch)
 
@@ -1065,7 +1065,7 @@ test('an inbound X-Request-Id wins', async () => {
 test('the injected clock drives the default store', async () => {
   // Proves `now` actually reaches createMemoryStore rather than only the log
   // record: an outage armed with a TTL must expire when the clock advances.
-  // The outage key is `outage|<operationId>` — see outageKey and targetKey in
+  // The outage key is `outage|<operationId>` - see outageKey and targetKey in
   // src/runtime/failure.ts. No `failure` policy is needed: checkFailure reads
   // the outage key unconditionally, before it looks at any policy.
   let value = 1_000
@@ -1086,7 +1086,7 @@ operationId is `showPetById`, and it declares no security.
 
 Run: `node --test test/server/handler.test.ts`
 
-Expected: FAIL — `ctx.requestId` is `undefined`, and `now` is not a known option.
+Expected: FAIL - `ctx.requestId` is `undefined`, and `now` is not a known option.
 
 - [ ] **Step 7: Add `requestId` to the context**
 
@@ -1096,7 +1096,7 @@ In `src/runtime/types.ts`, inside `Ctx`, after `requestKey`:
   /**
    * A correlation id: an inbound `X-Request-Id` when the caller sent one,
    * otherwise `hash(requestKey, ordinal)`. Derived rather than random so a
-   * replayed run correlates across processes — see the phases 7-9 design §2.2.
+   * replayed run correlates across processes - see the phases 7-9 design §2.2.
    */
   requestId: string
 ```
@@ -1125,7 +1125,7 @@ In `createHandler`, replace the store construction and add the ordinal counter:
   // One clock for the store and the log, so a fake clock in a test drives both.
   const store = options.store ?? createMemoryStore(now)
   // Its OWN counter. Sharing the chaos counter would shift every chaos roll the
-  // moment logging was enabled — phases 7-9 design §2.2.
+  // moment logging was enabled - phases 7-9 design §2.2.
   const requestOrdinals = new Map<string, number>()
 ```
 
@@ -1151,7 +1151,7 @@ Import `requestIdFor` from `../runtime/logging.ts`.
 Run: `npm test`
 
 Expected: PASS. `test/runtime/context.test.ts` constructs a `Ctx` directly and
-will need `requestId` added to its input — that is the one legitimate edit to an
+will need `requestId` added to its input - that is the one legitimate edit to an
 existing test in this task. `test/helpers/ctx.ts` needs `requestId: 'test-id'`
 added to its `createContext` call too.
 
@@ -1178,8 +1178,8 @@ git commit -m 'feat: add an injected clock and a derived requestId' -m 'options.
 Delta design §2.5. §12's record carries
 `decisions: { auth?, validation?, failure?, idempotency?, fixture? }`, and a stage
 currently has nowhere to record what it decided. A plain object stages write into
-mirrors the existing `ctx.log`, needs no change to the `Stage` signature, and —
-the point — records a decision even when the stage does **not** short-circuit. A
+mirrors the existing `ctx.log`, needs no change to the `Stage` signature, and -
+the point - records a decision even when the stage does **not** short-circuit. A
 validation that passed is as loggable as one that failed.
 
 Values are short lowercase strings, not booleans or objects: §12 separates
@@ -1282,7 +1282,7 @@ test('failureStage records both outcomes', async () => {
 
 Run: `node --test test/runtime/stages.test.ts`
 
-Expected: FAIL — `ctx.decisions` is `undefined`.
+Expected: FAIL - `ctx.decisions` is `undefined`.
 
 - [ ] **Step 3: Add the `Decisions` type**
 
@@ -1293,7 +1293,7 @@ In `src/runtime/types.ts`:
  * What each stage decided, for the log record's `decisions` field (master spec
  * §12). Short lowercase strings rather than booleans or objects, because §12
  * separates low-cardinality fields precisely so they can be used as metric tags
- * — `auth: "denied"` tags cleanly, a nested object does not.
+ * - `auth: "denied"` tags cleanly, a nested object does not.
  *
  * A stage writes here whether or not it short-circuits: a validation that passed
  * is as loggable as one that failed.
@@ -1301,11 +1301,11 @@ In `src/runtime/types.ts`:
 export interface Decisions {
   /** 'ok' | 'anonymous' | 'denied' */
   auth?: string
-  /** 'ok' | 'failed' — absent when validateRequests is false */
+  /** 'ok' | 'failed' - absent when validateRequests is false */
   validation?: string
   /** 'ok' | 'injected' */
   failure?: string
-  /** 'first' | 'replayed' | 'mismatch' | 'in-flight' — absent when not idempotent */
+  /** 'first' | 'replayed' | 'mismatch' | 'in-flight' - absent when not idempotent */
   idempotency?: string
   /** Reserved for phase 11's fixture path. */
   fixture?: string
@@ -1372,7 +1372,7 @@ test('decisions are populated by the time a response callback runs', async () =>
 
   const body = await (await handle(new Request('http://x/pets/42'))).json()
 
-  // petstore declares no security, so auth is 'anonymous' rather than 'ok' —
+  // petstore declares no security, so auth is 'anonymous' rather than 'ok' -
   // a real outcome, not a missing one.
   assert.deepEqual(body, { auth: 'anonymous', validation: 'ok', failure: 'ok' })
 })
@@ -1404,7 +1404,7 @@ git commit -m 'feat: record each stage decision on ctx.decisions' -m 'A plain ob
 ## Task 5: The idempotency module
 
 Phase 7, master spec §11, delta design §2.3 and §2.4. This task builds the pure
-parts — enablement, fingerprint, key composition, the stored entry shape — with no
+parts - enablement, fingerprint, key composition, the stored entry shape - with no
 pipeline wiring at all. Task 6 adds the stage.
 
 **Files:**
@@ -1417,8 +1417,8 @@ pipeline wiring at all. Task 6 adds the stage.
 - Consumes: `Operation`, `Parameter` (`src/spec/types.ts`).
 - Produces:
   - `fnv1aBytes(bytes: Uint8Array): number` in `src/generate/rng.ts`
-  - `interface IdempotencyConfig` — the user-facing option
-  - `interface ResolvedIdempotency` — every field filled
+  - `interface IdempotencyConfig` - the user-facing option
+  - `interface ResolvedIdempotency` - every field filled
   - `resolveIdempotency(config?: IdempotencyConfig): ResolvedIdempotency`
   - `isIdempotent(operation: Operation, config: ResolvedIdempotency): boolean`
   - `fingerprint(raw: Uint8Array): string`
@@ -1441,7 +1441,7 @@ test('fnv1aBytes hashes raw bytes', () => {
 test('fnv1aBytes matches fnv1a for ASCII', () => {
   // fnv1a walks charCodeAt; for ASCII those are the same numbers as the bytes,
   // so the two must agree. They diverge above U+007F, which is exactly why the
-  // byte version exists — a body is bytes, not a string.
+  // byte version exists - a body is bytes, not a string.
   assert.equal(fnv1aBytes(new TextEncoder().encode('hello')), fnv1a('hello'))
 })
 ```
@@ -1452,7 +1452,7 @@ Add `fnv1aBytes` to that file's import.
 
 Run: `node --test test/generate/rng.test.ts`
 
-Expected: FAIL — `fnv1aBytes is not a function`.
+Expected: FAIL - `fnv1aBytes is not a function`.
 
 - [ ] **Step 3: Add `fnv1aBytes`**
 
@@ -1463,7 +1463,7 @@ In `src/generate/rng.ts`, immediately after `fnv1a`:
  * fnv1a over raw bytes. The idempotency fingerprint hashes the request body as
  * it arrived rather than a re-serialization of the parsed value: re-serializing
  * depends on key insertion order, so `{"a":1,"b":2}` and `{"b":2,"a":1}` would
- * differ anyway — but only by accident, and a future canonicalization would
+ * differ anyway - but only by accident, and a future canonicalization would
  * silently change which requests conflict. Hashing bytes makes the rule
  * explicit: byte-identical bodies replay, anything else conflicts.
  */
@@ -1581,7 +1581,7 @@ test('recordKey composes the scope parts in order', () => {
 test('recordKey leaves bodyHash out of the key', () => {
   // If the fingerprint were part of the key, a different body would compute a
   // different key, the lookup would miss, and §11's own mismatch rule would be
-  // unreachable. `bodyHash` in the scope means "compare it" — see §2.7.
+  // unreachable. `bodyHash` in the scope means "compare it" - see §2.7.
   const operation = find('createOrder')
   assert.equal(
     recordKey({ key: 'abc', operation, scope: ['key', 'route', 'bodyHash'] }),
@@ -1628,7 +1628,7 @@ Add `comparesBody` to the import at the top of the file.
 
 Run: `node --test test/runtime/idempotency.test.ts`
 
-Expected: FAIL — cannot find module `src/runtime/idempotency.ts`.
+Expected: FAIL - cannot find module `src/runtime/idempotency.ts`.
 
 - [ ] **Step 7: Create `src/runtime/idempotency.ts`**
 
@@ -1654,7 +1654,7 @@ export interface IdempotencyConfig {
   inFlightTtlMs?: number
   /**
    * `key` and `route` compose the storage key, in the order given. `bodyHash`
-   * does NOT go in the key — it means "a different body under this key is a
+   * does NOT go in the key - it means "a different body under this key is a
    * conflict". Putting the fingerprint in the key would make a different body
    * compute a different key, miss the lookup, and leave §11's own
    * MOCK_IDEMPOTENCY_MISMATCH rule unreachable. See the phases 7-9 design §2.7.
@@ -1713,7 +1713,7 @@ export function resolveIdempotency(config: IdempotencyConfig = {}): ResolvedIdem
 /**
  * Per §11, an operation is idempotent when the document declares the key as a
  * header parameter, or when config names its method. The document wins nothing
- * and loses nothing — either route is sufficient.
+ * and loses nothing - either route is sufficient.
  */
 export function isIdempotent(operation: Operation, config: ResolvedIdempotency): boolean {
   const wanted = config.header.toLowerCase()
@@ -1724,7 +1724,7 @@ export function isIdempotent(operation: Operation, config: ResolvedIdempotency):
   return declared || config.methods.includes(operation.method.toUpperCase())
 }
 
-/** fnv1a over the raw request bytes — see `fnv1aBytes` for why not the parsed body. */
+/** fnv1a over the raw request bytes - see `fnv1aBytes` for why not the parsed body. */
 export function fingerprint(raw: Uint8Array): string {
   return fnv1aBytes(raw).toString(16).padStart(8, '0')
 }
@@ -1739,7 +1739,7 @@ export interface RecordKeyInput {
  * Composes the storage key from the scope's `key` and `route` parts, in the
  * configured order. The route part is the TEMPLATED path, so `/pets/1` and
  * `/pets/2` share a route and differ only through params, which belong to
- * neither part — deliberate, since a key is supposed to be unique per logical
+ * neither part - deliberate, since a key is supposed to be unique per logical
  * operation.
  *
  * `bodyHash` contributes nothing here on purpose; see `comparesBody`.
@@ -1759,7 +1759,7 @@ export function recordKey(input: RecordKeyInput): string {
  * Whether a stored fingerprint that differs from this request's is a conflict.
  *
  * This is what `bodyHash` in the scope actually controls. With it, the default
- * scope gives §11's stated behavior — same key, different body, 409. Without it,
+ * scope gives §11's stated behavior - same key, different body, 409. Without it,
  * any body replays the first response, which is what a caller asking for
  * `scope: ['key', 'route']` is asking for.
  */
@@ -1796,7 +1796,7 @@ git commit -m 'feat: add the idempotency module' -m 'Config resolution, enableme
 
 ---
 
-## Task 6: Stage 5 — idempotency lookup
+## Task 6: Stage 5 - idempotency lookup
 
 The read half. A stored response replays, a fingerprint mismatch conflicts, an
 in-flight marker conflicts, and a first request claims the key.
@@ -1811,7 +1811,7 @@ in-flight marker conflicts, and a first request claims the key.
 - Consumes: `Fail`, `Stage`, `Ctx` (`src/runtime/types.ts`), `Store`
   (`src/runtime/store.ts`), everything from Task 5.
 - Produces:
-  - `createIdempotencyStage(input: IdempotencyStageInput): Stage` — returns `idempotencyStage`
+  - `createIdempotencyStage(input: IdempotencyStageInput): Stage` - returns `idempotencyStage`
   - `interface IdempotencyStageInput { operation, config, store, raw, fail, claim }`
     where `claim: (key: string, fingerprint: string) => void`
   - `HandlerOptions.idempotency?: IdempotencyConfig`
@@ -1906,7 +1906,7 @@ test('a different body under the same key conflicts', async () => {
 
   // Reachable under the DEFAULT scope because the fingerprint is compared
   // rather than keyed (§2.7). The in-flight marker carries a fingerprint too,
-  // so a mismatch is reported as a mismatch rather than as mere concurrency —
+  // so a mismatch is reported as a mismatch rather than as mere concurrency -
   // and asserting the code, not just the 409, is what distinguishes them.
   assert.equal(response?.status, 409)
   assert.deepEqual(second.calls, [{ status: 409, code: 'MOCK_IDEMPOTENCY_MISMATCH' }])
@@ -1984,7 +1984,7 @@ test('the in-flight marker expires', async () => {
 
 Run: `node --test test/runtime/idempotency.test.ts`
 
-Expected: FAIL — `createIdempotencyStage is not a function`.
+Expected: FAIL - `createIdempotencyStage is not a function`.
 
 - [ ] **Step 3: Add `createIdempotencyStage`**
 
@@ -2006,7 +2006,7 @@ export interface IdempotencyStageInput {
 }
 
 /**
- * Pipeline stage 5 — the read half. Stage 11, at the single exit, is the write
+ * Pipeline stage 5 - the read half. Stage 11, at the single exit, is the write
  * half. Idempotency spans two stages, which is why it is more invasive than its
  * size suggests.
  */
@@ -2155,7 +2155,7 @@ test('an operation with no key parameter is untouched', async () => {
 test('a second request against an unresolved key is in flight', async () => {
   // Stage 11 does not store anything yet, so the first request's claim is still
   // outstanding when the second arrives. This is the honest end state of the
-  // read half on its own — Task 7 turns this pair into a replay.
+  // read half on its own - Task 7 turns this pair into a replay.
   const handle = createHandler(api, { seed: 'idem' }).fetch
 
   await handle(order('k1'))
@@ -2176,7 +2176,7 @@ Task 7, which is where the storage half that makes them pass is written.
 
 Run: `node --test test/server/idempotency.test.ts`
 
-Expected: FAIL — nothing is wired into the pipeline yet, so the requests are
+Expected: FAIL - nothing is wired into the pipeline yet, so the requests are
 served normally and no 409 appears.
 
 - [ ] **Step 7: Wire stage 5 into the handler**
@@ -2200,11 +2200,11 @@ Add to `Trace`:
     claimed?: { key: string; fingerprint: string }
 ```
 
-In `produce`, insert stage 5 between validation and failure — after the
+In `produce`, insert stage 5 between validation and failure - after the
 `validateRequests` block, before the `createFailureStage` push:
 
 ```ts
-    // Stage 5 — idempotency lookup. After validation so a malformed request
+    // Stage 5 - idempotency lookup. After validation so a malformed request
     // never claims a key it will not be able to honor.
     stages.push(
       createIdempotencyStage({
@@ -2251,7 +2251,7 @@ git commit -m 'feat: add the idempotency lookup stage' -m 'Stage 5 replays a sto
 
 ---
 
-## Task 7: Stage 11 — capture and store
+## Task 7: Stage 11 - capture and store
 
 The write half, at the single exit, plus the boundary clearing from delta design
 §2.4 and the 5xx ruling.
@@ -2268,13 +2268,13 @@ The write half, at the single exit, plus the boundary clearing from delta design
 - [ ] **Step 1: Write the failing tests**
 
 Append to `test/server/idempotency.test.ts`. The first test is the load-bearing
-one — Step 5 proves it can fail.
+one - Step 5 proves it can fail.
 
 ```ts
 /**
  * A counter in the response is what makes the replay test able to fail.
  * Generation is deterministic, so two real executions already return identical
- * bytes — a replay test that only compares bodies passes with idempotency
+ * bytes - a replay test that only compares bodies passes with idempotency
  * removed entirely. Counting executions is the mechanism under test.
  */
 function counting() {
@@ -2405,13 +2405,13 @@ test('a stored record expires', async () => {
 **Delete Task 6's `'a second request against an unresolved key is in flight'`
 test in the same commit.** It asserted the honest end state of the read half
 alone; storage is exactly what changes that pair into a replay, so leaving it
-would be asserting the bug. In-flight is still covered — by the unit test in
+would be asserting the bug. In-flight is still covered - by the unit test in
 `test/runtime/idempotency.test.ts` that drives the marker directly, which is what
 the design §5 asks for rather than racing two real requests.
 
 The `decide` in the 5xx test fires on the first call only because `attempts` is
 still 0 then; the second call sees `attempts === 0` as well, since the first
-request never reached the callback. That is the intended assertion — both calls
+request never reached the callback. That is the intended assertion - both calls
 return 503 and neither is replayed. If the closure reads awkwardly during
 implementation, use a separate counter incremented inside `decide` and assert the
 second 503 carries no `Idempotent-Replay` header instead.
@@ -2420,7 +2420,7 @@ second 503 carries no `Idempotent-Replay` header instead.
 
 Run: `node --test test/server/idempotency.test.ts`
 
-Expected: FAIL — the replay test's second request returns
+Expected: FAIL - the replay test's second request returns
 `409 MOCK_IDEMPOTENCY_IN_FLIGHT` instead of the stored response, the throw test's
 retry hits the same wedged marker, and the 4xx test does not replay.
 
@@ -2458,7 +2458,7 @@ Then fill in the exit block in `handle`:
       // A 5xx is never stored. Storing a chaos-injected 503 would make every
       // retry replay that 503 until the TTL expired, defeating the retry the
       // idempotency key exists to make safe. Releasing the key on a throw is the
-      // other half of the wedge fix from the phases 7-9 design §2.4 — the TTL
+      // other half of the wedge fix from the phases 7-9 design §2.4 - the TTL
       // covers a process that dies, this covers a callback that threw.
       if (trace.error !== undefined || response.status >= 500) {
         await store.delete(claimed.key)
@@ -2491,7 +2491,7 @@ Expected: PASS, all 8 tests.
 Comment out the `await store.set(...)` call in the block above, run
 `node --test test/server/idempotency.test.ts`, and confirm the replay test fails
 with `spy.runs()` equal to 2 rather than 1. Restore the line. **Report the exact
-failure message** — this is the mutation observation the test-quality bar
+failure message** - this is the mutation observation the test-quality bar
 requires, and the replay test is precisely the shape that has slipped through
 before.
 
@@ -2530,7 +2530,7 @@ Phase 9's first half. Master spec §12, delta design §4.
 **Interfaces:**
 - Consumes: `Decisions` (Task 4), `Trace` (Task 1), `requestIdFor` (Task 3).
 - Produces:
-  - `interface LogRecord` — the §12 shape
+  - `interface LogRecord` - the §12 shape
   - `type LogSink = (record: LogRecord) => void | Promise<void>`
   - `type ErrorSink = (error: unknown, ctx?: Ctx) => void`
   - `emitLog(sink: LogSink | undefined, record: LogRecord, onError?: ErrorSink): void`
@@ -2597,7 +2597,7 @@ test('reportError isolates a throwing handler', () => {
 
 Run: `node --test test/runtime/logging.test.ts`
 
-Expected: FAIL — `emitLog is not a function`.
+Expected: FAIL - `emitLog is not a function`.
 
 - [ ] **Step 3: Add the record and the sinks**
 
@@ -2613,16 +2613,16 @@ import type { Ctx, Decisions } from './types.ts'
  *
  * `ts` and `durationMs` come from the injected clock. They sit outside the
  * determinism invariant because a log record is an observational side channel
- * that never enters a response — see the phases 7-9 design §2.1.
+ * that never enters a response - see the phases 7-9 design §2.1.
  */
 export interface LogRecord {
   ts: number
   durationMs: number
   requestId: string
   method: string
-  /** The TEMPLATED path — a bounded tag. `'<unmatched>'` when no route matched. */
+  /** The TEMPLATED path - a bounded tag. `'<unmatched>'` when no route matched. */
   route: string
-  /** The resolved path — high cardinality, never a tag. */
+  /** The resolved path - high cardinality, never a tag. */
   path: string
   status: number
   bytesIn: number
@@ -2653,7 +2653,7 @@ export function reportError(sink: ErrorSink | undefined, error: unknown, ctx?: C
 
 /**
  * Fire-and-forget with error isolation: a throwing or rejecting logger must
- * never affect the response. The explicit `.catch()` matters — a bare floating
+ * never affect the response. The explicit `.catch()` matters - a bare floating
  * promise turns a logger's rejection into an unhandled rejection, which can take
  * the process down.
  */
@@ -2723,7 +2723,7 @@ function collector() {
 
 test('a short-circuited response is logged', async () => {
   // THE test this whole refactor exists for. A 401 never reaches the renderer,
-  // so before the single exit there was nowhere to observe it — and a 401 is
+  // so before the single exit there was nowhere to observe it - and a 401 is
   // exactly the record an operator most wants.
   const sink = collector()
   const handle = createHandler(api, { seed: 'log', onLog: sink.onLog }).fetch
@@ -2866,7 +2866,7 @@ test('bytesIn counts the raw request bytes, not its characters', async () => {
 
 Run: `node --test test/server/logging.test.ts`
 
-Expected: FAIL — `onLog` is not a known option and no record is ever emitted.
+Expected: FAIL - `onLog` is not a known option and no record is ever emitted.
 
 - [ ] **Step 7: Wire logging into the single exit**
 
@@ -2955,7 +2955,7 @@ Extend `handle`:
   }
 ```
 
-Delete the now-duplicated storage block from Task 7 — it moves inside this one so
+Delete the now-duplicated storage block from Task 7 - it moves inside this one so
 the body is captured exactly once. Import `emitLog`, `reportError`, `requestIdFor`
 and the `LogSink` / `ErrorSink` types from `../runtime/logging.ts`.
 
@@ -2970,7 +2970,7 @@ Expected: PASS, 7 tests.
 Move the `emitLog` call from `handle` into `produce`'s final `return` path (so
 only rendered responses log), run `node --test test/server/logging.test.ts`, and
 confirm the 401 and 404 tests fail with `sink.records.length` equal to 0. Restore
-it. **Report the exact failure message** — this is the observation that proves the
+it. **Report the exact failure message** - this is the observation that proves the
 single exit is load-bearing rather than decorative.
 
 - [ ] **Step 10: Run the whole suite and typecheck**
@@ -2990,7 +2990,7 @@ git add -A
 ```
 
 ```sh
-git commit -m 'feat: emit a log record for every response' -m 'onLog fires at the single exit, so a 401 from auth, a 503 from chaos, a 404 with no operation, and the boundary 500 are all recorded — not only rendered responses. onError stays separate so an operator can route internal faults differently.' -m 'The sink is fire-and-forget with an explicit catch: a floating promise would turn a rejecting logger into an unhandled rejection. The response body is read once from a clone and shared between the log record and the idempotency record.'
+git commit -m 'feat: emit a log record for every response' -m 'onLog fires at the single exit, so a 401 from auth, a 503 from chaos, a 404 with no operation, and the boundary 500 are all recorded - not only rendered responses. onError stays separate so an operator can route internal faults differently.' -m 'The sink is fire-and-forget with an explicit catch: a floating promise would turn a rejecting logger into an unhandled rejection. The response body is read once from a clone and shared between the log record and the idempotency record.'
 ```
 
 ---
@@ -3000,14 +3000,14 @@ git commit -m 'feat: emit a log record for every response' -m 'onLog fires at th
 Deferred items 4 and 5, pulled into this plan by the user's ruling. Neither is in
 the phases 7–9 design; both are in `docs/superpowers/deferred-items.md`.
 
-**Item 4:** `circuit-count` has no TTL, so it never decays — a policy with
+**Item 4:** `circuit-count` has no TTL, so it never decays - a policy with
 `after: 5` eventually trips from failures accumulated across the whole process
 lifetime rather than within any window. **Item 5:** circuit keys are scoped by
 operation, so two policies each carrying a `circuit` block and matching the same
 operation share one counter and one open-state.
 
 **The design:** `CircuitPolicy` gains `within?: number`, the window in
-milliseconds over which failures accumulate, defaulting to `openFor` — with no
+milliseconds over which failures accumulate, defaulting to `openFor` - with no
 explicit window the natural scale is the same as how long the circuit stays open.
 The counter is armed with that TTL on the **first** failure and left alone
 afterward, giving a fixed window from the first failure rather than a sliding one
@@ -3030,7 +3030,7 @@ lifetime of a handler because `compilePolicies` runs once at construction.
   - `compilePolicies` entries gain `id: string` (`${index}|${policy.match}`)
   - Store keys become `circuit-open|${id}|${targetKey}` and `circuit-count|${id}|${targetKey}`
 
-These keys are read and written only inside `failure.ts` — confirmed by grep, no
+These keys are read and written only inside `failure.ts` - confirmed by grep, no
 other module or test references them.
 
 - [ ] **Step 1: Write the failing tests**
@@ -3102,7 +3102,7 @@ test('within defaults to openFor', async () => {
 test('two policies matching one operation keep separate circuits', async () => {
   const store = createMemoryStore()
   // NOTE the second target's spelling. A bare '*' has no space in it, so
-  // `compileTarget` reads it as an operationId and it matches NOTHING — which
+  // `compileTarget` reads it as an operationId and it matches NOTHING - which
   // would make the second assertion below pass for entirely the wrong reason.
   // '* /x' is the match-any-method form. See src/resolve/target.ts.
   const policies: FailurePolicy[] = [
@@ -3113,7 +3113,7 @@ test('two policies matching one operation keep separate circuits', async () => {
   await checkFailure(input({ policies, store, counter: () => 1 }).args)
 
   // Both policies match this operation, but the first one fired and returned,
-  // so only its counter moved — and it moved under its OWN key. Sharing one key
+  // so only its counter moved - and it moved under its OWN key. Sharing one key
   // per operation is the bug: the second policy's failures would land on the
   // first policy's counter and open a circuit neither policy asked for.
   assert.equal(await store.get('circuit-count|0|x'), 1)
@@ -3136,7 +3136,7 @@ no change to that helper is needed.
 
 Run: `node --test test/runtime/failure.test.ts`
 
-Expected: FAIL — the keys are `circuit-open|getPet` with no policy id, so every
+Expected: FAIL - the keys are `circuit-open|getPet` with no policy id, so every
 `store.get('circuit-open|0|getPet')` returns `undefined`, and the decay test fails
 because the counter never expires (the circuit opens when it should not).
 
@@ -3191,7 +3191,7 @@ Add the counter helper above `checkFailure`:
 /**
  * A fixed window from the first failure: arm the TTL on the first increment and
  * leave it alone afterward. `Store.incr` preserves an existing deadline and
- * cannot arm one, which is exactly right here — re-arming on every failure would
+ * cannot arm one, which is exactly right here - re-arming on every failure would
  * give a sliding window that never expires under sustained load.
  */
 async function bumpCircuit(store: Store, key: string, within: number): Promise<number> {
@@ -3219,7 +3219,7 @@ and inside the loop use `entry.policy` and `entry.id`:
     const openKey = `circuit-open|${entry.id}|${key}`
     const countKey = `circuit-count|${entry.id}|${key}`
 
-    // 4. Circuit state, before rolling — an open circuit answers immediately.
+    // 4. Circuit state, before rolling - an open circuit answers immediately.
     if (policy.circuit) {
       const open = await input.store.get(openKey)
       if (open !== undefined) {
@@ -3259,7 +3259,7 @@ Expected: PASS.
 Run: `npm test`
 
 Expected: PASS. Any existing failure test that reached into the store for a
-circuit key must be updated to the namespaced spelling — that is a legitimate
+circuit key must be updated to the namespaced spelling - that is a legitimate
 edit, since the key convention is what changed.
 
 Run: `npx tsc --noEmit`
@@ -3437,7 +3437,7 @@ test('USAGE names every flag', () => {
 
 Run: `node --test test/server/cli.test.ts`
 
-Expected: FAIL — cannot find module `src/server/cli.ts`.
+Expected: FAIL - cannot find module `src/server/cli.ts`.
 
 - [ ] **Step 3: Create `src/server/cli.ts`**
 
@@ -3451,7 +3451,7 @@ import { createHandler } from './handler.ts'
 import type { Handler } from './handler.ts'
 import { createNodeServer } from './node.ts'
 
-export const USAGE = `mockingham — OpenAPI driven HTTP mock server
+export const USAGE = `mockingham - OpenAPI driven HTTP mock server
 
   mockingham <document.json> [options]
 
@@ -3587,7 +3587,7 @@ export async function startCli(
         // A half-saved file must not take the server down. Keep serving the
         // last document that loaded and say why.
         const message = error instanceof Error ? error.message : String(error)
-        log(`mockingham: reload failed, still serving the previous document — ${message}`)
+        log(`mockingham: reload failed, still serving the previous document - ${message}`)
       }
     },
     async close() {
@@ -3689,8 +3689,8 @@ Add two subsections to §2:
 chaos-injected 503 would make every retry replay that 503 until the TTL expired,
 which defeats the retry the idempotency key exists to make safe.
 
-**Stage 11 stores a response only when `status < 500`.** On a 5xx — or on a throw
-— it deletes the in-flight marker instead, so the retry re-runs the operation. A
+**Stage 11 stores a response only when `status < 500`.** On a 5xx, or on a throw,
+it deletes the in-flight marker instead, so the retry re-runs the operation. A
 4xx IS stored: a client error is a real answer to the key, and the caller
 resending the same key deserves the same answer.
 
@@ -3714,7 +3714,7 @@ since every request in the document would otherwise share one record.
 ### 2.8 The single exit is `handle()`, not a single `return`
 
 Deferred item 1 asked for one exit point. What phase 9 needs is one *observation*
-point — somewhere every response passes, including the ones built before `ctx`
+point - somewhere every response passes, including the ones built before `ctx`
 exists. `produce()` keeps its branches; `handle()` is the sole exit, and a mutable
 `Trace` carries what the early paths know down to it. Collapsing `produce` into a
 single `return` through nested conditionals would buy nothing and cost
@@ -3742,7 +3742,7 @@ Update the status line to reflect the merged plan and the new test count, then:
   "reset() clears the store it was given").
 - Move items 4 and 5 into "Settled", noting `circuit.within` and the policy-id
   namespacing from Task 9.
-- Move item 9 into "Settled" — `requestKey` is computed once as of Task 1.
+- Move item 9 into "Settled" - `requestKey` is computed once as of Task 1.
 - Keep items 6, 8, and 10–14 deferred, and add a line to item 6 that plan 5
   deliberately did not take `Mock.override()` on: the user ruled it into plan 6
   when the scope question was put to them, so it is now a *decided* deferral
@@ -3752,7 +3752,7 @@ Update the status line to reflect the merged plan and the new test count, then:
 ```markdown
 **A deterministic system makes replay tests toothless by default.** Generation is
 seeded, so two real executions of the same request already return byte-identical
-bytes — an idempotency replay test that only compares bodies passes with
+bytes - an idempotency replay test that only compares bodies passes with
 idempotency removed entirely. Plan 5's replay test counts executions through a
 `ctx.seq()`-backed callback so the two paths genuinely differ. Whenever a test
 asserts "the same output", ask what else could produce that same output.
@@ -3793,7 +3793,7 @@ git commit -m 'docs: record plan 5 rulings and settled deferrals' -m 'The phases
 
 - [ ] `npm test` is green, and the count has grown by roughly 60 tests.
 - [ ] `npx tsc --noEmit` reports nothing.
-- [ ] Every response — 404, 405, malformed body, 401, 400, 409, 503, 200, 500 —
+- [ ] Every response - 404, 405, malformed body, 401, 400, 409, 503, 200, 500 -
       passes through `handle`'s single exit, proven by the 401 and 404 logging
       tests.
 - [ ] The replay test was observed failing with the storage line commented out,

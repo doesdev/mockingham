@@ -4,7 +4,7 @@ import { SIGNATURE_HEADER, sign } from '../../src/webhooks/sign.ts'
 
 // A KNOWN-ANSWER VECTOR, computed independently with WebCrypto. A test that
 // only asserts a signature header exists passes against any hash, including a
-// wrong one — which is the whole failure mode this vector rules out. The signed
+// wrong one - which is the whole failure mode this vector rules out. The signed
 // string is `${timestamp}.${body}`, here `1700000000.{"id":"o_1"}`.
 const SECRET = 'topsecret'
 const BODY = '{"id":"o_1"}'

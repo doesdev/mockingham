@@ -58,7 +58,7 @@ jobs:
       - run: npm ci
 
       # The `exports` map and `files` field are easy to get right once and
-      # break silently later — a stray include ships someone's scratch file,
+      # break silently later - a stray include ships someone's scratch file,
       # and a wrong `exports` breaks every consumer's import while every test
       # here keeps passing on relative paths.
       - name: Published tarball carries src and nothing else
@@ -66,7 +66,7 @@ jobs:
 
   # Not required to pass. Native type stripping is a Node feature this package
   # is built directly on, so a break in an unreleased line is worth seeing
-  # early — and is not a reason to block a pull request that did nothing wrong.
+  # early - and is not a reason to block a pull request that did nothing wrong.
   future-node:
     name: node current (advisory)
     runs-on: ubuntu-latest

@@ -10,7 +10,7 @@ import type { ContentSource, FixtureRequest, FixtureResult, McpOptions, McpServe
 
 /**
  * The bake-commit-serve loop is what this subsystem exists for, and until now
- * none of the pieces needed to drive it were reachable from the package root —
+ * none of the pieces needed to drive it were reachable from the package root -
  * only the types were exported, never the factories. These tests fail if any of
  * them stops being part of the public surface, which is otherwise invisible:
  * deep imports into `src/fixtures/...` keep working regardless.
@@ -121,7 +121,7 @@ const unsupportedPatternDoc = {
                 schema: {
                   type: 'object',
                   required: ['secret'],
-                  // A lookahead — outside the generator's subset, so it warns
+                  // A lookahead - outside the generator's subset, so it warns
                   // and falls back rather than emitting a wrong value silently.
                   properties: { secret: { type: 'string', pattern: '^(?=.*\\d)[a-z]+$' } }
                 }

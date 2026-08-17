@@ -191,7 +191,7 @@ test('setSeed updates a chaos seed that merely defaulted to the seed', async () 
   // Deferred item 8: `chaosSeed` defaulted to the seed and was captured once
   // at construction, so `setSeed` never reached it.
   //
-  // The obvious test — reseed and watch the outcomes change — CANNOT FAIL:
+  // The obvious test - reseed and watch the outcomes change - CANNOT FAIL:
   // `requestKey` carries the seed, so the chaos roll changes either way. That
   // is the entry's own reason for calling this cosmetic, and it passed against
   // the unfixed code when tried. Verified by mutation.
@@ -213,8 +213,8 @@ test('setSeed updates a chaos seed that merely defaulted to the seed', async () 
 })
 
 test('an explicitly configured chaosSeed is not recoupled by setSeed', async () => {
-  // Decoupling is a deliberate choice — a run that wants stable chaos while
-  // reshuffling content sets both — so setSeed must leave a configured one be.
+  // Decoupling is a deliberate choice - a run that wants stable chaos while
+  // reshuffling content sets both - so setSeed must leave a configured one be.
   // Compared against a handler built with the new seed and the SAME pinned
   // chaos seed, which is what "left alone" means.
   const reseeded = createHandler(api, { ...chaosOptions, chaosSeed: 'pinned' })
@@ -235,7 +235,7 @@ test('an explicitly configured chaosSeed is not recoupled by setSeed', async () 
 test('an injected clock that throws still produces a response', async () => {
   // `const startedAt = now()` was the FIRST line of the single exit and sat
   // outside every catch, so a throwing clock rejected fetch() with no
-  // response at all — the last hole in the response-always-returned
+  // response at all - the last hole in the response-always-returned
   // guarantee (deferred item 16).
   const errors: unknown[] = []
   const handle = createHandler(api, {

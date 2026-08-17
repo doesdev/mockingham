@@ -6,7 +6,7 @@ import { generateFromPattern } from './pattern.ts'
 export interface StringOptions {
   /**
    * Called with a `pattern` the generator's subset cannot express. Reported
-   * every time here — deduplication is the caller's job, because "once" is a
+   * every time here - deduplication is the caller's job, because "once" is a
    * property of a mock's lifetime rather than of one value.
    */
   onUnsupportedPattern?: (pattern: string) => void
@@ -60,7 +60,7 @@ export function generateString(
   options: StringOptions = {}
 ): string {
   // Before `format`, because `pattern` is what request validation enforces
-  // (`schema/compile.ts`) — a format-shaped value that fails the declared
+  // (`schema/compile.ts`) - a format-shaped value that fails the declared
   // pattern is a body the mock emits and would then reject.
   if (schema.pattern !== undefined) {
     const value = generateFromPattern(schema.pattern, rng)
@@ -114,7 +114,7 @@ export function generateInteger(schema: Schema, rng: Rng): number {
   const { min, max } = numberBounds(schema)
   const low = Math.ceil(min)
   const high = Math.floor(max)
-  // No integer exists in [min, max] — e.g. minimum 1.2 with maximum 1.8. The
+  // No integer exists in [min, max] - e.g. minimum 1.2 with maximum 1.8. The
   // schema is unsatisfiable for an integer, so any value violates something.
   // Return the nearest integer to the range rather than one derived from an
   // inverted rng.int call, which would land above the maximum.

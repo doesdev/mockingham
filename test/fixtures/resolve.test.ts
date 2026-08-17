@@ -35,7 +35,7 @@ const operation = loadApi(doc).operations.find((candidate) => candidate.operatio
 // real compilation failure (a `pattern` the runtime regex engine rejects,
 // say). This is the only way to exercise the lazy-path buildRequest() call
 // throwing, since `createHandler` always wires up a real `createCompiler()`
-// internally and has no seam to inject a broken one — this resolver-level
+// internally and has no seam to inject a broken one - this resolver-level
 // test is what makes that seam reachable at all.
 const throwingCompiler: Compiler = {
   compile: () => {

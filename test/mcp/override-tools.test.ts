@@ -78,7 +78,7 @@ test('a non-status override key surfaces as a tool error, not a silent success',
 test('tools/call refuses set_override when the gate is closed', async () => {
   // The second half of the gate, modelled on the equivalent test in
   // write.test.ts: a gate that only hides the tools from tools/list is not a
-  // gate — an agent can still call one by name. server.ts derives the
+  // gate - an agent can still call one by name. server.ts derives the
   // disabled-tool registrations from WRITE_TOOLS rather than a literal list,
   // specifically so a new write tool cannot silently lose its refusal
   // message; this asserts that holds rather than trusting the comment.
@@ -150,7 +150,7 @@ test('tools/call refuses clear_overrides when the gate is closed', async () => {
 })
 
 /**
- * Extracts the tool names listed as `- \`name\` — ...` bullets in the section
+ * Extracts the tool names listed as `- \`name\` - ...` bullets in the section
  * that runs from `heading` to the next `## ` heading (or end of file).
  */
 function bulletedToolNames(guide: string, heading: string): string[] {
@@ -159,18 +159,18 @@ function bulletedToolNames(guide: string, heading: string): string[] {
   const afterHeading = guide.slice(start + heading.length)
   const nextHeading = afterHeading.indexOf('\n## ')
   const section = nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading)
-  return [...section.matchAll(/^- `([a-zA-Z0-9_]+)` — /gm)].map((match) => match[1] as string)
+  return [...section.matchAll(/^- `([a-zA-Z0-9_]+)` - /gm)].map((match) => match[1] as string)
 }
 
 test('every shipped tool is named exactly once in the guide inventory, and nowhere in "what isn\'t here yet"', async () => {
   // The guide's inventory is prose, so nothing but this test relates it to the
   // code. This asserts two things a plain substring search cannot: the
   // inventory list under "## The fourteen tools" names exactly the shipped
-  // set (set equality both ways — a tool added without listing it there, or
+  // set (set equality both ways - a tool added without listing it there, or
   // listed there after removal, fails), and no shipped tool's name still
   // appears under "## What isn't here yet" (a tool documented as absent
   // while it in fact ships, which is what a plain substring check would miss
-  // — that section named `set_override` and `clear_overrides` for a full
+  // - that section named `set_override` and `clear_overrides` for a full
   // cycle before this test existed).
   const guide = await readFile(new URL('../../docs/mcp.md', import.meta.url), 'utf8')
   const shipped = mcpTools({ write: true }).map((tool) => tool.name).sort()
@@ -190,6 +190,6 @@ test('every shipped tool is named exactly once in the guide inventory, and nowhe
   assert.equal(
     guide.indexOf('## What isn\'t here yet'),
     -1,
-    'every declared tool ships — the deferral section must be gone, not emptied'
+    'every declared tool ships - the deferral section must be gone, not emptied'
   )
 })

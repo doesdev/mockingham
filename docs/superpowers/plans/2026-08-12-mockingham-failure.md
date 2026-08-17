@@ -2,8 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the mock fail on purpose — latency, error rates, outages, and circuit
-breakers — driven by declarative policy and an async control plane, without
+**Goal:** Make the mock fail on purpose - latency, error rates, outages, and circuit
+breakers - driven by declarative policy and an async control plane, without
 losing reproducibility.
 
 **Architecture:** Task 1 makes status selection lazy so the pipeline finally runs
@@ -15,8 +15,8 @@ the async control plane.
 **Tech Stack:** TypeScript (types stripped natively, never compiled), Node >= 24,
 `node:test`, `zod` 4.
 
-**Design document:** `docs/superpowers/specs/2026-08-12-mockingham-phases-4-6-design.md`
-— read §1 (amendments) and §7 before starting. **Master spec:**
+**Design document:** `docs/superpowers/specs/2026-08-12-mockingham-phases-4-6-design.md` -
+read §1 (amendments) and §7 before starting. **Master spec:**
 `docs/superpowers/specs/2026-08-11-mockingham-design.md` §§9, 10, 16.
 
 ## Global Constraints
@@ -34,7 +34,7 @@ the async control plane.
   `node:` module.
 - **The mock keeps serving** when a user callback throws.
 - **Errors stay on-contract.**
-- **US English spelling** — `honor`, `behavior`, `serialize`, `normalize`.
+- **US English spelling** - `honor`, `behavior`, `serialize`, `normalize`.
 - **Shell:** one plain command per Bash call, single quotes, no `&&`, no pipes, no
   `$(...)`, no heredocs, no redirects, never `cd`. Repeated `-m` flags for
   multi-paragraph commits. `git push` and `rm -rf` are denied by policy.
@@ -43,15 +43,15 @@ the async control plane.
 
 | File | Responsibility |
 |---|---|
-| `src/runtime/pipeline.ts` | **New** — lazy selection and the response helper cluster |
-| `src/runtime/store.ts` | **New** — `Store` interface and `MemoryStore` with an injectable clock |
-| `src/runtime/failure.ts` | **New** — pipeline stage 6 |
-| `src/runtime/body.ts` | **Modified** — exports media-type matching |
-| `src/schema/compile.ts` | **Modified** — `additionalProperties` schema, `oneOf` exactly-one |
-| `src/runtime/validate.ts` | **Modified** — media matching, required body |
-| `src/spec/types.ts`, `src/spec/load.ts` | **Modified** — `requestBodyRequired` |
-| `src/server/handler.ts` | **Modified** — orchestrates the lazy pipeline and the failure stage |
-| `src/index.ts` | **Modified** — async control plane |
+| `src/runtime/pipeline.ts` | **New** - lazy selection and the response helper cluster |
+| `src/runtime/store.ts` | **New** - `Store` interface and `MemoryStore` with an injectable clock |
+| `src/runtime/failure.ts` | **New** - pipeline stage 6 |
+| `src/runtime/body.ts` | **Modified** - exports media-type matching |
+| `src/schema/compile.ts` | **Modified** - `additionalProperties` schema, `oneOf` exactly-one |
+| `src/runtime/validate.ts` | **Modified** - media matching, required body |
+| `src/spec/types.ts`, `src/spec/load.ts` | **Modified** - `requestBodyRequired` |
+| `src/server/handler.ts` | **Modified** - orchestrates the lazy pipeline and the failure stage |
+| `src/index.ts` | **Modified** - async control plane |
 
 ## Task Dependency Graph
 
@@ -61,7 +61,7 @@ Task 2 (validation gaps)│
 Task 3 (Store) ─────────┘
 ```
 
-**Parallel batch A:** Tasks 1, 2, 3 — no shared files. Tasks 1 and 2 both touch
+**Parallel batch A:** Tasks 1, 2, 3 - no shared files. Tasks 1 and 2 both touch
 nothing the other does (Task 1 is `handler.ts` plus a new module; Task 2 is
 `validate.ts`/`compile.ts`/`body.ts`/`spec`). Run them serially anyway if your
 runner commits to one branch.
@@ -129,7 +129,7 @@ function build(responses: ResponseSpec[], prefer?: string) {
 test('selection is memoized', () => {
   // selectResponse builds a fresh { spec, source } each call, so identity across
   // two calls is proof the second one did not recompute. Laziness itself is
-  // proven behaviorally by test/server/stage-order.test.ts — an unauthenticated
+  // proven behaviorally by test/server/stage-order.test.ts - an unauthenticated
   // request to a response-less operation gets 401 rather than the 501 that only
   // an eager selection could produce.
   const responders = build([spec(200)])
@@ -251,7 +251,7 @@ test('an unauthenticated request never reaches a response callback', async () =>
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/runtime/pipeline.test.ts test/server/stage-order.test.ts`
-Expected: FAIL — `pipeline.ts` does not exist.
+Expected: FAIL - `pipeline.ts` does not exist.
 
 - [ ] **Step 3: Create `src/runtime/pipeline.ts`**
 
@@ -286,7 +286,7 @@ export interface Responders {
  * The response helper cluster, with status selection DEFERRED.
  *
  * Selection used to run before the pipeline's stage list, which inverted the
- * stage order the design specifies — auth is stage 3 and selection stage 7 — and
+ * stage order the design specifies - auth is stage 3 and selection stage 7 - and
  * leaked operation metadata to unauthenticated callers. Making it lazy lets every
  * stage run first, while `ctx.generate`/`ctx.example` still work inside a user
  * callback because they trigger selection on demand.
@@ -339,7 +339,7 @@ export function createResponders(input: RespondersInput): Responders {
 
 - [ ] **Step 4: Rewire `src/server/handler.ts`**
 
-Delete the whole helper cluster from `run` — `generateOptions`, `rngFor`,
+Delete the whole helper cluster from `run` - `generateOptions`, `rngFor`,
 `mediaFor`, `generateFor`, `exampleFor`, and the `selected`/`chosen`/`source`
 bindings that precede them. Add the import:
 
@@ -373,7 +373,7 @@ Pass `responders.generate` and `responders.example` to `createContext`, and
 After the stage loop and before the `config.respond` call, resolve the selection:
 
 ```ts
-    // Stage 7 — status selection, now that every short-circuiting stage has run.
+    // Stage 7 - status selection, now that every short-circuiting stage has run.
     const selected = responders.selection()
     if (!selected) {
       return await fail(
@@ -396,7 +396,7 @@ Then pass `chosen`, `responders.rngFor`, `responders.generateOptions`,
 
 Design §1.5 lists 405 among the statuses that go through the on-contract path, but
 `handler.ts` returns a bare `Response` with only an `Allow` header. It has no
-operation — the path matched but the method did not — so it uses the envelope,
+operation - the path matched but the method did not - so it uses the envelope,
 exactly like 404. Replace the 405 return with:
 
 ```ts
@@ -428,7 +428,7 @@ test('a 405 carries both the Allow header and an error body', async () => {
 ```
 
 Note: an existing test asserts the 405 `Allow` header. It must still pass
-unmodified — the header behavior does not change, only the body appears.
+unmodified - the header behavior does not change, only the body appears.
 
 - [ ] **Step 6: Run the tests, suite, typecheck, determinism**
 
@@ -533,7 +533,7 @@ test('oneOf requires exactly one variant to match', () => {
       { type: 'object', properties: { b: { type: 'string' } } }
     ]
   }
-  // Both variants are loose objects, so this matches BOTH — oneOf must reject it.
+  // Both variants are loose objects, so this matches BOTH - oneOf must reject it.
   assert.equal(parse(schema, { a: 'x', b: 'y' }).success, false)
 })
 
@@ -644,7 +644,7 @@ import type { MediaType } from '../spec/types.ts'
  * Finds the media entry a request's content type should be validated against.
  *
  * `body.ts` parses any `+json` suffix type as JSON, so validation has to match
- * the same way — otherwise a parsed `application/vnd.api+json` body is silently
+ * the same way - otherwise a parsed `application/vnd.api+json` body is silently
  * never validated. An exact match always wins; a `+json` type falls back to the
  * plain JSON entry.
  */
@@ -664,14 +664,14 @@ export function pickMedia(
 ```
 
 `baseMediaType` currently takes `string | null`; widen it to accept a `string` and
-keep its existing null handling, or add a thin wrapper — either is fine as long as
+keep its existing null handling, or add a thin wrapper - either is fine as long as
 there is one implementation.
 
 > **CORRECTION FOUND DURING IMPLEMENTATION.** The gap is in NEGOTIATION, not
 > validation, and `pickMedia` alone does not close it. `parseBody` gates on
 > `declared.includes(mediaType)` with exact-string matching and returns 415
 > BEFORE validation runs, so a `application/vnd.api+json` request against a
-> document declaring `application/json` never reaches `validateRequest` at all —
+> document declaring `application/json` never reaches `validateRequest` at all -
 > it is rejected, not parsed-then-unvalidated. `pickMedia`'s fallback would be
 > dead code without this. Change the gate too:
 >
@@ -685,12 +685,12 @@ there is one implementation.
 >   }
 > ```
 >
-> This only widens what is accepted — an unrelated type such as `text/plain`
+> This only widens what is accepted - an unrelated type such as `text/plain`
 > against a JSON-only operation is still a 415. It resolves an inconsistency the
 > module already had: `body.ts` parses any `+json` suffix as JSON, so rejecting
 > those at negotiation contradicted its own parsing decision.
 >
-> Add an end-to-end test through the handler, not just a `pickMedia` unit test —
+> Add an end-to-end test through the handler, not just a `pickMedia` unit test -
 > the unit tests pass either way, which is exactly why this survived. Assert both
 > that a well-formed `+json` body returns 200 AND that a schema-invalid one
 > returns 400 with the right error path; the second is what proves validation
@@ -791,13 +791,13 @@ Run: `node --test test/runtime/body.test.ts test/schema/compile.test.ts test/run
 Expected: PASS.
 
 Run: `npm test`
-Expected: PASS. Watch for a pre-existing test that a stricter `oneOf` now rejects —
+Expected: PASS. Watch for a pre-existing test that a stricter `oneOf` now rejects -
 if one appears, report it rather than weakening the rule.
 
 Run: `npx tsc --noEmit`
 
 Run: `node scripts/determinism.ts`
-Expected: unchanged — `additionalProperties` and `oneOf` changes affect validation
+Expected: unchanged - `additionalProperties` and `oneOf` changes affect validation
 only, and the petstore uses neither.
 
 - [ ] **Step 8: Commit**
@@ -923,7 +923,7 @@ test('clear empties the store', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/runtime/store.test.ts`
-Expected: FAIL — module missing.
+Expected: FAIL - module missing.
 
 - [ ] **Step 3: Implement `src/runtime/store.ts`**
 
@@ -945,7 +945,7 @@ interface Entry {
  * The in-process `Store`.
  *
  * `now` is injected because determinism forbids scattering wall-clock reads
- * through the runtime — tests drive expiry with a fake clock rather than by
+ * through the runtime - tests drive expiry with a fake clock rather than by
  * waiting. The default is a FUNCTION called fresh on every operation; the
  * invariant is that this parameter is the only `Date.now()` call site in the
  * runtime, NOT that it is read once. Snapshotting it at construction would
@@ -1063,7 +1063,7 @@ const operation: Operation = {
 
 /**
  * Compiles policies the way the handler does, but WITHOUT compilePolicies'
- * construction-time check that every target matches something — one test needs a
+ * construction-time check that every target matches something - one test needs a
  * policy that deliberately matches nothing, and compilePolicies throws on those.
  */
 function compile(policies: FailurePolicy[]) {
@@ -1269,7 +1269,7 @@ test('a target matching no operation throws at construction', () => {
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `node --test test/runtime/failure.test.ts test/server/failure.test.ts`
-Expected: FAIL — `failure.ts` does not exist.
+Expected: FAIL - `failure.ts` does not exist.
 
 - [ ] **Step 3: Implement `src/runtime/failure.ts`**
 
@@ -1373,7 +1373,7 @@ export async function checkFailure(input: FailureInput): Promise<FailureOutcome>
   }
 
   for (const policy of matching) {
-    // 4. Circuit state, before rolling — an open circuit answers immediately.
+    // 4. Circuit state, before rolling - an open circuit answers immediately.
     if (policy.circuit) {
       const open = await input.store.get(`circuit-open|${key}`)
       if (open !== undefined) {
@@ -1554,7 +1554,7 @@ test('an unmatched control-plane target throws', async () => {
 })
 
 test('a wildcard target arms every operation it matches', async () => {
-  // Not just the first match — arming one of several would silently leave the
+  // Not just the first match - arming one of several would silently leave the
   // rest healthy while the caller believes the whole path is down.
   const instance = mock()
   await instance.outage('* /pets/**', { forMs: 60_000 })
@@ -1594,7 +1594,7 @@ test('every control-plane method returns a promise', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test test/control-plane.test.ts`
-Expected: FAIL — the methods do not exist.
+Expected: FAIL - the methods do not exist.
 
 - [ ] **Step 3: Return a handler object from `createHandler`**
 
@@ -1632,7 +1632,7 @@ and return:
 async and so is handled by `index.ts`, not here.
 
 **Every existing caller of `createHandler` must now use `.fetch`.** Search for
-them — `src/index.ts` and several test files call the returned value directly.
+them - `src/index.ts` and several test files call the returned value directly.
 Updating those tests IS expected for this task and is a mechanical change; list
 every file you touch in your report.
 
@@ -1751,7 +1751,7 @@ git commit -m 'feat: add the async control plane' -m 'failNext, outage, setSeed,
 - [ ] `grep -rn "from 'node:" src/spec src/schema src/generate src/resolve src/runtime src/server/handler.ts` returns nothing.
 - [ ] `grep -rn "Math.random" src/` returns nothing. `grep -rn "Date.now()" src/`
       returns only `createMemoryStore`'s default clock parameter and the comment
-      above it that names the invariant — two hits in one file, no call sites
+      above it that names the invariant - two hits in one file, no call sites
       anywhere else.
 - [ ] `node scripts/determinism.ts` run twice is byte-identical and still matches
       plan 1's values.
@@ -1762,6 +1762,6 @@ git commit -m 'feat: add the async control plane' -m 'failNext, outage, setSeed,
 
 ## What plan 5 picks up
 
-Pipeline stages 5 and 11 — idempotency (`runtime/idempotency.ts`) and logging
-(`runtime/logging.ts`) — plus `server/cli.ts`. Phases 8 and 10–12 of the master
+Pipeline stages 5 and 11 - idempotency (`runtime/idempotency.ts`) and logging
+(`runtime/logging.ts`) - plus `server/cli.ts`. Phases 8 and 10–12 of the master
 spec (webhooks, MCP, fixtures, docs) follow.

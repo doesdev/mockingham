@@ -42,7 +42,7 @@ export function generateValue(
     )
     // A resolver may legitimately return undefined, so hit is checked rather
     // than the value. A returned promise is left in the tree for the override
-    // pass to settle — generation itself stays synchronous.
+    // pass to settle - generation itself stays synchronous.
     if (hook?.hit) return hook.value
 
     if (preferExamples && current.example !== undefined) return current.example
@@ -51,7 +51,7 @@ export function generateValue(
     const kind = classify(current)
     // `classify` merges `allOf` internally to decide the shape, but the
     // constraint readers below (`generateString`, `generateInteger`, ...)
-    // still need the merged view — otherwise a bound that lives only on an
+    // still need the merged view - otherwise a bound that lives only on an
     // `allOf` member is silently dropped even though `classify` saw it. This
     // must mirror `src/schema/compile.ts` exactly, or generation and
     // validation drift on precisely the schemas that need them to agree most.

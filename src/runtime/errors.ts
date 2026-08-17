@@ -42,7 +42,7 @@ export interface ErrorInput {
  * Builds the body for a status mockingham emits itself.
  *
  * In `contract` mode it first looks for the status among the operation's own
- * declared responses — falling back to the operation's `default` — and generates
+ * declared responses - falling back to the operation's `default` - and generates
  * from that schema, so a client's error-path parsing is exercised too. Only when
  * the operation declares nothing usable does the built-in envelope appear.
  *

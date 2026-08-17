@@ -144,7 +144,7 @@ test('a matched operation with nothing bakeable is skipped, not an error', async
 
 test('regenerating replaces the stored entry rather than appending', async () => {
   // The source returns a DIFFERENT value the second time on purpose. With an
-  // identical value this passes with the second write removed entirely —
+  // identical value this passes with the second write removed entirely -
   // determinism makes replace-versus-noop invisible otherwise.
   const store = createMemoryFixtureStore()
   await bake({ ...baseOptions(store), source: sourceReturning({ round: 'first' }) })
@@ -200,19 +200,19 @@ test('a filter still respects maxCalls, reporting the remainder as skipped', asy
 test('an empty scope throws rather than quietly baking everything', async () => {
   // The MCP tool always passes an `only` object, with undefined fields when
   // the caller supplied no arguments. Without this, regenerate_fixture with
-  // no arguments re-bakes the whole document — every operation, every status,
+  // no arguments re-bakes the whole document - every operation, every status,
   // against a source that may well be charging per call.
   await assert.rejects(() => bake({ ...baseOptions(), only: {} }), /identify/i)
 })
 
-test('a scope naming only a status throws — it identifies no operation', async () => {
+test('a scope naming only a status throws - it identifies no operation', async () => {
   await assert.rejects(
     () => bake({ ...baseOptions(), only: { status: 200 } }),
     /identify/i
   )
 })
 
-test('a scope naming only a method throws — it identifies no operation', async () => {
+test('a scope naming only a method throws - it identifies no operation', async () => {
   // `method: 'get'` alone would match every GET in the document.
   await assert.rejects(
     () => bake({ ...baseOptions(), only: { method: 'get' } }),

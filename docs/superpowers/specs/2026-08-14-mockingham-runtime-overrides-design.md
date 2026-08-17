@@ -1,4 +1,4 @@
-# mockingham — runtime overrides design delta
+# mockingham - runtime overrides design delta
 
 **Status:** approved 2026-08-14
 **Amends:** `2026-08-11-mockingham-design.md` §1 (instance surface), §4
@@ -9,7 +9,7 @@ This is a delta. The master spec is the contract; where this document
 contradicts it, this document wins and the reason is stated.
 
 This cycle makes master §1's `Mock.override()` real. It has been specified since
-the first design and implemented at no point — phase 12 marked it
+the first design and implemented at no point - phase 12 marked it
 `NOT IMPLEMENTED` in the master spec rather than let it read as shipped, and
 that marker comes off here.
 
@@ -28,7 +28,7 @@ there, and the whole of §3 is a consequence of that.
 `clear_overrides` MCP tools.
 
 **Out, deferred again and deliberately:** `regenerate_fixture`. The phase 10
-delta §1 already recorded why — `bake()` walks every operation and every JSON
+delta §1 already recorded why - `bake()` walks every operation and every JSON
 response, so re-running one operation is a new entry point with its own budget,
 staleness, and scope semantics. Those questions have nothing to do with
 overrides, and bundling them would put two unrelated subsystems in one plan.
@@ -57,17 +57,17 @@ function that cannot cross a JSON boundary; the other fires webhooks and belongs
 with the emission lifecycle, not with "what does this endpoint return right
 now."
 
-**Amendment 2.1 — both methods are async, against master §1's `void`.** The
+**Amendment 2.1 - both methods are async, against master §1's `void`.** The
 Store is async. §1 already drifts here: it declares `failNext` and `outage` as
 `void` while `index.ts` has shipped them as `Promise<void>` since phase 6. This
 delta follows the code, not the older spec.
 
-**Amendment 2.2 — `override()` rejects a value that is not JSON-serializable**,
+**Amendment 2.2 - `override()` rejects a value that is not JSON-serializable**,
 naming the offending path in the error. A function inside an override node would
 survive an in-process Store and vanish through an injected external one: the
 same code, two deployments, silently different behavior. Refusing it at the door
 is also what keeps `Mock.override()` and `set_override` the same surface in fact
-rather than in name — the property the MCP delta §3.3 calls structural no-drift.
+rather than in name - the property the MCP delta §3.3 calls structural no-drift.
 
 **Targets** resolve through the existing `resolveTarget`, so `'getPayment'`,
 `'GET /payments/{id}'`, and wildcards behave exactly as they do for `failNext`.
@@ -83,7 +83,7 @@ cannot enumerate or unwind.
 
 **There is no layering among runtime overrides**, and the consequence is worth
 stating because it differs from the config model. Two distinct targets that
-resolve to disjoint operations never interact — they are separate keys. But two
+resolve to disjoint operations never interact - they are separate keys. But two
 distinct targets that both resolve to the *same* operation collide there, and
 the later write wins for that operation: `override('*')` followed by
 `override('getPayment')` leaves `getPayment` carrying only the second value,
@@ -102,7 +102,7 @@ clears the resulting operations: the argument that set them clears them.
 State lives in the Store, keyed per resolved operation, following the
 `failNext`/`outage` precedent in `index.ts` exactly. This satisfies master §10's
 one-kernel rule, and it means an injected external Store shares overrides across
-processes — a feature, not an accident.
+processes - a feature, not an accident.
 
 **A new module, `runtime/overrides.ts`, owns the key convention, the write, and
 the read.** `index.ts` writes through it; the pipeline reads through it; neither
@@ -116,7 +116,7 @@ by coincidence is a defect that leaves both test suites green.
 So `clearOverrides()` cannot ask which override keys exist.
 
 `store.clear()` would work and is wrong: it also discards idempotency keys,
-chaos counters, and captured callback URLs — far more than was asked.
+chaos counters, and captured callback URLs - far more than was asked.
 
 Instead, `clearOverrides()` deletes the override key for **every operation in the
 document**. The operation list is finite, known at construction, and already the
@@ -143,7 +143,7 @@ without disturbing anything here.
 One read, three composition points, nothing else moves.
 
 The read goes immediately after `resolveConfigs` in `server/handler.ts`,
-returning a `ResolvedConfig`-shaped view — or a shared empty singleton when no
+returning a `ResolvedConfig`-shaped view - or a shared empty singleton when no
 override exists, so the common path allocates nothing.
 
 | Point | Composition |
@@ -154,7 +154,7 @@ override exists, so the common path allocates nothing.
 
 That is the entire integration. The fixture still sits beneath both. Resolvers,
 promise settling, and the single exit are untouched, because a runtime override
-is not a new kind of thing — it is one more entry in an array `render.ts`
+is not a new kind of thing - it is one more entry in an array `render.ts`
 already walks. Invariant 1's spirit is "never add a second traversal," and this
 adds none.
 
@@ -174,12 +174,12 @@ honest price.
 
 **A configured `respond` beats a runtime override.** `handler.ts` returns
 `config.respond(ctx)` before status selection and render happen at all. This is
-correct — `respond` replaces the whole render — but it means the one config knob
+correct - `respond` replaces the whole render - but it means the one config knob
 a runtime override cannot reach is the one that most looks like it should lose.
 
 ### 4.3 The debug header
 
-**Amendment 4.3 — `debugHeaders` gains `x-mock-override: applied`** when a
+**Amendment 4.3 - `debugHeaders` gains `x-mock-override: applied`** when a
 runtime override contributed to the response. Master §12 defines the debug
 headers as `x-mock-seed`, `x-mock-status-source`, and `x-mock-operation`; this
 adds a fourth. An agent that has just called `set_override` needs a way to
@@ -193,7 +193,7 @@ mechanism already exists for exactly this purpose.
 ### 5.1 Determinism
 
 Invariant 2 is restated, not weakened. "The same request produces byte-identical
-output across processes" has always meant *given the same control-plane state* —
+output across processes" has always meant *given the same control-plane state* -
 `setSeed` and `failNext` already change what a request returns. Runtime
 overrides join that set. Nothing in the generation path becomes
 non-deterministic, no `Math.random()` or `Date.now()` enters it, and the docs
@@ -204,7 +204,7 @@ assert.
 
 An override body is not validated against the operation's response schema.
 That is already true of config overrides, and a runtime override that behaved
-differently would be a second validation path — the divergence invariant 1
+differently would be a second validation path - the divergence invariant 1
 exists to prevent. Producing an off-contract body remains possible and remains
 the caller's choice.
 
@@ -213,7 +213,7 @@ the caller's choice.
 ## 6. MCP tools
 
 `set_override` takes `{ target, value }`; `clear_overrides` takes `{ target? }`.
-Both are thin adapters over the `Mock` methods — the tool calls the method, it
+Both are thin adapters over the `Mock` methods - the tool calls the method, it
 never reimplements it (MCP delta §3.3).
 
 Both are **write tools**, gated behind `--write`. The gated set grows from five
@@ -247,7 +247,7 @@ prints only whether that one name is present plus its description, so adding two
 tools does not change a single byte of its expected output. The "twelve tools"
 heading is ordinary prose and nothing verifies it.
 
-`server/mcp/server.ts` does anticipate this correctly — its disabled-tool
+`server/mcp/server.ts` does anticipate this correctly - its disabled-tool
 registration derives names from `WRITE_TOOLS` rather than a literal list,
 precisely so "a sixth write tool added later must not silently lose its refusal
 message." The gap is in the documentation, not the code.
@@ -261,20 +261,20 @@ phase 12 already had.
 
 ## 8. Testing
 
-- `test/runtime/overrides.test.ts` — the key convention, the
+- `test/runtime/overrides.test.ts` - the key convention, the
   JSON-serializability rejection and its message, target resolution, a wildcard
   writing one entry per matching operation, and a typo throwing.
-- `test/server/overrides.test.ts` — runtime cases join the existing config-override
+- `test/server/overrides.test.ts` - runtime cases join the existing config-override
   suite, driven end to end through `mock.fetch`. **Precedence is asserted here,
   through the public surface, not in a unit test of the composition helper.**
   Plan 7's defining lesson was that seam defects surface only end to end.
 - **Every precedence assertion must have all five layers present at once.** A
   test with a runtime override over a generated body proves nothing about
-  ordering — it passes with the whole composition removed. This is shapes 2 and
+  ordering - it passes with the whole composition removed. This is shapes 2 and
   12 on the project's own list of tests that cannot fail, and it is the single
   most likely defect in this cycle.
 - MCP tool tests, including the gate-closed refusal for both new names.
-- `reset()` clears overrides — asserted, not inferred from `store.clear()`.
+- `reset()` clears overrides - asserted, not inferred from `store.clear()`.
 - Documentation updates are part of the work, and the docs suite will not go
   green without them.
 
@@ -282,6 +282,6 @@ phase 12 already had.
 
 ## 9. What this leaves
 
-`regenerate_fixture`, and with it the narrow re-entry into the bake pipeline —
+`regenerate_fixture`, and with it the narrow re-entry into the bake pipeline -
 budget accounting, staleness, and single-operation scope. That is the last piece
 of the phase 10 deferral, and it wants its own delta.

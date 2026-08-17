@@ -59,7 +59,7 @@ test('authStage denies a request with no credential', async () => {
 })
 
 test('authStage continues and sets ctx.auth when credentialed', async () => {
-  // checkAuth only produces a principal when a scheme's verify() runs — a
+  // checkAuth only produces a principal when a scheme's verify() runs - a
   // presence-only check (config: {}) legitimately yields `principal:
   // undefined` (see test/runtime/auth.test.ts's presence-only-check test).
   // A verify() is supplied here so this test actually exercises the "sets
@@ -135,7 +135,7 @@ test('authStage records a denial even though it short-circuits', async () => {
 
 test('authStage records success', async () => {
   // A presence-only check (config: {}, as used above for the 'denied' test)
-  // yields outcome.principal: undefined even when satisfied — see checkAuth in
+  // yields outcome.principal: undefined even when satisfied - see checkAuth in
   // src/runtime/auth.ts and the note on the earlier 'sets ctx.auth' test above.
   // That reads as 'anonymous', not 'ok'. A verify() is supplied here so this
   // test actually exercises the 'ok' outcome its name promises.
@@ -159,7 +159,7 @@ test('authStage records success', async () => {
 
 test('a presence-only check with a valid credential records anonymous, not ok', async () => {
   // 'anonymous' has two producing cases: an operation declaring no security at
-  // all, and — this one — a scheme satisfied by presence alone, with no
+  // all, and - this one - a scheme satisfied by presence alone, with no
   // verify() to mint a principal. Only the first case was asserted at the
   // decisions level before; this misconception has already caused two
   // defects in this plan's own briefs.

@@ -16,14 +16,14 @@ export interface BakeBudget {
 }
 
 /**
- * Narrows a bake to one operation, and optionally to one of its statuses —
+ * Narrows a bake to one operation, and optionally to one of its statuses -
  * what `regenerate_fixture` is built on. A filter rather than a second entry
  * point: everything downstream of planning (chunking, persona, scope
  * narrowing, hashing, the store write) must be reached by the same code a full
  * bake reaches it by, or the two drift.
  */
 export interface BakeScope {
-  /** `operationSlug` — the declared operationId when the document has one. */
+  /** `operationSlug` - the declared operationId when the document has one. */
   operationId?: string
   method?: string
   /** Templated form, e.g. `/orders/{orderId}`. */
@@ -48,7 +48,7 @@ export interface BakeOptions {
 
 /**
  * Matched on `operationSlug` rather than `operation.operationId`, because the
- * slug is what the fixture store is keyed by — an operation the document gave
+ * slug is what the fixture store is keyed by - an operation the document gave
  * no id still has one, and naming a fixture is the whole point of the filter.
  *
  * Every supplied field must agree. `findOperation` in the MCP read tools
@@ -99,7 +99,7 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
   const summary: BakeSummary = { generated: 0, skipped: 0, failed: 0 }
   const budget = options.budget ?? {}
   // How many requests go to the source per call. `maxConcurrency` names it
-  // badly — chunks are awaited one after another below and every shipped source
+  // badly - chunks are awaited one after another below and every shipped source
   // handles its array sequentially, so nothing here runs concurrently. A source
   // that declares a `chunkSize` overrides it, which is the only way a batching
   // source can ever see enough requests to reach its own threshold.
@@ -107,8 +107,8 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
 
   const planned: Array<{ request: FixtureRequest; schema: Schema }> = []
 
-  // Sorted by path then method so the walk order — and therefore which
-  // requests a maxCalls budget admits before truncating — depends only on
+  // Sorted by path then method so the walk order - and therefore which
+  // requests a maxCalls budget admits before truncating - depends only on
   // the document's operations, never on the order they happened to appear
   // in the source object.
   const sorted = [...options.api.operations].sort((a, b) => {
@@ -117,14 +117,14 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
   })
 
   const only = options.only
-  // An absent `only` bakes the whole document — that is the ordinary bake. An
+  // An absent `only` bakes the whole document - that is the ordinary bake. An
   // `only` that is PRESENT but identifies no operation is a different thing
   // and must not be read as "all of them": the MCP tool always passes an
   // object, with undefined fields when the caller gave no arguments, so
   // without this `regenerate_fixture` with no arguments re-bakes every
   // operation against a source that may be charging per call.
   //
-  // `method` or `status` alone is not an identifier either — `method: 'get'`
+  // `method` or `status` alone is not an identifier either - `method: 'get'`
   // matches every GET in the document.
   if (
     only !== undefined &&
@@ -177,7 +177,7 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
       if (only?.status !== undefined && response.status !== only.status) continue
 
       // A range response (`4XX`) carries its bucket's lower bound in `status`,
-      // so it collides with an exactly declared `400` — the store keys on
+      // so it collides with an exactly declared `400` - the store keys on
       // [operationId, status, key] and the second write silently wins, while
       // the summary still counts both as generated.
       //
@@ -202,7 +202,7 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
         // wildcard key meaning "this fixture applies to any request for this
         // operation and status." `resolve.ts` falls back to this exact key
         // when a request's own parameterized key misses. Do not "fix" this
-        // by inventing params — that would break the fallback and make a
+        // by inventing params - that would break the fallback and make a
         // baked fixture for a parameterized path unreachable again.
         key: fixtureKey({ method: operation.method, path: operation.path, params: {} }),
         params: {},
@@ -213,7 +213,7 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
         persona: options.persona
       })
       if (!request) {
-        // Recursive, or not expressible as JSON Schema. Generator-only —
+        // Recursive, or not expressible as JSON Schema. Generator-only -
         // buildRequest already made this call; we only report it.
         options.onWarn?.(
           `mockingham: ${operation.method.toUpperCase()} ${operation.path} ` +
@@ -263,7 +263,7 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
         }
       }
 
-      // Same helper the startup staleness check uses on `hashFor` — computed
+      // Same helper the startup staleness check uses on `hashFor` - computed
       // from the response schema this fixture was actually generated
       // against, so a later document change is detectable. A schema
       // `buildRequest` could turn into a request always hashes; this can
@@ -278,7 +278,7 @@ export async function bake(options: BakeOptions): Promise<BakeSummary> {
           ...(hash !== undefined ? { schemaHash: hash } : {}),
           // FixtureMeta.scoped: so resolve()'s shape() decides whole-vs-layer
           // from this entry, not from whatever llm.scope config happens to
-          // be active when it is later served — see the doc comment there.
+          // be active when it is later served - see the doc comment there.
           ...(scoped ? { scoped: true } : {})
         }
       })

@@ -42,7 +42,7 @@ test('a missing directory loads as empty rather than throwing', async () => {
   assert.equal(store.records().length, 0)
 })
 
-test('a missing directory does not warn — the silence is deliberate', async () => {
+test('a missing directory does not warn - the silence is deliberate', async () => {
   const warnings: string[] = []
   const store = createMemoryFixtureStore()
   await loadFixtures(join(await scratch(), 'does-not-exist'), store, (message) =>
@@ -132,7 +132,7 @@ test('an entry that is an object but has no value property warns and is skipped 
 
 // A well-formed entry alongside a malformed one in the same bucket: proves
 // the bad entry is skipped INDIVIDUALLY, not that the whole bucket (or file)
-// was discarded — which the bucket- and file-level tests above could not
+// was discarded - which the bucket- and file-level tests above could not
 // distinguish from this, since they only ever plant one entry.
 test('a malformed entry does not take a sibling well-formed entry down with it', async () => {
   const dir = await scratch()
@@ -148,7 +148,7 @@ test('a malformed entry does not take a sibling well-formed entry down with it',
   assert.equal(warnings.length, 1)
 })
 
-test('warnOnStaleFixtures does not throw when a record entry is null — defense in depth beyond loadFixtures for a store populated some other way', () => {
+test('warnOnStaleFixtures does not throw when a record entry is null - defense in depth beyond loadFixtures for a store populated some other way', () => {
   const store = createMemoryFixtureStore()
   store.set('getUser', 200, 'k', null as unknown as FixtureEntry)
   assert.doesNotThrow(() => warnOnStaleFixtures(store, () => 'some-hash', () => {}))
@@ -186,7 +186,7 @@ test('two writes of the same content produce byte-identical files', async () => 
   )
 })
 
-// writeFixtures itself does no sorting of keys within a status bucket — it
+// writeFixtures itself does no sorting of keys within a status bucket - it
 // relies entirely on store.records() already being sorted. The test above
 // never exercises two keys under the same operationId+status, so it cannot
 // catch a regression in that reliance. This one can: two stores build the

@@ -4,7 +4,7 @@ import { classify, isNullable, mergeAllOf } from '../../src/schema/walk.ts'
 import type { Schema } from '../../src/spec/types.ts'
 
 test('a self-referential allOf merges instead of overflowing the stack', () => {
-  // `A: { allOf: [A] }` says A must satisfy A — a tautology that constrains
+  // `A: { allOf: [A] }` says A must satisfy A - a tautology that constrains
   // nothing. Ref resolution makes both references the same object, so merging
   // used to recurse forever. Skipping the member is correct, not lossy.
   const node: Schema = { type: 'object', properties: { id: { type: 'string' } } }
@@ -35,7 +35,7 @@ test('a diamond keeps every branch properties', () => {
   // Deliberately NOT a guard on the copy-vs-share choice below: `absorb` unions
   // properties into one map at every level, so a branch that skipped `shared`
   // still ends up with its properties via the other branch. This asserts the
-  // union, which is a real behavior — it just cannot discriminate the two
+  // union, which is a real behavior - it just cannot discriminate the two
   // implementations. The next test does that.
   const shared: Schema = { type: 'object', properties: { shared: { type: 'string' } } }
   const left: Schema = { type: 'object', properties: { left: { type: 'string' } }, allOf: [shared] }

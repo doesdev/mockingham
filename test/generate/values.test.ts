@@ -85,7 +85,7 @@ test('integers stay within bounds when no integer fits the range', () => {
 })
 
 test('number rounding never escapes the declared bounds', () => {
-  // The spec's suggested first loop used minimum 1.504 with maximum 1.237 —
+  // The spec's suggested first loop used minimum 1.504 with maximum 1.237 -
   // an inverted, contradictory range. numberBounds() collapses that to a
   // single point (max is forced up to min), and the assertion
   // `value >= 1.237 || value <= 1.504` is a tautology that passes for any

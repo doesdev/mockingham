@@ -34,7 +34,7 @@ test('a real MCP client can list and call tools over stdio', async () => {
   // skipped and the next well-formed message still parses. It does, however,
   // reach the transport's onerror callback as a JSON parse (or schema) error.
   // That is the actual, reliable signal that something wrote to stdout that
-  // should not have — asserting on it is what makes this test fail under the
+  // should not have - asserting on it is what makes this test fail under the
   // console.log mutation instead of passing despite the corruption.
   const streamErrors: unknown[] = []
   client.onerror = (error) => {
@@ -49,7 +49,7 @@ test('a real MCP client can list and call tools over stdio', async () => {
     assert.ok(names.includes('list_operations'), `got ${names.join(', ')}`)
 
     // Design §3.7: with the gate closed the five write tools DO appear in
-    // tools/list — registering them is what makes a named refusal possible —
+    // tools/list - registering them is what makes a named refusal possible -
     // each carrying a `Disabled. …` description that names the enabling flag.
     for (const name of ['fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset']) {
       const tool = listed.tools.find((entry) => entry.name === name)
@@ -86,9 +86,9 @@ test('a real MCP client can list and call tools over stdio', async () => {
 test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands on stderr', async () => {
   // Spawned directly with node:child_process rather than through the SDK
   // client, so this test watches the raw byte streams instead of trusting
-  // the SDK to notice pollution. The onerror assertion above is indirect —
+  // the SDK to notice pollution. The onerror assertion above is indirect -
   // it depends on how a future SDK version happens to report a malformed
-  // line — this one is not: it fails on a nonzero stdout byte count, full
+  // line - this one is not: it fails on a nonzero stdout byte count, full
   // stop, regardless of what any client-side parser does with it.
   const dir = await mkdtemp(join(tmpdir(), 'mockingham-mcp-stdout-'))
   const docPath = join(dir, 'doc.json')
@@ -107,7 +107,7 @@ test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands o
 
   try {
     // Wait for the first byte on EITHER stream, rather than assuming stderr
-    // — the whole point of this test is that under the console.log mutation
+    // - the whole point of this test is that under the console.log mutation
     // the readiness line lands on the wrong one, and a test that only ever
     // watched stderr would just hang forever on that mutation instead of
     // failing. Whichever stream produces output first is the answer to
@@ -138,7 +138,7 @@ test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands o
     assert.equal(
       firstStream,
       'stderr',
-      `expected the first subprocess output on stderr, got ${firstStream} — ` +
+      `expected the first subprocess output on stderr, got ${firstStream} - ` +
         `stdout was: ${JSON.stringify(stdoutText)}`
     )
     assert.equal(

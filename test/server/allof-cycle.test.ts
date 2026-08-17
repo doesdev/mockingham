@@ -7,7 +7,7 @@ import { fixtureKey } from '../../src/fixtures/key.ts'
 /**
  * A document whose component composes itself through `allOf`. Ref resolution
  * makes both references the same object, so the resolved schema genuinely
- * contains itself. Redundant rather than invalid — the mock must serve it.
+ * contains itself. Redundant rather than invalid - the mock must serve it.
  */
 function selfComposingDoc(): Record<string, unknown> {
   return {

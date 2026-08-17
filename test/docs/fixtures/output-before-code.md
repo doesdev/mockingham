@@ -1,7 +1,7 @@
 # A document whose expected output precedes the code
 
 `assembleProgram` and `expectedOutput` filter by language independently, so
-only order WITHIN each language survived — this compared exactly the same as a
+only order WITHIN each language survived - this compared exactly the same as a
 document that showed its output in the right place.
 
 ```console

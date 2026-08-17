@@ -7,8 +7,8 @@ export interface FixtureMeta {
   promptVersion?: number
   generatedAt?: string
   /**
-   * Set by `bake()` when the stored value was narrowed by a scope config —
-   * `narrow()` in `scope.ts` — so `resolve()`'s `shape()` can tell a whole
+   * Set by `bake()` when the stored value was narrowed by a scope config -
+   * `narrow()` in `scope.ts` - so `resolve()`'s `shape()` can tell a whole
    * body from a layer by reading the ENTRY rather than the ambient llm.scope
    * config at serve time. Ambient config is the wrong source of truth: a
    * fixture baked with a scope can later be served under a config with no
@@ -24,7 +24,7 @@ export interface FixtureEntry {
   value: unknown
   /**
    * Absent on a hand-written fixture, which is why it is optional. A fixture
-   * with no meta is never reported stale — design section 2.13.
+   * with no meta is never reported stale - design section 2.13.
    */
   meta?: FixtureMeta
 }

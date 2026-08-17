@@ -117,19 +117,19 @@ at construction so a target matching no operation throws immediately.
 
 ### 2.2 Existing files that change
 
-- **`src/spec/types.ts`** — gains `SecurityScheme`, a `security` field on
+- **`src/spec/types.ts`** - gains `SecurityScheme`, a `security` field on
   `Operation`, and `securitySchemes` plus `schemaNames` on `Api`.
-- **`src/spec/refs.ts`** — emits a `Map<Schema, string>` recording which
+- **`src/spec/refs.ts`** - emits a `Map<Schema, string>` recording which
   `components.schemas` name each resolved schema object came from. See §4.2.
   This is a **signature change**: `resolveDocument` currently returns
   `Record<string, unknown>` and must return the document plus the name table.
   Its existing tests and `load.ts` update with it, and that migration is a task
   in its own right rather than a side effect of the `bySchema` work.
-- **`src/spec/load.ts`** — parses `securitySchemes` and `security`, including the
+- **`src/spec/load.ts`** - parses `securitySchemes` and `security`, including the
   document-root default. The loader currently discards both entirely, so auth has
   nothing to enforce until this lands.
-- **`src/server/handler.ts`** — becomes a stage orchestrator.
-- **`src/index.ts`** — async control plane.
+- **`src/server/handler.ts`** - becomes a stage orchestrator.
+- **`src/index.ts`** - async control plane.
 
 ### 2.3 The pipeline
 
@@ -140,20 +140,20 @@ type Stage = (ctx: Ctx) => Promise<Response | undefined>
 ```
 
 Returning a `Response` short-circuits; returning `undefined` continues. `handler.ts`
-calls them in explicit sequence — not a loop over an array, so the order
+calls them in explicit sequence - not a loop over an array, so the order
 typechecks and a stack trace names the stage that responded.
 
 | # | Stage | After plan 2 |
 |---|---|---|
 | 1 | Route match | done in plan 1 |
-| 2 | Body parse / content negotiation | new — `runtime/body.ts` |
-| 3 | Auth | new — `runtime/auth.ts` |
-| 4 | Request validation | new — `runtime/validate.ts` |
+| 2 | Body parse / content negotiation | new - `runtime/body.ts` |
+| 3 | Auth | new - `runtime/auth.ts` |
+| 4 | Request validation | new - `runtime/validate.ts` |
 | 5 | Idempotency lookup | gap, plan 3 |
-| 6 | Failure policy | new — `runtime/failure.ts` |
+| 6 | Failure policy | new - `runtime/failure.ts` |
 | 7 | Status selection | extended: `Prefer: example=`, per-operation override |
 | 8 | Generate body + headers | extended: header layering |
-| 9 | Apply override layers | new — `resolve/layer.ts` |
+| 9 | Apply override layers | new - `resolve/layer.ts` |
 | 10 | Full response callback | new |
 | 11 | Store result, emit log | gap, plan 3 |
 
@@ -171,7 +171,7 @@ subsequent stage. Its surface is §4's, with `seq` synchronous per 1.2:
 
 ---
 
-## 3. Phase 4 — Body parsing
+## 3. Phase 4 - Body parsing
 
 Stage 2 handles content negotiation and parsing, per §2 of the master spec:
 `application/json`, `application/x-www-form-urlencoded`, and `text/*` are parsed;
@@ -184,7 +184,7 @@ though the master spec's §2 discusses it under the pipeline generally.
 
 ---
 
-## 4. Phase 4 — Overrides
+## 4. Phase 4 - Overrides
 
 ### 4.1 Two mechanisms, split by what they key on
 
@@ -193,7 +193,7 @@ invariant 1 of `CLAUDE.md` forces rather than merely suggests.
 
 **`byFormat`, `byName`, and `bySchema` are schema-keyed.** They need the format,
 property name, and originating component name at each leaf. Applying them after
-generation would require walking the schema alongside the generated value — a
+generation would require walking the schema alongside the generated value - a
 second schema traversal, which invariant 1 forbids outright. They are therefore a
 **resolver hook consulted inside `generate.ts`**, at leaves the existing walk
 already visits.
@@ -222,7 +222,7 @@ schema object no longer records that it came from `components.schemas.User`.
 Resolution already makes every reference to `User` the *same object*, so identity
 is enough: `resolveDocument` emits a `Map<Schema, string>` alongside the resolved
 document, populated from the `components.schemas` entries it already walks. This
-adds no traversal — it records what resolution already knows — and lands on the
+adds no traversal - it records what resolution already knows - and lands on the
 `Api` model as `schemaNames`.
 
 ### 4.3 Async leaves
@@ -244,7 +244,7 @@ produce a seeded body and validate its own output against the declared schema.
 
 ---
 
-## 5. Phase 4 — Headers
+## 5. Phase 4 - Headers
 
 `runtime/headers.ts` layers response headers in §5's order, increasing
 precedence, later layers overwriting earlier:
@@ -253,7 +253,7 @@ precedence, later layers overwriting earlier:
 2. Global `headers` defaults from config.
 3. `byName` resolvers.
 4. Per-operation header overrides.
-5. Transport headers, computed last and never overridable — `Content-Type` from
+5. Transport headers, computed last and never overridable - `Content-Type` from
    negotiation only, per amendment 1.4.
 
 When `debugHeaders` is on, `x-mock-seed`, `x-mock-operation`, and
@@ -262,12 +262,12 @@ When `debugHeaders` is on, `x-mock-seed`, `x-mock-operation`, and
 
 ---
 
-## 6. Phase 5 — Validation, auth, errors
+## 6. Phase 5 - Validation, auth, errors
 
 ### 6.1 Schema compilation
 
 `schema/compile.ts` compiles an OpenAPI schema to a zod schema **through
-`classify()`** — the same interpretation generation uses. This is the whole point
+`classify()`** - the same interpretation generation uses. This is the whole point
 of invariant 1: what we generate and what we validate read the schema once, one
 way, and cannot drift.
 
@@ -290,7 +290,7 @@ flattened error list:
 ```
 
 Path and query values arrive from the wire as strings. They are **coerced per
-their declared schema before validation**, per §2 — without which every `{petId}`
+their declared schema before validation**, per §2 - without which every `{petId}`
 declared `integer` would fail against a compiled `z.number()`.
 
 ### 6.3 Auth
@@ -302,7 +302,7 @@ produce 403; both in the operation's own error shape per §7.
 Three OpenAPI semantics here are easy to invert, and each gets a test:
 
 - `security` is an array of requirement objects. It is **OR across the array, AND
-  within each object** — any one requirement object satisfied is sufficient, but
+  within each object** - any one requirement object satisfied is sufficient, but
   every scheme named inside that object must be satisfied.
 - A document-root `security` is the **default** used when an operation declares
   none.
@@ -327,7 +327,7 @@ still debuggable.
 
 ---
 
-## 7. Phase 6 — Store, failure, control plane
+## 7. Phase 6 - Store, failure, control plane
 
 ### 7.1 Store
 
@@ -350,7 +350,7 @@ three readings with materially different behavior:
 |---|---|---|
 | One chaos RNG stream advanced per request | Serial runs only | Outcome depends on how many requests preceded it, so it breaks under concurrency and when a test runs in isolation |
 | Seed from request identity alone | Yes | The same request always passes or always fails, turning `rate: 0.05` into "5% of distinct endpoints" rather than "5% of calls" |
-| **Seed from `hash(chaosSeed, requestKey, n)`** | **Yes** | — |
+| **Seed from `hash(chaosSeed, requestKey, n)`** | **Yes** | - |
 
 The third is chosen. `n` is a per-`requestKey` invocation counter held in a
 synchronous in-process map. Repeated identical calls vary as `rate` implies, a
@@ -392,7 +392,7 @@ phases 4–6 introduce user callbacks that can be arbitrarily nondeterministic:
 **The byte-identical guarantee covers values mockingham generates.** A user
 override of `() => new Date()` or `ctx.seq('order')` is nondeterministic by
 construction and by the user's explicit choice. The invariant constrains
-mockingham's own generation path — it does not, and cannot, constrain
+mockingham's own generation path - it does not, and cannot, constrain
 user-supplied functions.
 
 Nothing in mockingham's generation path may use `Math.random()` or `Date.now()`;
@@ -406,7 +406,7 @@ Per §17, with three additions specific to this plan:
 
 - **Unit, per module.** Override layering including async and wildcard nodes, zod
   compilation for `allOf`/`oneOf`/discriminator/recursion, target-string matching,
-  `MemoryStore` TTL against a fake clock, each pipeline stage in isolation — which
+  `MemoryStore` TTL against a fake clock, each pipeline stage in isolation - which
   is what the uniform stage signature is for.
 - **The plan-1 determinism check stays green.** Generated output must not shift
   merely because override machinery now sits in the path. This is a regression
@@ -422,7 +422,7 @@ Per §17, with three additions specific to this plan:
 
 1. Runtime overrides do not cross instances, because functions do not serialize
    (amendment 1.3).
-2. Chaos reproducibility is per request-sequence, not per isolated request — a
+2. Chaos reproducibility is per request-sequence, not per isolated request - a
    request's failure outcome depends on how many times that same request was made
    since the last `reset()`.
 3. Pipeline stages 5 (idempotency) and 11 (logging) remain gaps until plan 3.
@@ -439,8 +439,8 @@ Per §17, with three additions specific to this plan:
   nothing. Plan 1 ran this against all of `src/`; it is narrowed here because
   `MemoryStore` legitimately defaults its injected clock to `Date.now` at the
   construction boundary (§7.1). The generation path itself stays clean, which is
-  what the invariant is about. `runtime/` is excluded for that one call site only
-  — every other `runtime/` module must take the clock rather than read it.
+  what the invariant is about. `runtime/` is excluded for that one call site
+  only; every other `runtime/` module must take the clock rather than read it.
 - The plan-1 cross-process determinism check still produces byte-identical bodies.
 - Every stage in §2.3 marked "new" or "extended" has an isolation test.
 
@@ -450,4 +450,4 @@ Per §17, with three additions specific to this plan:
 
 Pipeline stages 5 and 11: idempotency (`runtime/idempotency.ts`) and logging
 (`runtime/logging.ts`), plus the CLI. Phases 8 and 10–12 of the master spec's §18
-— webhooks, MCP, fixtures, and docs — follow from there.
+(webhooks, MCP, fixtures, and docs) follow from there.

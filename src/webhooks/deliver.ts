@@ -4,7 +4,7 @@ export type DeliveryOutcome = 'delivered' | 'failed' | 'captured' | 'unresolved'
 
 /**
  * One outbound attempt's record. `emit()` resolves with this rather than
- * rejecting in every case, including `unresolved` and an exhausted retry —
+ * rejecting in every case, including `unresolved` and an exhausted retry -
  * master spec §13's "an emit never hard-fails" is a property of the return
  * type, not merely of the implementation.
  */
@@ -49,7 +49,7 @@ export function resolveRetry(config: RetryConfig = {}): ResolvedRetry {
 /**
  * Design §2.5, stated precisely because §13's two sentences narrow each other
  * and admit two implementations: retry a 5xx, a 408, and a 429; do not retry
- * any other 4xx or any 2xx. A 3xx never reaches here — `fetch` follows
+ * any other 4xx or any 2xx. A 3xx never reaches here - `fetch` follows
  * redirects itself.
  */
 export function shouldRetry(status: number): boolean {
@@ -57,7 +57,7 @@ export function shouldRetry(status: number): boolean {
 }
 
 /**
- * Seeded jitter, keyed by webhook and attempt — design §2.2. Invariant 2
+ * Seeded jitter, keyed by webhook and attempt - design §2.2. Invariant 2
  * forbids `Math.random()`, and keying by attempt rather than advancing one
  * stream means a delivery's delays do not depend on how many other deliveries
  * came first. That is what keeps a run replayable and a failing test
@@ -105,7 +105,7 @@ export async function deliver(input: DeliverInput): Promise<Delivery> {
   let lastStatus: number | undefined
 
   const method = input.method ?? 'POST'
-  // GET and HEAD cannot carry a body — undici (and the fetch spec generally)
+  // GET and HEAD cannot carry a body - undici (and the fetch spec generally)
   // throws `Request with GET/HEAD method cannot have body` rather than
   // silently dropping it. A webhook declared `get:` or `head:` would
   // otherwise burn every retry attempt against a guaranteed throw.

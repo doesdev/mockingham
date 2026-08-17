@@ -1,14 +1,14 @@
 /**
  * HMAC-SHA256 over `timestamp + '.' + rawBody`, per master spec §13.
  *
- * `crypto.subtle` rather than `node:crypto` — see the webhooks design §2.1.
+ * `crypto.subtle` rather than `node:crypto` - see the webhooks design §2.1.
  * Emission is reachable from `src/server/handler.ts`, and invariant 3 says the
  * handler and everything it imports must not touch Node APIs. `crypto.subtle`
  * is a web global like `Request` and `TextEncoder`, which the core already
  * depends on. It is async, which costs nothing because delivery already is.
  *
- * This exists so the client's signature-verification path — the
- * security-critical one — is exercised before production rather than after.
+ * This exists so the client's signature-verification path - the
+ * security-critical one - is exercised before production rather than after.
  */
 
 export const SIGNATURE_HEADER = 'x-mockingham-signature'

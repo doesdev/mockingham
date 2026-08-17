@@ -17,7 +17,7 @@ function split(path: string): string[] {
  *   '* /users/{id}'      any method
  *   'GET /orders/*'      '*' matches one segment, '**' matches the rest
  *
- * Path matching is against the template, not against a concrete request path —
+ * Path matching is against the template, not against a concrete request path -
  * `{id}` is a literal segment here, so '/users/{id}' targets the operation and
  * '/users/42' targets nothing.
  */
@@ -59,7 +59,7 @@ export function compileTarget(target: string): TargetMatcher {
 
 /**
  * Resolves a target against a document's operations. A target matching nothing
- * is a configuration error rather than an empty result — it means an override,
+ * is a configuration error rather than an empty result - it means an override,
  * failure policy, or control-plane call would silently never fire.
  */
 export function resolveTarget(

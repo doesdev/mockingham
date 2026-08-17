@@ -26,7 +26,7 @@ function toResponseSpec(
   }
 }
 
-/** OpenAPI 3.x range keys — `1XX` through `5XX`. */
+/** OpenAPI 3.x range keys - `1XX` through `5XX`. */
 const RANGE_KEY = /^([1-5])XX$/i
 const EXACT_KEY = /^[1-5][0-9]{2}$/
 
@@ -60,7 +60,7 @@ function toResponses(
   // after being shown unobservable: an exact key like '400' is integer-like and
   // JS iterates it before a string key like '4XX' whatever the document's own
   // order, so `Object.entries` already hands them over exact-first and a stable
-  // sort preserves that. Nothing downstream depends on this order either —
+  // sort preserves that. Nothing downstream depends on this order either -
   // `responseForStatus` selects exact over range explicitly rather than by
   // position. It stays because a total sort should not rely on two unrelated
   // language guarantees holding forever.
@@ -110,8 +110,8 @@ export function loadApi(doc: Record<string, unknown>): Api {
     asRecord(resolved['components'])['securitySchemes']
   )
   // A document-level `security` is the default for operations that declare
-  // none. An operation's own `security: []` must survive as an empty array —
-  // it opts out of that default — so the fallback tests for `undefined`, not
+  // none. An operation's own `security: []` must survive as an empty array -
+  // it opts out of that default - so the fallback tests for `undefined`, not
   // for emptiness.
   const documentSecurity = toSecurity(resolved['security'])
   const operations: Operation[] = []
@@ -157,7 +157,7 @@ export function loadApi(doc: Record<string, unknown>): Api {
         operationId: op['operationId'] as string | undefined,
         summary: op['summary'] as string | undefined,
         description: op['description'] as string | undefined,
-        // Non-strings are dropped rather than coerced — same treatment every
+        // Non-strings are dropped rather than coerced - same treatment every
         // other array in this loader gives a malformed entry. A tag is a
         // filter key; a coerced "7" would match nothing and look like a bug.
         tags: Array.isArray(op['tags'])

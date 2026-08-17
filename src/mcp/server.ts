@@ -7,7 +7,7 @@ export interface McpOptions {
    * `http` mounts on the mock's own port. `inline` attaches nothing, which is
    * what a test wants. Default `inline`.
    *
-   * `stdio` attaches nothing either — despite what this comment said until
+   * `stdio` attaches nothing either - despite what this comment said until
    * deferred item 32 was closed, it does NOT connect immediately. Nothing here
    * or in `mcp()` branches on `'stdio'` at all; a handle only starts talking
    * JSON-RPC once the caller awaits `handle.connectStdio()`, which is what the
@@ -17,7 +17,7 @@ export interface McpOptions {
   transport?: 'http' | 'stdio' | 'inline'
   /** http only. Default `/mcp`. */
   path?: string
-  /** Expose the eight write tools. Default false — design §3.7. */
+  /** Expose the eight write tools. Default false - design §3.7. */
   write?: boolean
 }
 
@@ -27,7 +27,7 @@ export interface McpServerHandle {
   /** Serves over stdio. Node-only. */
   connectStdio(): Promise<void>
   close(): Promise<void>
-  /** Handles one HTTP request. Fresh server and transport per call — see below. */
+  /** Handles one HTTP request. Fresh server and transport per call - see below. */
   handleRequest(request: Request): Promise<Response>
 }
 
@@ -53,24 +53,24 @@ interface TransportLike {
 
 /**
  * Lazily imported so the package keeps zod as its only hard runtime
- * dependency. Only a genuinely absent module becomes the friendly message — an
+ * dependency. Only a genuinely absent module becomes the friendly message - an
  * error thrown from inside the SDK propagates as itself, because reporting a
  * broken install as a missing one sends the reader to the wrong problem.
  *
  * Every specifier is read through a non-literal variable so `tsc` cannot
- * resolve it statically — the same trick `fixtures/sources/anthropic.ts` uses,
+ * resolve it statically - the same trick `fixtures/sources/anthropic.ts` uses,
  * and for the same reason. This package ships raw TypeScript (`main` is
  * `src/index.ts`) and `src/index.ts` imports this module statically, so a
  * literal specifier would fail a consumer's own `tsc --noEmit` with TS2307
  * whenever they skipped the optional peer dependency.
  *
  * The cost, stated plainly: a non-literal specifier types the import as `any`,
- * so the compiler NEVER checks the casts below — not even once
+ * so the compiler NEVER checks the casts below - not even once
  * @modelcontextprotocol/sdk IS installed. `McpServerLike` and `TransportLike`
  * are therefore unverified against the real SDK; if it renames an export or
  * changes a constructor or method signature, only a runtime failure would show
  * it. Review both interfaces and these casts by hand whenever the SDK is
- * bumped. In practice that is a small bill here — both are already narrow
+ * bumped. In practice that is a small bill here - both are already narrow
  * structural interfaces reached through `as never`.
  */
 async function loadSdk(): Promise<{
@@ -117,7 +117,7 @@ function register(server: McpServerLike, context: McpContext, tools: McpTool[]):
 
   // With the gate closed, a caller who knows a write tool's name gets a
   // refusal that says how to enable it, rather than the SDK's bare "not
-  // found" — which reads like the feature does not exist.
+  // found" - which reads like the feature does not exist.
   //
   // The names come from WRITE_TOOLS rather than a literal list: another write
   // tool added later must not silently lose its refusal message.
@@ -157,7 +157,7 @@ export function createMcpServer(
       // A fresh server and transport per request. This is required, not
       // defensive: a stateless transport throws on its second handleRequest,
       // because reuse collides message ids between clients. Our tools hold no
-      // state — everything they touch lives on the Mock — so there is nothing
+      // state - everything they touch lives on the Mock - so there is nothing
       // a session would remember. Registering twelve tools costs microseconds.
       const transport = new sdk.WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,

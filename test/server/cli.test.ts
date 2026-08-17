@@ -88,7 +88,7 @@ test('startCli still treats --help as nothing to serve', async () => {
   // Unchanged: startCli's contract is "serve a document or throw". The exit-0
   // behavior for a real `mockingham --help` invocation lives in the
   // `import.meta.main` block, which checks the flag before ever calling this
-  // — see the next test, which drives the actual entry point.
+  // - see the next test, which drives the actual entry point.
   await assert.rejects(
     startCli(['--help'], { log: () => {} }),
     /nothing to serve/
@@ -97,7 +97,7 @@ test('startCli still treats --help as nothing to serve', async () => {
 
 test('mockingham --help exits 0', async () => {
   // The real regression: `--help` used to reach startCli's throw, which made
-  // the process exit 1 — wrong for a help flag, and enough to break a CI
+  // the process exit 1 - wrong for a help flag, and enough to break a CI
   // smoke check that just runs `--help` and expects success.
   const exitCode = await new Promise<number | null>((resolve, reject) => {
     const child = spawn(process.execPath, [cliPath, '--help'], { stdio: 'ignore' })
@@ -121,7 +121,7 @@ test('mockingham with a missing document argument still exits non-zero', async (
 test('mockingham with an unknown flag exits 1 with a clean message, not a stack trace', async () => {
   // Regression from the --help fix: parseArgs used to be called outside the
   // entry point's try, so a bad argument threw during top-level module
-  // evaluation instead of being caught — a raw stack trace on stderr instead
+  // evaluation instead of being caught - a raw stack trace on stderr instead
   // of the same one clean line every other CLI misuse gets.
   const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>(
     (resolve, reject) => {
@@ -178,7 +178,7 @@ test('serve --fixtures serves a fixture from disk', async () => {
 
   // close() in a finally, not after the assertions: a failing assertion would
   // otherwise leave the port open and the runner would HANG instead of
-  // reporting. Verified — an early version of this test did exactly that.
+  // reporting. Verified - an early version of this test did exactly that.
   const handle = await startCli([path, '--fixtures', fixtures], { log: () => {} })
   try {
     const response = await fetch(`${handle.url}/ping`)
@@ -318,10 +318,10 @@ test('startBake fails clearly when no model is configured, before ever calling t
       }
     }),
     // The exact wording of resolveBakeModel's own guard, not merely something
-    // that happens to mention "model" — a zod validation error on a missing
+    // that happens to mention "model" - a zod validation error on a missing
     // required field would satisfy a looser /model/i check without proving
     // resolveBakeModel's guard ran at all.
-    /a model is required for bake — pass --model, or set/
+    /a model is required for bake - pass --model, or set/
   )
   assert.equal(fetchCalled, false)
 })
@@ -353,7 +353,7 @@ test('startBake generates a fixture through an injected source and flushes the s
 test('startBake still flushes the store when every generation attempt fails', async () => {
   // Invariant 4 applied to bake specifically: a source that refuses or errors
   // must not skip the write of whatever was already loaded/generated. If
-  // `flush()` were only called on the success path, this run — 0 generated —
+  // `flush()` were only called on the success path, this run - 0 generated -
   // would prove nothing either way, which is why `flushCalls()` is asserted
   // directly rather than inferred from the summary.
   const directory = await mkdtemp(join(tmpdir(), 'mockingham-bake-'))
@@ -380,7 +380,7 @@ test('startBake writes fixture files to disk through the real store (proves flus
   // createDiskFixtureStore and its 250ms debounce. Reading the file back
   // immediately after startBake resolves, with no wait of our own, would fail
   // with ENOENT if the implementation's `await store.flush()` were ever
-  // dropped — the debounced write would not have happened yet.
+  // dropped - the debounced write would not have happened yet.
   const directory = await mkdtemp(join(tmpdir(), 'mockingham-bake-'))
   const path = join(directory, 'api.json')
   await writeFile(path, doc('t'))
@@ -405,7 +405,7 @@ test('startBake writes fixture files to disk through the real store (proves flus
 
 test('mockingham bake is dispatched to the bake subcommand, not treated as a document', async () => {
   // If `bake` fell through to the serve path, parseArgs would treat "bake"
-  // as the document filename and startCli would fail trying to read it —
+  // as the document filename and startCli would fail trying to read it -
   // an ENOENT, not this message. Checking for both is what proves dispatch
   // happened rather than merely happening to produce a similar-looking error.
   const { exitCode, stderr } = await new Promise<{ exitCode: number | null; stderr: string }>(
@@ -466,7 +466,7 @@ test('mockingham bake exits 1 with a clear message when no model is configured a
   )
 
   assert.equal(exitCode, 1)
-  assert.ok(stderr.includes('a model is required for bake — pass --model, or set'))
+  assert.ok(stderr.includes('a model is required for bake - pass --model, or set'))
 })
 
 test('BAKE_USAGE names every bake flag', () => {

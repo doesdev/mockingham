@@ -10,5 +10,5 @@ await mock.listen(0)
 ```
 
 ```console
-never printed — the process is still listening
+never printed - the process is still listening
 ```

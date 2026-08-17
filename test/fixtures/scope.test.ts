@@ -49,7 +49,7 @@ test('bySchema keeps a whole named subschema', () => {
 test('narrowing an array applies per item', () => {
   const list: Schema = { type: 'array', items: user }
   const value = [{ id: 1, bio: 'a' }, { id: 2, bio: 'b' }]
-  // Index-keyed object, not a literal array — this is the exact shape
+  // Index-keyed object, not a literal array - this is the exact shape
   // overlay() in src/resolve/layer.ts merges into a base array per index.
   // A literal array override would replace the base array wholesale instead.
   assert.deepEqual(narrow(value, list, { byName: ['bio'] }, new Map()), {
@@ -62,8 +62,8 @@ test('an array with only some items in scope omits the rest by index', () => {
   const list: Schema = { type: 'array', items: user }
   const value = [{ id: 1, bio: 'a' }, { id: 2 }, { id: 3, bio: 'c' }]
   const result = narrow(value, list, { byName: ['bio'] }, new Map())
-  // Index 1 has no `bio`, so it must be OMITTED entirely — not present as
-  // `undefined` or `null` — so overlay() leaves the generated item at that
+  // Index 1 has no `bio`, so it must be OMITTED entirely - not present as
+  // `undefined` or `null` - so overlay() leaves the generated item at that
   // index untouched rather than reading it as an explicit blank.
   assert.deepEqual(result, { '0': { bio: 'a' }, '2': { bio: 'c' } })
   assert.equal(Object.prototype.hasOwnProperty.call(result, '1'), false)
@@ -101,7 +101,7 @@ test('applying a narrowed array preserves every generated field outside scope', 
   // This is the test that actually pins the defect closed: it feeds
   // narrow()'s REAL, UNMODIFIED return value through the real
   // overlay/applyOverrides pipeline (no hand-reconstruction of the override
-  // in between — that would let a literal-array regression slip through,
+  // in between - that would let a literal-array regression slip through,
   // since string-indexing into an array and looking up a key on an object
   // read identically at the single-index call site) and checks the merged
   // result still has every field the schema generator would have produced,
@@ -125,7 +125,7 @@ test('applying a narrowed array preserves every generated field outside scope', 
     bio: 'generated-1',
     address: { city: 'Leeds' }
   })
-  // The unmatched item must be untouched — every generated field intact,
+  // The unmatched item must be untouched - every generated field intact,
   // not truncated or replaced.
   assert.deepEqual(merged[1], {
     id: 2,

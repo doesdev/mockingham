@@ -65,7 +65,7 @@ test('the same seed produces the same value', () => {
 
 test('different seeds produce different values for a wide pattern', () => {
   // Guards the seed actually reaching the generator. Without this, the
-  // determinism test above passes against a hardcoded constant return —
+  // determinism test above passes against a hardcoded constant return -
   // determinism makes a test toothless by default.
   assert.notEqual(
     generateFromPattern('^[a-z]{16}$', createRng('a')),
@@ -82,8 +82,8 @@ test('a bounded quantifier respects both of its bounds', () => {
 })
 
 test('a quantifier count varies with the seed', () => {
-  // Bounds alone do not pin this: a generator that always emitted `max` — or
-  // always `min` — satisfies every length assertion above while ignoring the
+  // Bounds alone do not pin this: a generator that always emitted `max` - or
+  // always `min` - satisfies every length assertion above while ignoring the
   // rng completely. Only observing more than one length proves the draw.
   const lengths = new Set<number>()
   for (let i = 0; i < 40; i++) {
