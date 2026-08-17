@@ -264,6 +264,27 @@ interface ChildResult {
  */
 const MAX_STDOUT_BYTES = 32 * 1024 * 1024
 
+/**
+ * The parent environment with color forced off. Setting `NO_COLOR` is not
+ * enough on its own: `FORCE_COLOR` overrides it, and Node announces the
+ * conflict with a warning on stderr. Plenty of terminals and CI runners
+ * export `FORCE_COLOR`, and that warning would land in the stderr every
+ * document comparison reports on, failing documents for a reason that has
+ * nothing to do with what they claim.
+ *
+ * The delete is case-insensitive because Windows environment variables are.
+ * The spread produces a plain object, which is not - so a parent holding
+ * `Force_Color` would survive `delete env.FORCE_COLOR` here and still reach
+ * the child as `FORCE_COLOR`.
+ */
+function colorlessEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' }
+  for (const key of Object.keys(env)) {
+    if (key.toUpperCase() === 'FORCE_COLOR') delete env[key]
+  }
+  return env
+}
+
 function runChild(program: string, cwd: string, timeoutMs: number): Promise<ChildResult> {
   return new Promise((resolve) => {
     execFile(
@@ -271,7 +292,7 @@ function runChild(program: string, cwd: string, timeoutMs: number): Promise<Chil
       [program],
       {
         cwd,
-        env: { ...process.env, NO_COLOR: '1' },
+        env: colorlessEnv(),
         timeout: timeoutMs,
         maxBuffer: MAX_STDOUT_BYTES
       },

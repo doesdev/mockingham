@@ -320,6 +320,24 @@ test('a mismatch error includes a stderr section, marked empty when there is non
   )
 })
 
+// Many terminals and CI runners export FORCE_COLOR. The harness sets NO_COLOR
+// on the child, and Node prints "the NO_COLOR env is ignored" to stderr when
+// it sees both - which lands in the stderr every document comparison reports
+// on, for a reason no document controls. The child's environment has to be
+// built, not inherited and patched.
+test('a parent FORCE_COLOR leaves no warning on the child stderr', async () => {
+  const before = process.env.FORCE_COLOR
+  process.env.FORCE_COLOR = '1'
+  try {
+    const result = await runDocument(fixture('good.md'))
+    assert.equal(result.stderr, '')
+    assert.equal(result.code, 0)
+  } finally {
+    if (before === undefined) delete process.env.FORCE_COLOR
+    else process.env.FORCE_COLOR = before
+  }
+})
+
 // ── Each of these documents SHOULD fail. A check with no document proving it
 // fires is the same defect the ledger entries it closes were about.
 

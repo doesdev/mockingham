@@ -83,6 +83,18 @@ test('a real MCP client can list and call tools over stdio', async () => {
   }
 })
 
+/**
+ * Startup here is Node booting, stripping types across the CLI's whole import
+ * graph, and loading the MCP SDK. Measured at ~0.4s on native Windows and
+ * ~6.3s under WSL with the repo on a /mnt/c drvfs mount - steady state, not a
+ * cold cache - so the original 5s fell between the two and failed every run
+ * on the slower one while the product was working correctly.
+ *
+ * It can afford to be generous because the exit and error branches below are
+ * what catch a real breakage. This timer only fires for a genuine hang.
+ */
+const STARTUP_TIMEOUT_MS = 30_000
+
 test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands on stderr', async () => {
   // Spawned directly with node:child_process rather than through the SDK
   // client, so this test watches the raw byte streams instead of trusting
@@ -114,8 +126,13 @@ test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands o
     // "where did the ready line actually go".
     const firstStream = await new Promise<'stdout' | 'stderr'>((resolve, reject) => {
       const timer = setTimeout(
-        () => reject(new Error('mcp subprocess produced no output within 5s')),
-        5000
+        () =>
+          reject(
+            new Error(
+              `mcp subprocess produced no output within ${STARTUP_TIMEOUT_MS}ms`
+            )
+          ),
+        STARTUP_TIMEOUT_MS
       )
       child.stdout.once('data', () => {
         clearTimeout(timer)
@@ -124,6 +141,25 @@ test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands o
       child.stderr.once('data', () => {
         clearTimeout(timer)
         resolve('stderr')
+      })
+      // A subprocess that dies during startup - a bad import, a throw before
+      // the ready line - would otherwise be indistinguishable from a slow
+      // one: the test would wait out the whole budget and report "no output"
+      // while the exit code and the stderr explaining it were already in
+      // hand. These two branches are what let the budget above be generous.
+      child.once('error', (error) => {
+        clearTimeout(timer)
+        reject(error)
+      })
+      child.once('exit', (code, signal) => {
+        clearTimeout(timer)
+        reject(
+          new Error(
+            `mcp subprocess exited (code ${code}, signal ${signal}) before ` +
+              'writing anything. stderr: ' +
+              JSON.stringify(Buffer.concat(stderrChunks).toString('utf8'))
+          )
+        )
       })
     })
 
@@ -155,7 +191,13 @@ test('nothing reaches stdout before JSON-RPC traffic, and the ready line lands o
       'the ready message should name the document path'
     )
   } finally {
-    child.kill()
-    await new Promise((resolve) => child.once('exit', resolve))
+    // Guarded, because 'exit' does not fire twice. A subprocess that died
+    // during startup has already emitted it, so an unconditional wait here
+    // never returns - turning any early-exit failure into a hung test run
+    // instead of the assertion failure it should be.
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill()
+      await new Promise((resolve) => child.once('exit', resolve))
+    }
   }
 })
