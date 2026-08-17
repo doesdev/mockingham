@@ -208,6 +208,16 @@ test('an unterminated quoted value throws', () => {
 })
 
 import { assembleProgram, expectedOutput, assertDocument, runDocument } from './harness.ts'
+import { fileURLToPath } from 'node:url'
+
+/**
+ * `fileURLToPath`, not `new URL(...).pathname`. On Windows the pathname of a
+ * file URL is `/C:/repo/...`, which `readFile` resolves against the current
+ * drive into `C:\C:\repo\...` and then fails to open. Every fixture below is
+ * addressed through here so that cannot come back one call site at a time.
+ */
+const fixture = (name: string): string =>
+  fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))
 
 test('assembleProgram rewrites the bare specifier to the entry path', () => {
   const fences = extractFences(
@@ -261,19 +271,19 @@ test('expectedOutput joins the console fences in order', () => {
 })
 
 test('a document whose output matches passes', async () => {
-  await assertDocument(new URL('./fixtures/good.md', import.meta.url).pathname)
+  await assertDocument(fixture('good.md'))
 })
 
 test('a document whose expected output is wrong fails, showing both sides', async () => {
   await assert.rejects(
-    assertDocument(new URL('./fixtures/mismatch.md', import.meta.url).pathname),
+    assertDocument(fixture('mismatch.md')),
     /operations: 5[\s\S]*operations: 4|operations: 4[\s\S]*operations: 5/
   )
 })
 
 test('a document whose program throws fails with the child stderr attached', async () => {
   await assert.rejects(
-    assertDocument(new URL('./fixtures/throws.md', import.meta.url).pathname),
+    assertDocument(fixture('throws.md')),
     /nope is not a function/
   )
 })
@@ -284,28 +294,28 @@ test('a document whose program throws fails with the child stderr attached', asy
 // expected output and the actual output degrade to the empty string, so
 // "does not throw" alone cannot distinguish a real pass from a vacuous one.
 test('a CRLF document normalizes line endings and its fences still run', async () => {
-  const result = await runDocument(new URL('./fixtures/crlf.md', import.meta.url).pathname)
+  const result = await runDocument(fixture('crlf.md'))
   assert.equal(result.code, 0)
   assert.equal(result.stdout.trim(), 'operations: 4')
 })
 
 test('a document with no ts fence throws naming the file', async () => {
   await assert.rejects(
-    runDocument(new URL('./fixtures/no-ts.md', import.meta.url).pathname),
+    runDocument(fixture('no-ts.md')),
     /no-ts\.md.*no ts fence/s
   )
 })
 
 test('a program that never exits is reported as a timeout, not a false exit code', async () => {
   await assert.rejects(
-    assertDocument(new URL('./fixtures/hangs.md', import.meta.url).pathname, 2000),
+    assertDocument(fixture('hangs.md'), 2000),
     /did not exit within 2000ms/
   )
 })
 
 test('a mismatch error includes a stderr section, marked empty when there is none', async () => {
   await assert.rejects(
-    assertDocument(new URL('./fixtures/mismatch.md', import.meta.url).pathname),
+    assertDocument(fixture('mismatch.md')),
     /--- stderr ---\n\(empty\)/
   )
 })
@@ -317,7 +327,7 @@ test('a document writing to stdout outside console.log is rejected', async () =>
   // Deferred item 34. This document produces correct, stable output - the
   // objection is the route, which the old substring scan could not see.
   await assert.rejects(
-    assertDocument(new URL('./fixtures/stdout-bypass.md', import.meta.url).pathname),
+    assertDocument(fixture('stdout-bypass.md')),
     /process\.stdout\.write writes to a stream/
   )
 })
@@ -326,7 +336,7 @@ test('a two-argument console.log behind a doubled backslash is rejected', async 
   // Deferred item 35. The old lookback read the escaped backslash as escaping
   // the quote, never left the string, and accepted the second argument.
   await assert.rejects(
-    assertDocument(new URL('./fixtures/escaped-quote.md', import.meta.url).pathname),
+    assertDocument(fixture('escaped-quote.md')),
     /single argument/
   )
 })
@@ -334,7 +344,7 @@ test('a two-argument console.log behind a doubled backslash is rejected', async 
 test('a console fence above the code that produces it is rejected', async () => {
   // Deferred item 36.
   await assert.rejects(
-    assertDocument(new URL('./fixtures/output-before-code.md', import.meta.url).pathname),
+    assertDocument(fixture('output-before-code.md')),
     /console fence appears before any ts fence/
   )
 })
@@ -343,7 +353,7 @@ test('program-shaped output in an inert txt fence is rejected', async () => {
   // Deferred item 37. The fence stays inert for file trees; what is rejected
   // is content shaped like output nobody checks.
   await assert.rejects(
-    assertDocument(new URL('./fixtures/fabricated-txt.md', import.meta.url).pathname),
+    assertDocument(fixture('fabricated-txt.md')),
     /looks like program output/
   )
 })
@@ -352,7 +362,7 @@ test('an args array under a key other than mcpServers is still parsed', async ()
   // Deferred item 38. `--nope` is not a flag the CLI accepts, and the old
   // check returned before ever looking because the top-level key differed.
   await assert.rejects(
-    assertDocument(new URL('./fixtures/other-args-key.md', import.meta.url).pathname),
+    assertDocument(fixture('other-args-key.md')),
     /unknown option --nope/
   )
 })

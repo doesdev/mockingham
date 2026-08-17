@@ -160,7 +160,7 @@ import { mkdtemp, writeFile, copyFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   assertPrintableLogs,
   assertBareSpecifier,
@@ -169,7 +169,16 @@ import {
 } from './fence-checks.ts'
 
 const REPO = fileURLToPath(new URL('../../', import.meta.url))
-const ENTRY = join(REPO, 'src', 'index.ts')
+
+/**
+ * A URL, not a path, because this is substituted into an `import` statement.
+ * An absolute POSIX path happens to be a usable specifier; the Windows
+ * equivalent is not, and Node rejects `C:\...` with ERR_UNSUPPORTED_ESM_URL_
+ * SCHEME because it reads the drive letter as a protocol. `file://` is the
+ * one spelling both platforms accept.
+ */
+const ENTRY = pathToFileURL(join(REPO, 'src', 'index.ts')).href
+
 const EXAMPLE_DOC = join(REPO, 'docs', 'example.json')
 
 /** The default: generous enough for a real document, short enough that a
@@ -188,10 +197,10 @@ const DEFAULT_TIMEOUT_MS = 30_000
  */
 const IMPORT_SPECIFIER = /from\s+(['"])mockingham\1/g
 
-export function assembleProgram(fences: Fence[], entryPath: string): string {
+export function assembleProgram(fences: Fence[], entry: string): string {
   return fences
     .filter((fence) => fence.lang === 'ts')
-    .map((fence) => fence.content.replace(IMPORT_SPECIFIER, `from ${JSON.stringify(entryPath)}`))
+    .map((fence) => fence.content.replace(IMPORT_SPECIFIER, `from ${JSON.stringify(entry)}`))
     .join('\n\n')
 }
 
