@@ -1,6 +1,8 @@
 import type { Schema } from '../spec/types.ts'
 import type { Rng } from './rng.ts'
 import { applyMultipleOf, numberBounds, stringLength } from './constraints.ts'
+import { DEFAULT_SEED_TIME } from './clock.ts'
+import type { VirtualClock } from './clock.ts'
 
 const WORDS = [
   'alder', 'basalt', 'cedar', 'dune', 'ember', 'fjord', 'gale', 'harbor',
@@ -44,7 +46,55 @@ function generateDate(rng: Rng): Date {
   return new Date(EPOCH_MS + rng.int(0, YEAR_MS))
 }
 
-export function generateString(schema: Schema, rng: Rng): string {
+/**
+ * `format: "uuid7"` plus the RFC-adjacent spellings. `format` is an open string
+ * in JSON Schema, so recognizing these is a legal extension rather than a
+ * redefinition of the registered `uuid` format — which stays v4, unchanged.
+ *
+ * An array rather than a Set: membership is all that is needed, and invariant 2
+ * forbids iteration over an unordered Set in a generation path.
+ */
+const UUID7_FORMATS = ['uuid7', 'uuidv7', 'uuid-v7'] as const
+
+function normalizeFormat(value: unknown): string | undefined {
+  return typeof value === 'string' ? value.trim().toLowerCase() : undefined
+}
+
+/**
+ * `x-mock-format` wins over `format`, so a document that cannot change `format`
+ * without breaking another consumer's validation can still ask for a v7.
+ */
+function wantsUuid7(schema: Schema): boolean {
+  const requested = normalizeFormat(schema['x-mock-format'])
+    ?? normalizeFormat(schema.format)
+  return requested !== undefined
+    && (UUID7_FORMATS as readonly string[]).includes(requested)
+}
+
+/**
+ * RFC 9562 layout: 48 bits of millisecond timestamp, version `7`, 12 random
+ * bits, variant `10`, then 62 more random bits. The timestamp comes from the
+ * seeded virtual clock and the random bits from the existing seeded PRNG, so
+ * the value is reproducible across processes despite carrying a time.
+ *
+ * With no clock supplied — a call site that generates outside a mock — every
+ * value carries the same constant timestamp. Still deterministic, still a
+ * well-formed v7; it simply loses the ordering, which is nothing to order.
+ */
+function generateUuid7(rng: Rng, clock?: VirtualClock): string {
+  const ms = clock ? clock.next() : DEFAULT_SEED_TIME
+  const stamp = ms.toString(16).padStart(12, '0').slice(-12)
+  return `${stamp.slice(0, 8)}-${stamp.slice(8, 12)}-7${hex(rng, 3)}-${
+    HEX[rng.int(8, 11)]
+  }${hex(rng, 3)}-${hex(rng, 12)}`
+}
+
+export function generateString(
+  schema: Schema,
+  rng: Rng,
+  clock?: VirtualClock
+): string {
+  if (wantsUuid7(schema)) return generateUuid7(rng, clock)
   switch (schema.format) {
     case 'email':
       return `${rng.pick(GIVEN)}.${rng.pick(FAMILY)}@${word(rng)}.${rng.pick(TLDS)}`

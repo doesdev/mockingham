@@ -2,6 +2,7 @@ import type { Schema } from '../spec/types.ts'
 import { classify, mergeAllOf, variantName } from '../schema/walk.ts'
 import { arrayLength } from './constraints.ts'
 import type { Rng } from './rng.ts'
+import type { VirtualClock } from './clock.ts'
 import type { ResolverLookup } from '../resolve/resolvers.ts'
 import {
   generateBoolean, generateInteger, generateNumber, generateString
@@ -19,6 +20,11 @@ export interface GenerateOptions {
    * tree. A name matching no branch falls through to the seeded pick.
    */
   variant?: string
+  /**
+   * The per-mock seeded virtual clock UUIDv7 generation reads. Per-mock rather
+   * than per-request, so ids from successive requests sort correctly.
+   */
+  clock?: VirtualClock
 }
 
 const DEFAULT_MAX_DEPTH = 3
@@ -63,7 +69,7 @@ export function generateValue(
       case 'enum':
         return rng.pick(kind.values)
       case 'string':
-        return generateString(merged, rng)
+        return generateString(merged, rng, options.clock)
       case 'integer':
         return generateInteger(merged, rng)
       case 'number':

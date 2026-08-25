@@ -4,6 +4,7 @@ import { createRng } from '../../src/generate/rng.ts'
 import {
   generateBoolean, generateInteger, generateNumber, generateString
 } from '../../src/generate/values.ts'
+import { createVirtualClock, DEFAULT_SEED_TIME } from '../../src/generate/clock.ts'
 
 test('strings respect length bounds', () => {
   const rng = createRng('strings')
@@ -106,4 +107,67 @@ test('number rounding never escapes the declared bounds', () => {
 
 test('booleans are booleans', () => {
   assert.equal(typeof generateBoolean(createRng('b')), 'boolean')
+})
+
+const V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+const clock = () => createVirtualClock()
+
+test('format uuid7 produces a well-formed v7', () => {
+  const value = generateString({ type: 'string', format: 'uuid7' }, createRng('s'), clock())
+  assert.match(value, V7)
+})
+
+test('the uuidv7 and uuid-v7 spellings are recognized too', () => {
+  assert.match(
+    generateString({ type: 'string', format: 'uuidv7' }, createRng('s'), clock()),
+    V7
+  )
+  assert.match(
+    generateString({ type: 'string', format: 'uuid-v7' }, createRng('s'), clock()),
+    V7
+  )
+})
+
+test('successive v7 values sort by generation order', () => {
+  const c = clock()
+  const rng = createRng('s')
+  const ids = Array.from(
+    { length: 20 },
+    () => generateString({ type: 'string', format: 'uuid7' }, rng, c)
+  )
+  // The whole point of v7. Sorting must be lexicographic on the raw string.
+  assert.deepEqual([...ids].sort(), ids)
+})
+
+test('the same seed and seedTime reproduce the same ids', () => {
+  const one = generateString({ type: 'string', format: 'uuid7' }, createRng('s'), clock())
+  const two = generateString({ type: 'string', format: 'uuid7' }, createRng('s'), clock())
+  assert.equal(one, two)
+})
+
+test('x-mock-format wins over a plain uuid format', () => {
+  const value = generateString(
+    { type: 'string', format: 'uuid', 'x-mock-format': 'uuid7' }, createRng('s'), clock())
+  assert.match(value, V7)
+})
+
+test('plain uuid is still v4', () => {
+  // The existing behavior must not move.
+  const value = generateString({ type: 'string', format: 'uuid' }, createRng('s'), clock())
+  assert.match(value, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+})
+
+test('the virtual clock starts at seedTime and reset returns it there', () => {
+  const c = createVirtualClock(1735689600000)
+  assert.equal(c.next(), 1735689600000)
+  assert.equal(c.next(), 1735689600001)
+  c.reset()
+  assert.equal(c.next(), 1735689600000)
+})
+
+test('the default seed time is a fixed constant, never the wall clock', () => {
+  const c = createVirtualClock()
+  assert.equal(c.next(), DEFAULT_SEED_TIME)
+  assert.equal(DEFAULT_SEED_TIME, Date.parse('2025-01-01T00:00:00.000Z'))
 })

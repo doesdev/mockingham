@@ -279,6 +279,10 @@ export type { Delivery } from './webhooks/deliver.ts'
 export type { WebhookConfig } from './webhooks/emit.ts'
 export type { LlmConfig } from './fixtures/config.ts'
 export type { RuntimeOverride } from './runtime/overrides.ts'
+
+// `seedTime` arrives through HandlerOptions; the default it falls back to is
+// exported so a caller can offset from it rather than guess at it.
+export { DEFAULT_SEED_TIME } from './generate/clock.ts'
 export type { BakeSummary } from './fixtures/bake.ts'
 
 // The bake-commit-serve loop needs these at the package root. Exporting only
