@@ -23,7 +23,7 @@ export interface GenerateOptions {
   /**
    * The block of seeded timestamps UUIDv7 generation draws from. One per
    * request and one per emission, reserved SYNCHRONOUSLY by
-   * `VirtualClock.allocate()` before any await — so ids still sort by request
+   * `VirtualClock.allocate()` before any await - so ids still sort by request
    * order without generation order deciding anything. See `clock.ts` for why a
    * single shared counter broke invariant 2.
    */
@@ -92,7 +92,7 @@ export function generateValue(
       case 'union': {
         if (depth >= maxDepth) return null
         // A requested variant selects its branch directly, which deliberately
-        // skips the `rng.pick` call — so a request with a variant produces a
+        // skips the `rng.pick` call - so a request with a variant produces a
         // different byte stream than one without. The same variant always
         // produces the same bytes, which is what invariant 2 requires.
         const requested = options.variant

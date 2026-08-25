@@ -72,8 +72,8 @@ function captureInput(rule: CaptureRule, responseBody: unknown, table: unknown) 
 test('a whole-body remember records the body as a VALUE, not a resolved string', async () => {
   // The sharp edge from design §4.2: `resolveExpression` funnels body values
   // through a scalar coercion, so `{$response.body}` resolves to a FAILURE for
-  // an object. Recording nothing here would make the default configuration —
-  // the one nearly every caller uses — silently never link.
+  // an object. Recording nothing here would make the default configuration -
+  // the one nearly every caller uses - silently never link.
   const table = createLinkTable(createMemoryStore(() => 0), rules)
   const body = { id: 'ord_1', total: 9, nested: { deep: true } }
   await runCapture(captureInput(

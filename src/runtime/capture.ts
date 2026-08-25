@@ -20,7 +20,7 @@ import { REMEMBER_REQUEST_BODY, REMEMBER_RESPONSE_BODY } from './link.ts'
  * No `node:` imports here, ever: `server/handler.ts` calls this, and the core
  * is pure.
  *
- * Invariant 6 still holds at the call site, not here — the handler calls this
+ * Invariant 6 still holds at the call site, not here - the handler calls this
  * inside the single exit's `try`/`catch`, so a throw reaches `onError` and
  * never the caller.
  */
@@ -53,7 +53,7 @@ export interface CaptureInput {
  *
  * The sharp edge design §4.2 records: `{$response.body}` does NOT survive
  * `resolveExpression`. `resolveToken` funnels every body value through
- * `scalar()`, which returns `undefined` for an object — so a whole-body
+ * `scalar()`, which returns `undefined` for an object - so a whole-body
  * template resolves to a FAILURE, not to the body. The two whole-body forms are
  * therefore taken directly from the parsed values the caller already has, and
  * only pointer forms addressing a scalar go through `resolveExpression`. This
@@ -62,7 +62,7 @@ export interface CaptureInput {
  * A bare `$response.body` is accepted alongside the braced spelling, because
  * OpenAPI's own `callbacks` keys are written bare and a reader coming from the
  * spec will type it that way. That acceptance is `normalizeExpression`, the one
- * shared spelling — and the NORMALIZED string is what goes on to
+ * shared spelling - and the NORMALIZED string is what goes on to
  * `resolveExpression`, not the original. Passing the original on was the defect:
  * a bare pointer matched no token, came back `ok` with its own literal text,
  * and that text was recorded and served as the recalled value.
@@ -101,7 +101,7 @@ export async function runCapture(input: CaptureInput): Promise<void> {
       }
       const url = resolveExpression(rule.url, input.expr)
       // An unresolvable destination stores NOTHING, so a later emit falls
-      // through to the next tier rather than to an empty string — the same
+      // through to the next tier rather than to an empty string - the same
       // rule the callback branch above follows.
       if (url.ok) await input.registry.register(rule.webhook, url.value, scope)
       continue
@@ -111,7 +111,7 @@ export async function runCapture(input: CaptureInput): Promise<void> {
       const key = resolveExpression(rule.keyExpr, input.expr)
       // A key that does not resolve records nothing, so the read side falls
       // through to ordinary generation rather than recalling under an empty
-      // string — the same fall-through a missing fixture gets.
+      // string - the same fall-through a missing fixture gets.
       if (!key.ok) continue
       const value = remembered(rule.remember, input)
       if (value === undefined) continue
@@ -120,7 +120,7 @@ export async function runCapture(input: CaptureInput): Promise<void> {
     }
     // Every kind in the union is handled above. An unrecognized one is a
     // deliberate no-op rather than a throw: a throw would fail a whole capture
-    // pass — and with it every other rule at this exit — over one rule this
+    // pass - and with it every other rule at this exit - over one rule this
     // build does not act on.
   }
 }

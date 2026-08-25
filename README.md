@@ -17,11 +17,14 @@ If you've reached for one of those already, the difference here is what is
 guaranteed rather than what is merely possible. mockingham commits to four
 things as contracts, not happy accidents:
 
-- **Determinism.** The same request against the same seed produces
-  byte-identical output, every time, in every process. Nothing in a
+- **Determinism.** The same sequence of requests against the same seed
+  produces byte-identical output, every time, in every process. Nothing in a
   generation path reaches for `Math.random()`, `Date.now()`, or unordered
-  iteration - randomness comes from one seeded PRNG. See
-  [Determinism, demonstrated](#determinism-demonstrated) below.
+  iteration - randomness comes from one seeded PRNG. Sequence rather than a
+  lone request because a handful of features deliberately make a response
+  depend on what came before it; see
+  [Determinism, demonstrated](#determinism-demonstrated) below and the note
+  under [Response linking](#response-linking).
 - **One schema interpretation.** The same traversal of your OpenAPI schemas
   that generates a response body also compiles the validator an incoming
   request is checked against. Generation and validation cannot quietly
@@ -95,9 +98,10 @@ status 200
 no port required for a test to call it directly. Call `mock.listen()` when
 you actually want one; see the CLI reference below for the zero-code path.
 
-Notice `currency`: the document declares it `pattern: "^[A-Z]{3}$"`, and the
-generated value doesn't honor that. That's real, not a typo - see
-[Known limitations](#known-limitations).
+Notice `currency`: the document declares it `pattern: "^[A-Z]{3}$"`, and
+`"UMQ"` is generated from that pattern rather than in spite of it. Generation
+covers a documented subset of regex - see
+[Known limitations](#known-limitations) for what falls outside it.
 
 ## Determinism, demonstrated
 
@@ -126,13 +130,15 @@ await mockB.close()
 same bytes: true
 ```
 
-That's two mocks in the same process. The stronger claim - the same seed
-produces the same bytes across separate `node` processes, not merely two
-objects in one - is what `scripts/determinism.ts` exists to check: run it,
-run it again, and diff the two runs by hand. Nothing about generation reaches
-outside the seeded PRNG in `generate/rng.ts` for anything that ends up in a
-response body, which is what makes that comparison meaningful rather than
-lucky.
+That's two mocks in the same process, which a fixed seed makes easy. The
+stronger claim - the same seed produces the same bytes across separate `node`
+processes, not merely two objects in one - is asserted by
+`test/determinism/cross-process.test.ts`, which spawns `scripts/determinism.ts`
+twice as real subprocesses and diffs their output. It runs on every `npm test`;
+there is nothing to check by hand. Nothing about generation reaches outside the
+seeded PRNG in `generate/rng.ts`, or the seeded clock in `generate/clock.ts`
+for UUIDv7 timestamps, which is what makes that comparison meaningful rather
+than lucky.
 
 ## The tour
 
@@ -142,11 +148,12 @@ Every value mockingham generates comes from `schema/walk.ts`'s traversal of
 your schema, driven by the seeded PRNG - types, `format` (`uuid`,
 `date-time`, `email`, and friends), and numeric/string constraints
 (`minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `enum`) are
-all honored. `pattern` is the one constraint that isn't; see
-[Known limitations](#known-limitations).
+all honored. `pattern` is honored for a documented subset of regex, and
+outranks both a conflicting `format` and a conflicting length bound; see
+[Known limitations](#known-limitations) for the constructs outside that subset.
 
 **Time-ordered ids.** `format: "uuid7"` (and the spellings `uuidv7` and
-`uuid-v7`) generates RFC 9562 version 7 UUIDs, which sort by creation time —
+`uuid-v7`) generates RFC 9562 version 7 UUIDs, which sort by creation time -
 the property people reach for the moment they adopt v7. A real clock in a
 generation path would violate determinism outright, so the timestamp comes from
 a **seeded virtual clock** starting at `seedTime`. Each request, and each
@@ -155,7 +162,7 @@ arrives or is scheduled; values within a block advance one millisecond apiece.
 Monotonic within a run, identical across runs on the same seed.
 
 Reserving up front rather than drawing per value is what makes ids ordered by
-*request* order instead of by whichever generation happened to finish first —
+*request* order instead of by whichever generation happened to finish first -
 generation runs after overrides, variants and fixtures have all resolved, and a
 webhook with `afterMs` generates on a timer. So a caller who waits between two
 calls gets the same bytes as one who doesn't. The block size caps how many v7s
@@ -163,7 +170,7 @@ one request can mint before it stops sorting strictly ahead of the next
 request's; it is 65,536, which no mock will reach.
 
 `seedTime` defaults to a fixed epoch constant (`2025-01-01T00:00:00Z`), never
-`Date.now()` — a wall-clock default would make baked fixtures unstable across
+`Date.now()` - a wall-clock default would make baked fixtures unstable across
 runs, which is the exact failure `seedTime` exists to prevent. It must be a
 whole number of milliseconds from 0 up to 2^48, and anything else throws at
 construction rather than generating a malformed id. `reset()` returns the
@@ -226,7 +233,7 @@ lexical order is generation order: true
 
 Which branch of a `oneOf`/`anyOf` comes back is a seeded pick by default. Send
 `Prefer: variant=<name>` to ask for a specific one: a branch matches when its
-formal `discriminator` property, or — with no `discriminator` object at all —
+formal `discriminator` property, or - with no `discriminator` object at all -
 any of its const-valued properties, equals the name you asked for. That second
 rule is what makes the common `outcome: { const: "conflict" }` shape work
 without a discriminator declaration.
@@ -310,25 +317,25 @@ await variantMock.close()
 header outranks the stored preference: conflict
 ```
 
-A name matching no branch is **not** an error — it falls through to the seeded
+A name matching no branch is **not** an error - it falls through to the seeded
 pick, the same way an undeclared `Prefer: status` does. That is deliberate: the
 name arrives in a header, so construction has nothing to validate it against,
 and warning at runtime would fire constantly for the many responses that
 contain no union at all.
 
 The directive applies at every union in the tree; there is no per-union
-targeting syntax. It does not reach webhook payloads or error envelopes — see
+targeting syntax. It does not reach webhook payloads or error envelopes - see
 [Known limitations](#known-limitations).
 
 ### Response linking
 
 A create-then-read loop is the one shape a purely generative mock can't fake:
-you `POST /payments`, get an id back, `GET /payments/{that id}` — and get an
+you `POST /payments`, get an id back, `GET /payments/{that id}` - and get an
 unrelated payment. `link` closes exactly that gap and nothing wider.
 
 A rule names the operation that **records** (with an expression extracting the
 key from its response), the operation that **recalls** (with an expression
-extracting the key from its request), and optionally what to remember —
+extracting the key from its request), and optionally what to remember -
 `remember` defaults to the whole response body. Both targets are control-plane
 targets, resolved at construction, so a typo throws rather than silently never
 linking.
@@ -383,7 +390,7 @@ That is the whole feature.
 
 What the mock supplies no semantics of its own for is mutation and lifecycle.
 It never infers that a `PUT` updates an entity, that a `DELETE` removes one, or
-that a create should cascade into a collection — it has no model of your
+that a create should cascade into a collection - it has no model of your
 resources to reason about. But **a rule you write is what decides which
 operations record**, and nothing restricts `from` to creates. Add a second rule
 whose `from` is your `PUT /payments/{id}` and whose `to` is the same `GET`, and
@@ -395,7 +402,7 @@ create-to-read rule and nothing else.
 
 Rules do **not** overwrite one another: each records under its own rule index,
 so a `PUT` rule's entry and a create rule's entry coexist. What decides which
-one a read sees is order — the recall loop stops at the first rule whose key
+one a read sees is order - the recall loop stops at the first rule whose key
 expression resolves to a recorded entry, so **declaration order in `link` decides
 which rule wins**. Declare the `PUT` rule before the create rule and reads
 follow the `PUT`; declare it after and reads keep returning what the create
@@ -413,20 +420,20 @@ override layers and above generation:
 runtime override > config override > link recall > fixture > example > generated
 ```
 
-Only a success status recalls — replaying a recorded body into a `404` or a
+Only a success status recalls - replaying a recorded body into a `404` or a
 `500` would be actively wrong, and failure injection exists precisely so a
 caller can force those.
 
 The recall table is bounded: `ttlMs` defaults to one hour and `max` to 1000
-entries, oldest evicted first. A recall table is unbounded by construction —
-every write mints a new key — so a long-lived mock without both bounds leaks
+entries, oldest evicted first. A recall table is unbounded by construction -
+every write mints a new key - so a long-lived mock without both bounds leaks
 until the process dies.
 
 Linking does make a `GET`'s response depend on whether a `POST` ran before it,
 which is worth stating against the determinism guarantee above. The honest form
 of that guarantee is **sequence** determinism: the same sequence of requests
 against a fresh process with the same seed produces byte-identical output at
-every step. That was always the real shape of it — request ordinals, the
+every step. That was always the real shape of it - request ordinals, the
 webhook emission counter, idempotency replay, and armed `failNext` failures
 each already make a response depend on what came before it. Linking adds
 another such dependency; it does not introduce the category.
@@ -507,8 +514,8 @@ explicit `mock.emit()` or an operation-linked trigger, and never affect the
 response that triggered them: a throw while building an emission reaches
 `onError`, never the caller. `captureOnly` makes the whole thing testable
 in-process with no receiver and no network. A **destination registry** covers
-the subscribe-once shape — one operation registers a URL (optionally scoped per
-tenant), every later emission goes there — and every delivery carries a
+the subscribe-once shape - one operation registers a URL (optionally scoped per
+tenant), every later emission goes there - and every delivery carries a
 deterministic `id` that `mock.redeliver(id)` re-sends byte for byte. See
 [docs/webhooks.md](docs/webhooks.md).
 
@@ -619,7 +626,7 @@ parsed.
   exceptions, and both replay stored bytes rather than modeling state: the mock
   supplies no mutation or lifecycle semantics of its own and never infers them
   from a method. A link rule you write decides which operations record and which
-  replay, and it may name a write operation — see
+  replay, and it may name a write operation - see
   [Response linking](#response-linking).
 - **Registration enumeration is process-local.** The `Store` holds the
   authoritative registration values, so a shared Store shares them across
@@ -628,7 +635,7 @@ parsed.
   limitation.
 - **The link table is bounded** at 1000 entries and one hour. A sequence
   exceeding either bound recalls nothing for the evicted keys and falls through
-  to ordinary generation — a silent behavior change from the caller's point of
+  to ordinary generation - a silent behavior change from the caller's point of
   view, not an error. That entry bound is also **process-local**: the recorded
   values go through the `Store`, but the eviction index that enforces `max`
   lives in the process, so N processes sharing one `Store` can leave up to
@@ -641,7 +648,7 @@ parsed.
 - **Only the `uuid7` spellings are matched loosely; every other `format` is
   exact.** The v7 check trims and lower-cases before comparing, so
   `format: "UUID7"`, `" uuidv7"` and `"UUID-V7"` all generate a v7. Nothing
-  else works that way — the rest of `format` matching is exact string
+  else works that way - the rest of `format` matching is exact string
   comparison against the lower-case name, so `format: "UUID"` matches no format
   at all and generates a plain dictionary word rather than a UUID. Do not read
   the v7 leniency as a general rule that formats are normalized; write `format`

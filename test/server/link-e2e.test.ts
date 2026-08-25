@@ -63,7 +63,7 @@ function post(mock: { fetch(request: Request): Promise<Response> }): Promise<Res
 test('an id minted by a POST resolves on the matching GET', async () => {
   // A control mock with the SAME seed and the SAME request sequence but no
   // `link` config. Generation is deterministic, so it says exactly what each
-  // step would have produced without linking — which turns both halves of this
+  // step would have produced without linking - which turns both halves of this
   // test into byte comparisons rather than into guesses about generated values.
   // (A bare `notEqual` on two generated ids is not enough: the generator draws
   // from a small word list, so two unrelated requests collide often enough to
@@ -109,7 +109,7 @@ test('a GET before any POST generates rather than recalling', async () => {
 })
 
 test('only a success status recalls', async () => {
-  // Replaying a stored body into a 404 would be actively wrong — design §4.4.
+  // Replaying a stored body into a 404 would be actively wrong - design §4.4.
   const mock = createMock(doc, { link })
   const created = await (await post(mock)).json() as { id: string }
 
@@ -153,7 +153,7 @@ test('reset drops what was recalled', async () => {
 test('the same request sequence produces byte-identical bodies across mocks', async () => {
   // Invariant 2 as amended by design §4.5: determinism is SEQUENCE-scoped.
   // Two independently constructed mocks, the SAME sequence, compared at every
-  // step — not one response compared against itself.
+  // step - not one response compared against itself.
   const first = createMock(doc, { link, seed: 'link-determinism' })
   const second = createMock(doc, { link, seed: 'link-determinism' })
 

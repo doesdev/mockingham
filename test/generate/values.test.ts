@@ -200,7 +200,7 @@ test('each allocation gets its own block, in the order allocate was called', () 
   // The mechanism the async-ordering fix rests on: a block is fixed when it is
   // RESERVED, so a ticker allocated first sorts before one allocated second no
   // matter which one draws first. Drawing out of allocation order here is the
-  // whole point — it models a delayed emission generating after a later
+  // whole point - it models a delayed emission generating after a later
   // request has already generated.
   const c = createVirtualClock(0)
   const first = c.allocate()

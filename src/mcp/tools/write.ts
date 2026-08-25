@@ -58,7 +58,7 @@ const emitWebhook: McpTool = {
         'Which registration to deliver to, when destinations are registered ' +
           'per tenant or environment. Omit to address the unscoped one. See ' +
           'list_registrations for what exists. Ignored when no registry is ' +
-          'configured — the emission then falls through to the captured ' +
+          'configured - the emission then falls through to the captured ' +
           'callback URL or the configured one, as if no scope were given. ' +
           'list_webhooks says whether a registry exists.'
       ),
@@ -184,8 +184,8 @@ const clearVariants: McpTool = {
 const redeliverWebhook: McpTool = {
   name: 'redeliver_webhook',
   description:
-    'Send a delivery that already happened a second time, byte for byte — same ' +
-    'payload, same signature header, same destination, same delivery id — so ' +
+    'Send a delivery that already happened a second time, byte for byte - same ' +
+    'payload, same signature header, same destination, same delivery id - so ' +
     'you can check your receiver deduplicates a repeat rather than processing ' +
     'it twice. Nothing is regenerated and no destination is re-resolved. Take ' +
     'the id from emit_webhook or list_deliveries. An id that is not in the ' +
@@ -207,7 +207,7 @@ const registerWebhookDestination: McpTool = {
   name: 'register_webhook_destination',
   description:
     'Point a declared webhook at a URL of yours, the way a subscription ' +
-    'operation on the API would — so emissions reach your receiver without ' +
+    'operation on the API would - so emissions reach your receiver without ' +
     'you first driving whatever flow registers a subscriber. Outranks a ' +
     'captured callback URL and the configured one, and is beaten only by an ' +
     'explicit "to" on emit_webhook. Give a scope to register per tenant (or ' +
@@ -230,7 +230,7 @@ const unregisterWebhookDestination: McpTool = {
   name: 'unregister_webhook_destination',
   description:
     'Remove a destination registered for a webhook, so you can watch what ' +
-    'happens once a subscriber goes away — an emission with nothing left to ' +
+    'happens once a subscriber goes away - an emission with nothing left to ' +
     'resolve is captured with outcome "unresolved", never an error. Removes ' +
     'one scope: pass the same scope you registered under, or omit it to ' +
     'remove the unscoped registration. Other scopes are left alone. Removing ' +

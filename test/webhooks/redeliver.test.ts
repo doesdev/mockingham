@@ -57,7 +57,7 @@ test('a redelivery reproduces bytes, signature and id', async () => {
   assert.equal(again.url, first.url)
   assert.equal(again.outcome, 'delivered')
   assert.equal(again.headers[SIGNATURE_HEADER], first.headers[SIGNATURE_HEADER])
-  // The signature is replayed verbatim, not recomputed — design §7.3. Assert on
+  // The signature is replayed verbatim, not recomputed - design §7.3. Assert on
   // a real value, not merely on equality of two possibly-absent fields.
   assert.match(String(first.headers[SIGNATURE_HEADER]), /^t=\d+,v1=[0-9a-f]{64}$/)
 

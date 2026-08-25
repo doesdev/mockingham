@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship the seven refinements — webhook destination registry, response
+**Goal:** Ship the seven refinements - webhook destination registry, response
 linking, `Prefer: variant=`, body-pointer idempotency keys, redelivery with
-delivery identity, seeded UUIDv7, and capability exposure — plus the eight MCP
+delivery identity, seeded UUIDv7, and capability exposure - plus the eight MCP
 tool additions and extensions they imply.
 
 **Architecture:** The registry and response linking are one mechanism: a
@@ -39,11 +39,11 @@ implicitly include this section.
 - **Errors stay on-contract.** Emit the operation's declared error schema when
   one exists.
 - **Emission never affects the response.** A throw in an emit override, in
-  signing, or in delivery reaches `onError` — never the caller. An emit that
+  signing, or in delivery reaches `onError` - never the caller. An emit that
   resolves no destination is `unresolved`, not an error.
-- **Erasable syntax only** — no `enum`, no `namespace`, no parameter
+- **Erasable syntax only** - no `enum`, no `namespace`, no parameter
   properties. Use `const X = {...} as const`.
-- **US English spelling** everywhere — `honor`, `behavior`, `serialize`,
+- **US English spelling** everywhere - `honor`, `behavior`, `serialize`,
   `normalize`, `canceled`.
 - Tests live in `test/` mirroring `src/`, TypeScript, run by `node:test`.
   Write the test first, watch it fail, then implement.
@@ -61,7 +61,7 @@ actually shipped.
 1. **Validate the prescribed mutation before trusting it.** Each task names a
    specific condition to break. Break exactly that condition, run the test, and
    quote the failure message in your report. If the test still passes, the test
-   is wrong — **fix the test, not the mutation**, and say so. Across plans 7–9
+   is wrong - **fix the test, not the mutation**, and say so. Across plans 7–9
    this instruction caught thirteen tests that could not fail.
 2. **If this brief contradicts itself, stop and report it** rather than
    resolving it silently. Two implementers have done this and were right both
@@ -70,7 +70,7 @@ actually shipped.
    what the output must be.
 4. **Do not modify an existing passing test to make your work pass** unless the
    task explicitly says a test may legitimately move. If an existing test fails,
-   that is a finding — report it.
+   that is a finding - report it.
 5. Report what your fix actually did, not that it was applied.
 
 ## Task waves
@@ -78,10 +78,10 @@ actually shipped.
 Tasks within a wave are independent and may run concurrently. A wave starts
 only when the previous one is reviewed.
 
-- **Wave 1:** Tasks 1, 4, 6, 7, 9 — no dependencies on each other.
-- **Wave 2:** Tasks 2, 3, 5, 8 — each depends on one wave-1 task.
-- **Wave 3:** Tasks 10, 11 — the MCP surface, depends on waves 1–2.
-- **Wave 4:** Tasks 12, 13 — docs and the tracked ledger.
+- **Wave 1:** Tasks 1, 4, 6, 7, 9 - no dependencies on each other.
+- **Wave 2:** Tasks 2, 3, 5, 8 - each depends on one wave-1 task.
+- **Wave 3:** Tasks 10, 11 - the MCP surface, depends on waves 1–2.
+- **Wave 4:** Tasks 12, 13 - docs and the tracked ledger.
 
 ---
 
@@ -178,12 +178,12 @@ test('an unresolvable callback expression stores nothing', async () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/runtime/capture.test.ts`
-Expected: FAIL — cannot find module `src/runtime/capture.ts`.
+Expected: FAIL - cannot find module `src/runtime/capture.ts`.
 
 - [ ] **Step 3: Implement `runCapture` with the `callback` kind only**
 
 Move the resolve-and-store logic from `handler.ts:815-818` verbatim. The other
-three kinds `return` without acting; do not throw on them — Tasks 2 and 3 fill
+three kinds `return` without acting; do not throw on them - Tasks 2 and 3 fill
 them in and a throw would make this task's partial union a landmine.
 
 - [ ] **Step 4: Run it and watch it pass**
@@ -197,13 +197,13 @@ Replace the body of the `if (trace.operation !== undefined && response.status < 
 block at `handler.ts:799`. Keep the block, its condition, and its comment. Build
 `exprInput` as today, then call `runCapture` with rules compiled at construction
 from the document's `callbacks` entries. Compile those rules once, beside where
-`callbacks` is built today — not per request.
+`callbacks` is built today - not per request.
 
 - [ ] **Step 6: Run the whole suite**
 
 Run: `npm test`
 Expected: PASS, 1000 tests, none modified. **If any existing callback test
-fails or needed editing, the refactor changed behavior — stop and report.**
+fails or needed editing, the refactor changed behavior - stop and report.**
 
 - [ ] **Step 7: Write the end-to-end seam test**
 
@@ -358,7 +358,7 @@ test('all() is sorted by webhook then scope', async () => {
 - [ ] **Step 2: Run and watch fail**
 
 Run: `node --test test/webhooks/registry.test.ts`
-Expected: FAIL — module not found.
+Expected: FAIL - module not found.
 
 - [ ] **Step 3: Implement `registry.ts`**
 
@@ -421,7 +421,7 @@ design §3.3.
 A document with `PUT /subscriptions/{name}` and `DELETE /subscriptions/{name}`,
 a top-level `webhooks` entry, and `registerVia`/`unregisterVia` config. Assert:
 `PUT` then `emit` delivers to the registered URL; `DELETE` then `emit` produces
-`outcome: 'unresolved'` with `url` absent — **not** an error (invariant 6,
+`outcome: 'unresolved'` with `url` absent - **not** an error (invariant 6,
 design §3.6).
 
 - [ ] **Step 9: Validate the mutation**
@@ -528,7 +528,7 @@ At `handler.ts:569`, before the fixture resolves, if the operation is a `to`
 target of any rule and the selected status is a success (`>= 200 && < 300`),
 resolve the rule's `to.key` expression against the request and recall. A hit
 becomes a layer **beneath** the config and runtime override layers and **above**
-the fixture — the composition at `handler.ts:594` becomes
+the fixture - the composition at `handler.ts:594` becomes
 `[...linkLayer, ...config.bodies(...), ...runtimeBodies]` with the fixture still
 passed as `fixtureLayer`.
 
@@ -539,7 +539,7 @@ Per design §4.4, only a success status recalls.
 The `link` kind resolves `from.key` against the **response**, then records
 `remember`. Per design §4.2, special-case a `remember` of exactly
 `{$response.body}` / `{$request.body}` and take `responseBody` / `requestBody`
-directly — `resolveExpression` funnels through `scalar()` and returns a failure
+directly - `resolveExpression` funnels through `scalar()` and returns a failure
 for an object. Pointer forms addressing a scalar go through `resolveExpression`.
 
 - [ ] **Step 7: Write the end-to-end test**
@@ -571,7 +571,7 @@ test('an id minted by a POST resolves on the matching GET', async () => {
 - [ ] **Step 8: Write the determinism test**
 
 Two `createMock` instances with the same seed, driven through the **same
-request sequence**, must produce byte-identical bodies at every step — design
+request sequence**, must produce byte-identical bodies at every step - design
 §4.5's amended invariant 2.
 
 - [ ] **Step 9: Validate the mutation**
@@ -657,14 +657,14 @@ test('variant selection is deterministic', () => {
 
 - [ ] **Step 2: Run and watch fail.**
 - [ ] **Step 3: Implement.** `variantName` in `walk.ts` beside `classify`
-  (invariant 1 — schema interpretation lives in one module). The `union` case
+  (invariant 1 - schema interpretation lives in one module). The `union` case
   in `generate.ts` consults `options.variant` and falls back to `rng.pick`.
 - [ ] **Step 4: Run and watch pass.**
 - [ ] **Step 5: Validate the mutation.** **Mutate exactly this:** make the
   union case ignore `options.variant` entirely (delete the lookup, keep
   `rng.pick`). Expected: `a requested variant selects its branch` fails on
   `outcome`. Quote it. Note that the *fall-through* test still passes under
-  this mutation by design — that is correct, it is testing the other branch.
+  this mutation by design - that is correct, it is testing the other branch.
 - [ ] **Step 6: Typecheck and commit.**
 
 ```sh
@@ -903,7 +903,7 @@ test('an unknown delivery id throws with an instructive message', async () => {
 })
 ```
 
-The second test asserts the **exact** instructive text, not a loose `/id/i` —
+The second test asserts the **exact** instructive text, not a loose `/id/i` -
 plan 8 shipped a regex satisfied by an unrelated error.
 
 - [ ] **Step 2–4:** fail, implement, pass. `redeliver(id)` looks the record up
@@ -962,13 +962,13 @@ test('plain uuid is still v4', () => {
 ```
 
 - [ ] **Step 2–4:** fail, implement, pass. The virtual clock is a per-mock
-  counter starting at a named `DEFAULT_SEED_TIME` constant — **never**
-  `Date.now()` — advancing 1 ms per generated v7. `reset()` returns it to
+  counter starting at a named `DEFAULT_SEED_TIME` constant - **never**
+  `Date.now()` - advancing 1 ms per generated v7. `reset()` returns it to
   `seedTime`.
 - [ ] **Step 5: Validate the mutation.** **Mutate exactly this:** make the
   clock step 0 instead of 1. Expected: `successive v7 values sort by generation
   order` fails, because equal timestamps leave ordering to the random bits.
-  **Validate this one carefully — if the random bits happen to ascend for your
+  **Validate this one carefully - if the random bits happen to ascend for your
   seed, the test passes and is worthless.** If that happens, use more values
   (say 20) so the probability collapses, and say so in your report.
 - [ ] **Step 6: Typecheck, full suite, commit.**
@@ -991,7 +991,7 @@ test('plain uuid is still v4', () => {
   (a) `findOperation` with a mismatched `method` alongside a valid
   `operationId` must raise rather than silently ignore the mismatch;
   (b) `list_webhooks` `emittedBy` must include a callback's declaring operation
-  even when a configured emitter exists elsewhere — **the fixture needs both**,
+  even when a configured emitter exists elsewhere - **the fixture needs both**,
   or the test cannot fail; (c) a recursive webhook payload schema must come
   back as the `$comment` placeholder, not `undefined`.
 - [ ] **Step 3–4:** implement, pass.
@@ -1017,7 +1017,7 @@ Five new tools: `set_variant`, `clear_variants`, `redeliver_webhook`,
   effect through the mock rather than its return value alone.
 - [ ] **Step 2:** Update the pinned tool inventory: read tools 7 → 8, write
   tools 7 → 12, `mcpTools({ write: true })` 14 → 20 (design §10). **This test
-  is pinned deliberately (commit `13c012b`) — a different number means a
+  is pinned deliberately (commit `13c012b`) - a different number means a
   defect, not a stale test.**
 - [ ] **Step 3:** Follow `clear_overrides`'s precedent for `clear_variants`:
   the no-target case echoes `null`, never `'*'`, because a bare `'*'` is not a
@@ -1040,12 +1040,12 @@ line; imports use the bare `'mockingham'` specifier; `listen()` needs
 `close()`; the sandbox cwd holds `docs/example.json` copied as `openapi.json`.
 Every `console` fence is diffed byte-for-byte against real output.
 
-- [ ] **Step 1:** `docs/webhooks.md` — the registry, scoping, the `unresolved`
+- [ ] **Step 1:** `docs/webhooks.md` - the registry, scoping, the `unresolved`
   outcome when nothing is registered, redelivery and delivery ids.
-- [ ] **Step 2:** `README.md` — `Prefer: variant=`, response linking (with the
+- [ ] **Step 2:** `README.md` - `Prefer: variant=`, response linking (with the
   explicit "this is not stateful CRUD" boundary), `seedTime` and `uuid7`.
-- [ ] **Step 3:** `README.md` Known limitations — all six from design §13.
-- [ ] **Step 4:** `docs/mcp.md` — the five new write tools and
+- [ ] **Step 3:** `README.md` Known limitations - all six from design §13.
+- [ ] **Step 4:** `docs/mcp.md` - the five new write tools and
   `list_registrations`, with the corrected counts.
 - [ ] **Step 5:** Run `npm test` and fix every byte-level fence mismatch.
 - [ ] **Step 6:** Commit.
@@ -1070,17 +1070,17 @@ Every `console` fence is diffed byte-for-byte against real output.
 
 ## Post-plan: whole-branch review
 
-Not a task — the coordinator runs this after Task 13, per this project's
+Not a task - the coordinator runs this after Task 13, per this project's
 established cycle: a whole-branch review on the most capable model, ONE fix
 wave, ONE scoped re-review. The reviewer is asked to **reproduce mutations
-rather than accept the implementer's claim of them** — plan 9's highest-value
-review instruction — and to evaluate the coordinator's rulings rather than
+rather than accept the implementer's claim of them** - plan 9's highest-value
+review instruction - and to evaluate the coordinator's rulings rather than
 accept them.
 
 Specific things to point the reviewer at:
 
 1. **Task 1's refactor**, against design §12's four constraints.
-2. **The seam between Tasks 2 and 3** — both write through `capture.ts`, and
+2. **The seam between Tasks 2 and 3** - both write through `capture.ts`, and
    this project's two worst defects were each at a seam where both sides were
    individually correct.
 3. **Whether the amended invariant 2 (design §4.5) actually holds** for the

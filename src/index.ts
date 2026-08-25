@@ -74,7 +74,7 @@ export interface Mock {
   api: Api
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
   /**
-   * Re-sends a recorded delivery verbatim — same body, same signature header,
+   * Re-sends a recorded delivery verbatim - same body, same signature header,
    * same destination, same `id` (refinements design §7.3). Rejects on an
    * unknown id, or one that has aged out of the bounded delivery log.
    */
@@ -83,11 +83,11 @@ export interface Mock {
   clearDeliveries(): void
   /**
    * Every webhook destination registration this process knows about, sorted by
-   * webhook then scope — refinements design §3.5.
+   * webhook then scope - refinements design §3.5.
    */
   registrations(webhook?: string): Promise<Registration[]>
   /**
-   * Which operations recall, register or carry an idempotency key — refinements
+   * Which operations recall, register or carry an idempotency key - refinements
    * design §9. What the MCP read tools report; exposed here because a consumer
    * embedding the mock has the same "will this round-trip?" question an agent
    * does.

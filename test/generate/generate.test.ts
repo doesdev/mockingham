@@ -140,7 +140,7 @@ const variantUnion: Schema = {
 
 test('a requested variant selects its branch', () => {
   // The plan asked for `conflict` under seed `s`, but that is exactly what the
-  // seeded pick already returns — the test passed before the feature existed
+  // seeded pick already returns - the test passed before the feature existed
   // and could not fail. Requesting the OTHER branch is what has teeth, and the
   // baseline assertion below keeps it that way if the PRNG ever changes.
   const seeded = generateValue(variantUnion, createRng('s'), {}) as Record<string, unknown>
@@ -165,7 +165,7 @@ test('variant selection is deterministic', () => {
   const first = generateValue(variantUnion, createRng('s'), { variant: 'created' })
   const second = generateValue(variantUnion, createRng('s'), { variant: 'created' })
   assert.deepEqual(first, second)
-  // Pin the branch too, or this passes on any two identical values — including
+  // Pin the branch too, or this passes on any two identical values - including
   // the seeded pick that selection was supposed to override.
   assert.equal((first as Record<string, unknown>).outcome, 'created')
 })

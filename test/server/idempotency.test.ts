@@ -374,7 +374,7 @@ test('a respond callback returning an already-read Response still returns it', a
 /**
  * Body-pointer keys (delta design §6). A separate document, because the point
  * is an operation that declares NO Idempotency-Key header parameter and whose
- * method config names nothing — the configured pointer is the only route to
+ * method config names nothing - the configured pointer is the only route to
  * idempotency. It also declares no `security`, so auth (stage 3) cannot
  * short-circuit before the idempotency stage (stage 5) is reached.
  */
@@ -505,7 +505,7 @@ test('a bare operation key expression keys on the body, not on its own text', as
 
 test('a bare operation key keys on the VALUE, so distinct ids do not collide', async () => {
   // The previous version of this test sent one requestId twice and asserted a
-  // replay — which passes whether or not the expression is normalized, because
+  // replay - which passes whether or not the expression is normalized, because
   // an un-normalized key collapses every request onto the literal expression
   // text and the second request replays for the wrong reason. Two DIFFERENT
   // ids are what discriminate: under the bug they share a key and, with the

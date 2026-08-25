@@ -203,7 +203,7 @@ const uuid7Doc = {
 }
 
 /**
- * Two separate operations, so their Store keys differ — a slowdown keyed on
+ * Two separate operations, so their Store keys differ - a slowdown keyed on
  * one operation cannot be written against a single templated path, because
  * `targetKey` uses the template rather than the resolved params.
  */
@@ -327,8 +327,8 @@ test('ids across successive requests sort by request order', async () => {
 
 test('two concurrent requests get ids by issue order, not completion order', async () => {
   // Invariant 2 as amended by the refinements design §4.5. Timestamps used to
-  // be drawn from one shared counter AT GENERATION TIME — which is after
-  // readOverride, readVariant and the fixture resolver have all awaited — so
+  // be drawn from one shared counter AT GENERATION TIME - which is after
+  // readOverride, readVariant and the fixture resolver have all awaited - so
   // whichever request finished its lookups first took the earlier timestamp.
   // Blocks are now reserved synchronously on the way in, so issue order wins.
   //
@@ -341,7 +341,7 @@ test('two concurrent requests get ids by issue order, not completion order', asy
   //
   // And the comparison slows `a` against slowing `b`, not "slow" against
   // "even". Both requests are issued in one `Promise.all`, so `a` reaches every
-  // await first and wins any race by default — slowing only `b` leaves the
+  // await first and wins any race by default - slowing only `b` leaves the
   // order unchanged either way and the test cannot fail. Slowing `a` is what
   // lets `b` overtake it, which is exactly what must NOT change the ids.
   //
@@ -398,7 +398,7 @@ test('a delayed emission does not steal the next request timestamp', async () =>
 
 test('two emissions of the SAME webhook get separate timestamp blocks', async () => {
   // The tickers were keyed by webhook name, so two entries naming one webhook
-  // collapsed to a single block — putting their offsets back on the FIRING
+  // collapsed to a single block - putting their offsets back on the FIRING
   // path, which is the bug the reservation exists to remove. Two entries for
   // one webhook is the fixture that discriminates; with two DIFFERENT webhooks
   // a name-keyed map behaves correctly and the defect is invisible.
@@ -418,8 +418,8 @@ test('two emissions of the SAME webhook get separate timestamp blocks', async ()
   await mock.settled()
 
   // The BLOCK INDEX, not the id and not the raw timestamp. Two emissions
-  // sharing one block still produce different ids and different timestamps —
-  // offsets 0 and 1 — so asserting either passes against the very defect this
+  // sharing one block still produce different ids and different timestamps -
+  // offsets 0 and 1 - so asserting either passes against the very defect this
   // test exists to catch. It has to be the block.
   const blocks = mock.deliveries().map((delivery) => {
     const id = (JSON.parse(delivery.body) as { id: string }).id
@@ -458,7 +458,7 @@ test('seedTime places the timestamp where the caller asked', async () => {
 test('a seedTime that cannot be a v7 timestamp throws at construction', () => {
   // `seedTime` is public and the realistic bad value is
   // `Date.parse(process.env.SEED_TIME)` on a typo, which is NaN. Left
-  // unchecked, NaN reaches the hex encoding and is SERVED — the reviewer saw
+  // unchecked, NaN reaches the hex encoding and is SERVED - the reviewer saw
   // `00000000-0NaN-7b04-...` come back as an id. 2**48 wraps silently and
   // destroys the sort order that is v7's entire point, and negative and
   // fractional values produce malformed uuids. Every one of them is a caller
@@ -476,7 +476,7 @@ test('a seedTime that cannot be a v7 timestamp throws at construction', () => {
 test('an accepted seedTime keeps ids ordered across several requests', async () => {
   // Checks ORDER over several requests, not just the shape of the first id.
   // The previous version did the latter and therefore certified 2**48 - 1 as
-  // "accepted" — a value that wraps the 48-bit field on request two and
+  // "accepted" - a value that wraps the 48-bit field on request two and
   // destroys the sort order the validator exists to protect. A boundary test
   // that only looks at the first value cannot see a boundary being crossed.
   for (const seedTime of [0, 2 ** 48 - 2 ** 32]) {

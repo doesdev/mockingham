@@ -193,7 +193,7 @@ const demo = demoMock.mcp({ transport: 'http', path: '/mcp' })
 
 **First: `--write` gates all thirteen write tools because they change the
 mock's state.** Every one of them mutates something a second caller would
-observe — an armed failure, a reseeded generator, a cleared store, a runtime
+observe - an armed failure, a reseeded generator, a cleared store, a runtime
 override, a pinned union variant, a registered webhook destination, a second
 copy of a delivery in the log, a replaced fixture. Read tools never do, so only
 the thirteen are behind the flag, and the flag is off by default.
@@ -348,12 +348,12 @@ payload is expressed with `$defs` and `$ref` and comes back in full.
 ## Telling a round-tripping operation from a generating one
 
 An operation that replays something the mock recorded and one that generates a
-fresh response every time look identical from outside — and that difference is
+fresh response every time look identical from outside - and that difference is
 the difference between an operation a workflow can be built against and one
 that will quietly not round-trip. `describe_operation` answers it directly:
 alongside the contract, every operation reports `linksFrom` and `linksTo` (the
 response-link rule indices it records for and recalls from), `registersWebhook`
-and `unregistersWebhook`, and `idempotencyKey` — a `{ source, value }` pair
+and `unregistersWebhook`, and `idempotencyKey` - a `{ source, value }` pair
 naming a header or a body pointer rather than a bare string, because those are
 not the same kind of thing and a caller that has to guess will guess wrong.
 
@@ -421,7 +421,7 @@ console.log(JSON.stringify({
 
 `createPayment` records for link rule `0`, registers `paymentFailed`, and keys
 idempotency off the `Idempotency-Key` header the example document declares on
-it. `getPayment` would report the mirror image — `linksTo: [0]`, nothing else.
+it. `getPayment` would report the mirror image - `linksTo: [0]`, nothing else.
 
 `list_webhooks` answers the same question from the webhook's side, with a
 `registry` field saying whether a registry is configured and how many
@@ -459,7 +459,7 @@ await capabilityMock.close()
 ```
 
 The listing is sorted by webhook then scope, and that ordering is the registry's
-own contract rather than something re-imposed here — one ordering decided in one
+own contract rather than something re-imposed here - one ordering decided in one
 place, so this tool and `mock.registrations()` cannot disagree.
 
 ## The write tools that arrived with the registry
@@ -470,7 +470,7 @@ choice rather than an accident:
 
 - **`set_variant`** stores a per-operation union-branch preference. A
   `Prefer: variant=` header on a request outranks it, and a name matching no
-  branch falls through to the seeded pick rather than erroring — the name
+  branch falls through to the seeded pick rather than erroring - the name
   arrives from a caller, so there is nothing to validate it against, and a
   runtime warning would fire constantly for the many responses containing no
   union at all.
@@ -478,7 +478,7 @@ choice rather than an accident:
   them. Like `clear_overrides`, `clear_variants` with no target echoes `null`
   rather than `'*'`, because a bare `'*'` is not a valid target and echoing it
   would teach a caller a string that throws on its next call.
-- **`redeliver_webhook`** takes a delivery id alone — the webhook name is
+- **`redeliver_webhook`** takes a delivery id alone - the webhook name is
   recoverable from the record, and a two-argument form that could disagree with
   itself is a defect surface for no benefit. An unknown id, or one aged out of
   the 1000-entry log, is an **error**; a redelivery that is attempted and fails
@@ -487,7 +487,7 @@ choice rather than an accident:
 - **`register_webhook_destination`** and
   **`unregister_webhook_destination`** write the same registry a document's
   `registerVia` operation writes, with the same scoping. An emission addressing
-  a scope with nothing registered is `outcome: 'unresolved'` — a recorded
+  a scope with nothing registered is `outcome: 'unresolved'` - a recorded
   delivery with no URL, not a thrown error and not a silent drop.
 
 ## Every declared tool now ships

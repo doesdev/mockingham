@@ -114,7 +114,7 @@ test('normalizeExpression braces a bare expression and leaves a braced one alone
   assert.equal(normalizeExpression('  $response.body  '), '{$response.body}')
   assert.equal(normalizeExpression('{$response.body#/id}'), '{$response.body#/id}')
   // A mixed template already carries a brace, so it is passed through whole
-  // rather than wrapped again — wrapping would produce `{{...}/hooks}`.
+  // rather than wrapped again - wrapping would produce `{{...}/hooks}`.
   assert.equal(
     normalizeExpression('{$request.body#/host}/hooks'),
     '{$request.body#/host}/hooks'
@@ -124,7 +124,7 @@ test('normalizeExpression braces a bare expression and leaves a braced one alone
 test('an unmatched brace is wrapped, not passed through', () => {
   // The test is a COMPLETE token, not the presence of a `{`. A stray opening
   // brace satisfies "contains a brace" while matching no token, so it used to
-  // be passed through and then resolve to ITSELF — the same silent wrong
+  // be passed through and then resolve to ITSELF - the same silent wrong
   // answer normalization exists to prevent, reached by a different typo.
   // Wrapped, it becomes an unsupported expression that warns at construction
   // and resolves `ok: false` instead of inventing a value.
@@ -134,7 +134,7 @@ test('an unmatched brace is wrapped, not passed through', () => {
 
 test('normalizeExpression does not disturb isSupported on the next expression', () => {
   // `TOKEN` is a global regex, and `.test()` on one advances its `lastIndex`
-  // and leaves it advanced — while `matchAll`, which `isSupported` uses,
+  // and leaves it advanced - while `matchAll`, which `isSupported` uses,
   // starts from that `lastIndex`. A stateful check inside normalizeExpression
   // therefore made isSupported skip the FIRST token of whatever it examined
   // next, silently. Four startup-warning tests caught it; this pins it

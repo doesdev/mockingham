@@ -114,22 +114,22 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
  * Every const-valued property on a branch, as strings, in `Object.keys` order.
  *
  * Schema interpretation lives here, beside `classify`, and nowhere else
- * (invariant 1) — generation calls `matchesVariant` rather than reading
+ * (invariant 1) - generation calls `matchesVariant` rather than reading
  * `properties` itself.
  *
- * With a formal `discriminator` only that property is considered — a document
+ * With a formal `discriminator` only that property is considered - a document
  * that declares one has said which property names its branches, and letting a
  * second const property match anyway would ignore that declaration.
  *
  * On order: this is NOT literal declaration order. `Object.keys` lists
  * integer-like keys first in ascending numeric order, and after `mergeAllOf`
  * the `properties` object has been rebuilt as the allOf members' properties
- * followed by the outer schema's own — so "order" here means merge order, not
+ * followed by the outer schema's own - so "order" here means merge order, not
  * the order a reader sees in the document. That is good enough: the order is a
  * pure function of the schema and so still deterministic across processes
  * (invariant 2), and the only consumer that depends on it at all is
- * `variantName`, which takes the first entry. `matchesVariant` — the selection
- * path — is order-insensitive.
+ * `variantName`, which takes the first entry. `matchesVariant` - the selection
+ * path - is order-insensitive.
  */
 function constValues(branch: Schema, discriminator?: string): string[] {
   const properties = mergeAllOf(branch).properties
@@ -156,7 +156,7 @@ function constValues(branch: Schema, discriminator?: string): string[] {
 }
 
 /**
- * The name a branch is known by — its first const-valued property, or its
+ * The name a branch is known by - its first const-valued property, or its
  * discriminator property when one is declared. For describing a union to a
  * reader; SELECTION uses `matchesVariant`, which is not the same question when
  * a branch carries more than one const property.

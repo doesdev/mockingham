@@ -726,6 +726,23 @@ test('emit() after close() rejects rather than silently sending', async () => {
   await assert.rejects(handler.emit('onOrderShipped'), /close/)
 })
 
+test('redeliver() after close() rejects rather than silently re-sending', async () => {
+  // Deferred item 47. A redelivery IS an emission, so it obeys the same
+  // close() rule - an unguarded one after close() would go untracked and
+  // settled() would race past it, which is finding I2 reappearing on a second
+  // entry point.
+  //
+  // The id is a REAL one, deliberately. With a bogus id this test passes even
+  // with the guard deleted, because an unknown id rejects on its own and the
+  // assertion could not tell the two rejections apart. With a live id,
+  // deleting the `if (closed)` block in `redeliver` makes the redelivery
+  // SUCCEED and this test fail, which is the only reason it is worth having.
+  const handler = createHandler(api, { seed: 'hooks', captureOnly: true })
+  const first = await handler.emit('onOrderShipped')
+  await handler.close()
+  await assert.rejects(handler.redeliver(first.id), /close/)
+})
+
 // ── I3: close() races a real timer instead of waiting it out ──
 
 test('close() with a real (non-injected) sleep and a large afterMs returns promptly', async () => {

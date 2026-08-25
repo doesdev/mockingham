@@ -152,7 +152,7 @@ test('tools/call refuses clear_overrides when the gate is closed', async () => {
 test('the tool inventory is exactly the size the design pins it at', () => {
   // Pinned deliberately (commit 13c012b) so an accidental addition or removal
   // fails the suite. An implementer who computes a different number has found
-  // a defect, not a stale test — the fix is never to edit the number until the
+  // a defect, not a stale test - the fix is never to edit the number until the
   // count is green.
   //
   // Nine read, thirteen write, twenty-two with the gate open. The refinements
@@ -188,7 +188,7 @@ test('every shipped tool is named exactly once in the guide inventory, and nowhe
   // The guide's inventory is prose, so nothing but this test relates it to the
   // code. This asserts two things a plain substring search cannot: the
   // inventory list under "## The twenty-two tools" names exactly the shipped
-  // set (set equality both ways — a tool added without listing it there, or
+  // set (set equality both ways - a tool added without listing it there, or
   // listed there after removal, fails), and no shipped tool's name still
   // appears under "## What isn't here yet" (a tool documented as absent
   // while it in fact ships, which is what a plain substring check would miss

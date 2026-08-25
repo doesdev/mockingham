@@ -12,7 +12,7 @@ import { SIGNATURE_HEADER, sign } from './sign.ts'
 import type { Registry } from './registry.ts'
 
 /**
- * Where a registering or unregistering operation is declared — design §3.3.
+ * Where a registering or unregistering operation is declared - design §3.3.
  * `operationId` keeps the proposal's name for familiarity, but its documented
  * type is "a control-plane target": `compileTarget` reads `PUT /subs/{name}`
  * and `* /subs/**` too, and `resolveTarget` throws on one matching nothing, so
@@ -38,7 +38,7 @@ export interface WebhookConfig {
   /**
    * A runtime expression partitioning registrations. Without one, a document
    * that registers per tenant has every tenant overwriting one key, so the
-   * second registration silently redirects the first tenant's webhooks — a
+   * second registration silently redirects the first tenant's webhooks - a
    * wrong answer that looks like a working mock (§3.4).
    */
   scopeBy?: string
@@ -72,7 +72,7 @@ export function callbackKey(name: string): string {
 }
 
 /**
- * Delivery identity — refinements design §7.2. Derived, never random:
+ * Delivery identity - refinements design §7.2. Derived, never random:
  * invariant 2 requires that replaying a request sequence in another process
  * produce the same ids, which rules out a UUID. Deliberately NOT exported: a
  * test that derives its expected id by calling this would move both sides of
@@ -141,7 +141,7 @@ export interface EmitInput {
   captureOnly: boolean
   seed: string
   /**
-   * The per-webhook emission ordinal — the same counter value that seeds
+   * The per-webhook emission ordinal - the same counter value that seeds
    * `rng`. Passed in rather than derived here because the counter lives with
    * the handler, and because the id and the payload rng must key off the same
    * number: two independent counters would drift the moment either grew a
@@ -156,11 +156,11 @@ export interface EmitInput {
   /** Destination tier 1. */
   to?: string
   /**
-   * Destination tier 2 — refinements design §3.7. REQUIRED, and `undefined`
+   * Destination tier 2 - refinements design §3.7. REQUIRED, and `undefined`
    * where there is no registry, rather than optional. Optional reads the same
    * at every existing call site but fails differently at a future one: a caller
    * who forgets the field compiles, and silently emits to the tier BELOW the
-   * registry — a captured or configured URL in place of the registered one.
+   * registry - a captured or configured URL in place of the registered one.
    * Requiring it turns that into a compile error.
    */
   registry: Registry | undefined
@@ -196,7 +196,7 @@ export async function emitWebhook(input: EmitInput): Promise<Delivery> {
   // tier 4 config, tier 5 nothing. The registry sits above the captured tier
   // because a registration is a deliberate, persistent statement about where a
   // webhook goes, while a captured callback URL is incidental to whichever
-  // request last happened to carry one — design §3.7.
+  // request last happened to carry one - design §3.7.
   const registered = await input.registry?.lookup(input.name, input.scope ?? '')
   const captured = (await input.store.get(callbackKey(input.name))) as string | undefined
   const url = input.to ?? registered ?? captured ?? input.config.url
@@ -261,23 +261,23 @@ export interface RedeliverInput {
 }
 
 /**
- * Re-send a recorded delivery — refinements design §7.3.
+ * Re-send a recorded delivery - refinements design §7.3.
  *
  * Keyed by id alone: the webhook name is recoverable from the record, and a
  * two-argument form that could disagree with itself is a defect surface for no
  * benefit.
  *
- * The recorded bytes go back out verbatim — same body, same headers, same
+ * The recorded bytes go back out verbatim - same body, same headers, same
  * destination, same id. It deliberately does NOT regenerate the payload and
  * does NOT re-resolve the destination: the point is to prove that a duplicate
  * carries the same identity, and either would defeat it. In particular the
  * signature header is REPLAYED, not recomputed. `sign` takes a timestamp, so
- * recomputing would emit a different header for identical bytes — realistic in
+ * recomputing would emit a different header for identical bytes - realistic in
  * production, but not what "identical bytes, identical ids" asks for.
  *
  * An unknown or aged-out id throws, consistent with `emitWebhook`'s treatment
  * of an unknown webhook name: that is a caller error, not a delivery outcome.
- * A delivery FAILURE is still a recorded outcome and never a throw — invariant
+ * A delivery FAILURE is still a recorded outcome and never a throw - invariant
  * 6 is unchanged by redelivery being an emission.
  */
 export async function redeliverWebhook(input: RedeliverInput): Promise<Delivery> {

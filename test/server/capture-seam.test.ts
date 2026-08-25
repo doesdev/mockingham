@@ -47,7 +47,7 @@ test('a document callbacks destination still resolves through the capture pass',
 
 test('a BARE document callbacks expression resolves, it does not become the URL', async () => {
   // OpenAPI writes callbacks keys bare, and this is the site the whole
-  // normalization exists for — yet it was the one compile site still passing a
+  // normalization exists for - yet it was the one compile site still passing a
   // caller-written expression to resolveExpression un-normalized. A bare key
   // matched no token, resolved to ITSELF, and the literal text
   // "$request.body#/hook" was stored as the destination and used as the
@@ -130,7 +130,7 @@ test('a callbacks expression reading the RESPONSE body still captures', async ()
 /**
  * Invariant 6 at the capture site: a throw inside the capture pass reaches
  * `onError` and never the caller. The pass is the newest thing running at the
- * single exit, and it writes to a Store the embedder supplies — so a Store that
+ * single exit, and it writes to a Store the embedder supplies - so a Store that
  * rejects is the realistic failure, not a hypothetical one.
  */
 const captureDoc = {
@@ -234,13 +234,13 @@ test('a Store that refuses a capture write reaches onError, never the caller', a
   const response = await send(mock)
   const expected = await send(control)
 
-  // The caller gets the ORIGINAL response — same status and same bytes as the
-  // mock that never touched a refusing store — not a 500 and not a truncated
+  // The caller gets the ORIGINAL response - same status and same bytes as the
+  // mock that never touched a refusing store - not a 500 and not a truncated
   // body.
   assert.equal(response.status, 201)
   assert.equal(await response.text(), await expected.text())
 
-  // The refusal really happened — otherwise the two halves above would agree
+  // The refusal really happened - otherwise the two halves above would agree
   // for the uninteresting reason that nothing was ever written.
   assert.deepEqual(refused, ['callback|orderDone'])
   // A throw aborts the rest of the pass, which is precisely why it has to be

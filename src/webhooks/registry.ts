@@ -1,7 +1,7 @@
 import type { Store } from '../runtime/store.ts'
 
 /**
- * The cross-operation webhook destination registry — refinements design §3.
+ * The cross-operation webhook destination registry - refinements design §3.
  *
  * A destination registered by one operation is read back by an emission that
  * shares no request context with it. That is the whole point: the captured
@@ -76,7 +76,7 @@ export function createRegistry(store: Store): Registry {
       for (const [key, entry] of index) {
         const value = await store.get(key)
         if (typeof value !== 'string') {
-          // The Store no longer holds it — `reset()` clears the Store without
+          // The Store no longer holds it - `reset()` clears the Store without
           // going through this module, and an entry can expire. Drop the key
           // rather than letting the index resurrect a dead registration.
           index.delete(key)

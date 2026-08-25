@@ -57,7 +57,7 @@ export interface EmitOptions {
   /**
    * Which registration this emission addresses. An explicit scope wins over a
    * configured `scopeBy` expression, exactly as `to` wins over any resolved
-   * destination. Absent addresses the unscoped registration — design §3.4.
+   * destination. Absent addresses the unscoped registration - design §3.4.
    */
   scope?: string
   /** Layered over the generated payload, exactly as a response body override is. */
@@ -65,7 +65,7 @@ export interface EmitOptions {
 }
 
 /**
- * Where an operation's idempotency key comes from — refinements design §9. A
+ * Where an operation's idempotency key comes from - refinements design §9. A
  * discriminated pair rather than a bare string, because "Idempotency-Key" and
  * "{$request.body#/meta/requestId}" are not the same kind of thing and a
  * consumer that has to guess which it is holding will guess wrong.
@@ -75,7 +75,7 @@ export interface IdempotencyKeySource {
   value: string
 }
 
-/** What one operation does beyond generating a response — design §9. */
+/** What one operation does beyond generating a response - design §9. */
 export interface OperationCapabilities {
   /** The operation's control-plane target key. */
   target: string
@@ -91,7 +91,7 @@ export interface OperationCapabilities {
 /**
  * The read-only capability picture design §9 exposes through the MCP read
  * tools. Computed once at construction from the compiled link rules, the
- * `registerVia` capture rules and the resolved idempotency config — all of
+ * `registerVia` capture rules and the resolved idempotency config - all of
  * which are handler internals, which is why it is surfaced from here rather
  * than recomputed beside them. Every array is sorted or in rule-index order:
  * invariant 2 forbids an unordered iteration deciding anything observable.
@@ -130,12 +130,12 @@ export interface Handler {
    */
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
   /**
-   * Re-sends a recorded delivery's bytes — refinements design §7.3. Same body,
+   * Re-sends a recorded delivery's bytes - refinements design §7.3. Same body,
    * same signature header, same destination, same `id`; the payload is not
    * regenerated and the destination is not re-resolved. Appends a second record
    * carrying the same id.
    *
-   * Rejects on an id that is not in the log, or one that has aged out of it —
+   * Rejects on an id that is not in the log, or one that has aged out of it -
    * both are caller errors, like an undeclared webhook name. A redelivery that
    * FAILS is still a recorded `Delivery`, never a rejection.
    */
@@ -147,11 +147,11 @@ export interface Handler {
    * Every known webhook destination registration, sorted by webhook then
    * scope. Sorted because invariant 2 forbids an unordered iteration deciding
    * anything observable, and this is observable. Enumeration is process-local
-   * even when the Store is shared — design §13.1.
+   * even when the Store is shared - design §13.1.
    */
   registrations(webhook?: string): Promise<Registration[]>
   /**
-   * Which operations recall, register or carry an idempotency key — design §9.
+   * Which operations recall, register or carry an idempotency key - design §9.
    * Read-only and computed at construction; nothing a request does changes it.
    */
   capabilities(): Capabilities
@@ -206,7 +206,7 @@ export interface HandlerOptions {
   now?: () => number
   /**
    * The starting timestamp of the seeded virtual clock UUIDv7 generation reads
-   * — NOT a wall clock, and deliberately not defaulted to one. Defaults to
+   * - NOT a wall clock, and deliberately not defaulted to one. Defaults to
    * `DEFAULT_SEED_TIME`, a fixed epoch, so a baked fixture holding a v7 is
    * stable across runs. See `src/generate/clock.ts`.
    */
@@ -222,7 +222,7 @@ export interface HandlerOptions {
   /**
    * Response linking for create-then-read loops. A write records its generated
    * response against a key it minted; a read whose key matches replays those
-   * bytes; a miss falls through to ordinary generation. NOT stateful CRUD — see
+   * bytes; a miss falls through to ordinary generation. NOT stateful CRUD - see
    * `src/runtime/link.ts` and the refinements design §4.
    */
   link?: LinkRule[]
@@ -264,7 +264,7 @@ function requestKey(
  * `NaN`, which hex-encodes to `NaN` and is SERVED as part of an id; anything at
  * or past `2**48` wraps and destroys the sort order that is v7's whole point;
  * negative and fractional values produce a malformed uuid. None of them has a
- * sensible interpretation, so this throws at construction — the same treatment
+ * sensible interpretation, so this throws at construction - the same treatment
  * every other unusable option in this file gets.
  */
 /**
@@ -275,7 +275,7 @@ function requestKey(
  *
  * A bound rather than the bare field width, because the field width alone is
  * not the real constraint: block N starts at `seedTime + N * 65_536`, so
- * `2**48 - 1` passed the old check and then wrapped on the very next request —
+ * `2**48 - 1` passed the old check and then wrapped on the very next request -
  * destroying the sort order this validation exists to protect, two ids in.
  * The old boundary test asserted only that the FIRST id was well-formed, so it
  * certified a value the validator's own rationale forbids.
@@ -311,7 +311,7 @@ export function createHandler(
 
   // Per-mock, not per-request: it advances across requests, which is what makes
   // ids from successive POSTs sort correctly. That also makes v7 generation a
-  // sequence-dependent output — same request sequence, same ids.
+  // sequence-dependent output - same request sequence, same ids.
   const virtualClock = createVirtualClock(options.seedTime)
 
   const now = options.now ?? (() => Date.now())
@@ -387,7 +387,7 @@ export function createHandler(
     const rules: CaptureRule[] = specs.map((callback) => ({
       kind: 'callback',
       name: callback.name,
-      // Normalized like every other expression the mock compiles — and this is
+      // Normalized like every other expression the mock compiles - and this is
       // THE site the normalization exists for. OpenAPI writes `callbacks` keys
       // bare, `resolveExpression` matches only braced tokens, and a bare string
       // therefore resolves to ITSELF rather than failing: the literal text
@@ -402,7 +402,7 @@ export function createHandler(
   // Keyed by operation, exactly as `registryRules` and `linkCaptureRules` are.
   // The callback kind used to be listed by hand at the body gate below, with a
   // predicate of its own (`specs.length > 0`) that only coincidentally agreed
-  // with the rule list. Same shape, same key, one group — which is what makes
+  // with the rule list. Same shape, same key, one group - which is what makes
   // the gate and the capture call name the same set by construction rather
   // than by two authors happening to keep two lists in step.
   const callbackRules = new Map<Operation, CaptureRule[]>()
@@ -412,7 +412,7 @@ export function createHandler(
 
   // Response linking. Targets resolve here so a typo throws at construction
   // rather than silently never linking, and the bounds default here so the
-  // table is never unbounded — design §4.3.
+  // table is never unbounded - design §4.3.
   const linkRules = compileLinkRules(options.link, api.operations)
   const linkTable =
     linkRules.length === 0
@@ -462,13 +462,13 @@ export function createHandler(
   const registry = createRegistry(store)
 
   // `registerVia`/`unregisterVia` become capture rules here, once, keyed by the
-  // operation their target resolves to — exactly as the callback rules above
+  // operation their target resolves to - exactly as the callback rules above
   // are. `resolveTarget` throws on a target matching nothing, so a typo fails
   // loudly at construction rather than silently never registering.
   //
   /**
    * A registration for a webhook the document never declares can never be
-   * delivered to, so it is a typo rather than a destination question —
+   * delivered to, so it is a typo rather than a destination question -
    * the same judgment `emitWebhook` already makes for an undeclared name,
    * and the same one `assertValidOverrideKeys` makes for an override key
    * that can never be read back.
@@ -476,7 +476,7 @@ export function createHandler(
    * Both routes to a registration go through this: the imperative
    * `register`/`unregister` at call time, and every key of `options.webhooks`
    * once at construction, just below. The config route used to be exempt, on
-   * the theory that a rule for an undeclared name "simply never fires" — but it
+   * the theory that a rule for an undeclared name "simply never fires" - but it
    * does fire. It writes a registration `registrations()` LISTS, that no
    * emission can resolve, and that `unregister` then REFUSES to remove because
    * the imperative path asserts what the config path did not.
@@ -703,7 +703,7 @@ export function createHandler(
     const ordinal = counters.next(`webhook|${name}`)
     // An operation-linked emission reserves its block at SCHEDULING time and
     // hands it in, because firing may be a timer away. An imperative
-    // `mock.emit()` has no such gap — this call is the scheduling point — so it
+    // `mock.emit()` has no such gap - this call is the scheduling point - so it
     // reserves here. Either way the block is fixed before anything awaits.
     const ticker = opts.ticker ?? virtualClock.allocate()
     const delivery = await emitWebhook({
@@ -733,7 +733,7 @@ export function createHandler(
   }
 
   /**
-   * One redelivery — refinements design §7.3. Draws NO ordinal and builds no
+   * One redelivery - refinements design §7.3. Draws NO ordinal and builds no
    * new id: the recorded id travels with the recorded bytes, which is what
    * makes a duplicate observably the same delivery. Recorded into the log like
    * any other emission, so `deliveries()` shows two entries under one id.
@@ -797,7 +797,7 @@ export function createHandler(
     /**
      * This request's reserved block of UUIDv7 timestamps, allocated
      * synchronously in `handle()` before anything can await. Every value this
-     * request generates — a response body, an error envelope — draws from it,
+     * request generates - a response body, an error envelope - draws from it,
      * so no other request's or emission's interleaving can shift them.
      */
     ticker: Ticker
@@ -869,7 +869,7 @@ export function createHandler(
     // `Prefer: variant=` on THIS request beats the stored `set_variant`
     // preference, for the same reason `Prefer: status` beats a configured
     // status: a header is a statement about this call. A name matching no
-    // branch falls through to the seeded pick rather than failing — the
+    // branch falls through to the seeded pick rather than failing - the
     // sibling directive's rule, and what keeps the header harmless on the many
     // responses that contain no union at all. Design section 5.5.
     const variant =
@@ -1041,18 +1041,18 @@ export function createHandler(
     resolvedWhole = fixture?.whole
     selectedStatus = chosen.status
 
-    // Stage 7.5 — link recall. Immediately after status selection and
+    // Stage 7.5 - link recall. Immediately after status selection and
     // immediately before the fixture contributes, because the resulting
     // precedence is
     //   runtime override > config override > link recall > fixture > example > generated
-    // — a recalled entity is more specific than a fixture for the operation
+    // - a recalled entity is more specific than a fixture for the operation
     // (the fixture answers "what does this endpoint return", the recall answers
     // "what does it return FOR THIS ID"), and less specific than either
     // override layer, which are deliberate statements from the caller.
     //
     // Only a SUCCESS status recalls. Replaying a stored body into a 404 or a
     // 500 would be actively wrong, and the failure-injection stage exists
-    // precisely so a caller can force those — design §4.4.
+    // precisely so a caller can force those - design §4.4.
     const linkLayer: OverrideNode[] = []
     if (linkTable !== undefined && chosen.status >= 200 && chosen.status < 300) {
       for (const rule of linkRecallRules.get(operation) ?? []) {
@@ -1070,7 +1070,7 @@ export function createHandler(
         // never minted is generated for, not recalled.
         if (recalled === undefined) continue
         // A FUNCTION node, so the recalled entity replaces the generated body
-        // rather than merging key-by-key into it — replaying the recorded bytes
+        // rather than merging key-by-key into it - replaying the recorded bytes
         // is the point. The layers above still refine what it produced.
         linkLayer.push(() => recalled)
         break
@@ -1213,7 +1213,7 @@ export function createHandler(
     }
     // Allocated HERE, on the synchronous path into `handle()`, before any
     // await. Reservation order is therefore arrival order, which is what "the
-    // request sequence" means in the amended invariant 2 — and it stays fixed
+    // request sequence" means in the amended invariant 2 - and it stays fixed
     // however long generation later takes, or however the mock interleaves
     // this request with another. See `generate/clock.ts`.
     //
@@ -1249,7 +1249,7 @@ export function createHandler(
     const hasEmits = trace.emits !== undefined && trace.emits.length > 0
     // Any capture rule may address `$response.body`, so this exit must capture
     // the body whenever the operation carries one. Without this the capture
-    // pass runs against an undefined result body and records NOTHING — a link
+    // pass runs against an undefined result body and records NOTHING - a link
     // rule then silently generates forever, and a registerVia never registers,
     // in both cases with no error anywhere to notice.
     //
@@ -1257,7 +1257,7 @@ export function createHandler(
     // kind: this gate and the rule list assembled at the capture call below
     // must name the same set, and two places listing kinds by hand drift the
     // moment a fourth kind is added. Both defects above were exactly that drift
-    // — link rules reached the capture pass while this gate still listed only
+    // - link rules reached the capture pass while this gate still listed only
     // callbacks, and registry rules were then added to the pass alone. The
     // callback kind is in the group too: it was the last one still hand-listed
     // beside it, under a different predicate that agreed only by coincidence.
@@ -1374,8 +1374,8 @@ export function createHandler(
         // preconditions and one try/catch rather than each feature growing its
         // own block (design §2).
         //
-        // The order within that list is FEATURE order — callbacks, then
-        // registry, then link — fixed by this concatenation, not by the order
+        // The order within that list is FEATURE order - callbacks, then
+        // registry, then link - fixed by this concatenation, not by the order
         // rules appear in config. Nothing observable depends on it today: the
         // three kinds write disjoint key namespaces (`callback|`,
         // `registration|`, `link|`), so no two rules in one pass can contend
@@ -1461,7 +1461,7 @@ export function createHandler(
           }
           const at = generation
           // An operation-linked emit HAS the triggering request, so a
-          // configured `scopeBy` resolves normally here — design §3.4's first
+          // configured `scopeBy` resolves normally here - design §3.4's first
           // case. Resolved once, before the delayed emissions fan out, so a
           // later request cannot change which registration this one addresses.
           const scopeFor = (webhook: string): string | undefined => {
@@ -1488,14 +1488,14 @@ export function createHandler(
           // distinction is the whole fix: with an `afterMs`, firing happens on
           // a timer, so allocating there let the delay decide whether this
           // emission or the caller's next request got the earlier timestamps.
-          // Same reasoning as `scopes` above — settle it before the fan-out, so
+          // Same reasoning as `scopes` above - settle it before the fan-out, so
           // a later request cannot change what a pending emission resolved.
           //
           // Indexed by POSITION, not keyed by webhook name. `trace.emits` is an
           // array and two entries may name the same webhook; a Map keyed by
           // name kept only the last, so both emissions drew from one block and
           // silently discarded the other. Sharing a block puts offsets back on
-          // the firing path — reintroducing, for exactly that configuration,
+          // the firing path - reintroducing, for exactly that configuration,
           // the bug this reservation exists to remove.
           const tickers = trace.emits.map(() => virtualClock.allocate())
           for (const [index, emit] of trace.emits.entries()) {
@@ -1543,7 +1543,7 @@ export function createHandler(
   return {
     fetch: handle,
     store,
-    // Reseeds the PRNG and nothing else — the request counters and the virtual
+    // Reseeds the PRNG and nothing else - the request counters and the virtual
     // clock keep running, exactly as they do across ordinary requests. Only
     // `reset()` rewinds them.
     //
@@ -1552,7 +1552,7 @@ export function createHandler(
     // random bits of a uuid7 agree, but the timestamp half does not, because
     // the fresh mock's clock is still at `seedTime` while this one has already
     // advanced a millisecond per v7 generated. Construct the mock with the seed
-    // when byte-identical output is the point — `reset()` is not the escape
+    // when byte-identical output is the point - `reset()` is not the escape
     // hatch, since it restores the CONFIGURED seed and so discards this one.
     setSeed(next) {
       seed = next
@@ -1602,7 +1602,7 @@ export function createHandler(
     },
     redeliver: (id) => {
       // A redelivery is an emission, so it obeys the same close() rule and is
-      // tracked the same way — otherwise settled() would race past it.
+      // tracked the same way - otherwise settled() would race past it.
       if (closed) {
         return Promise.reject(new Error(
           'mockingham: redeliver() was called after close(). The handler has ' +

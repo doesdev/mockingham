@@ -10,7 +10,7 @@ export type DeliveryOutcome = 'delivered' | 'failed' | 'captured' | 'unresolved'
  */
 export interface Delivery {
   /**
-   * Stable identity for one emission — NOT one attempt. A retry sequence is a
+   * Stable identity for one emission - NOT one attempt. A retry sequence is a
    * single `Delivery` with `attempts: n` and one id, which is what makes a
    * redelivery observably the same delivery as the first send. Derived from the
    * seed, the webhook name and the per-webhook ordinal (see `emitWebhook`), so

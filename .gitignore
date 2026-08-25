@@ -12,3 +12,7 @@ dist/
 .mockingham/
 .env
 .DS_Store
+# A machine-migration bundle lands in the working tree as a 30MB archive of
+# session history and dotfiles. It is a local artifact of moving machines, not
+# repo content, and `git add -A` will otherwise commit it.
+mockingham-migration.zip

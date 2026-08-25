@@ -152,7 +152,7 @@ test('an unmatched variant name falls through rather than failing', async () => 
 
 test('a Prefer: variant= on the request does NOT steer a webhook payload', async () => {
   // Design section 5.4: `runEmit` builds its own generateOptions and must not
-  // receive the request's variant — an emitted webhook has no request behind
+  // receive the request's variant - an emitted webhook has no request behind
   // it. The webhook body is the SAME union, so a leak would be visible.
   //
   // The request asks for `created`; the emission's own seeded pick is

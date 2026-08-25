@@ -360,11 +360,11 @@ rather than trusting it.
       expressible as JSON Schema; this operation is generated only" }` when
       `toJsonSchema` returns `undefined`, and `describeOperation` and
       `contentSchemas` both route through it. `listWebhooks` instead called
-      `toJsonSchema` directly. **The symptom this entry claimed — that a
+      `toJsonSchema` directly. **The symptom this entry claimed - that a
       *recursive* webhook payload therefore came back as `payloadSchema:
-      undefined` — was wrong when it was written.** See the corrected ruling
+      undefined` - was wrong when it was written.** See the corrected ruling
       below.
-    None of the three surface in `docs/mcp.md`'s own runnable examples —
+    None of the three surface in `docs/mcp.md`'s own runnable examples -
     `docs/example.json` has no scenario that naturally exercises any of them
     without a contrived setup - so all three are documented in prose there,
     with source citations, rather than demonstrated running.
@@ -372,7 +372,7 @@ rather than trusting it.
     ruling was "fix belongs to whoever next opens `src/mcp/tools/read.ts`";
     plan 11's MCP work was that cycle, and both were fixed in the same edit
     that shipped the write tools. Neither was a regression from plan 8.
-    **Status: (c) DONE in substance, plan 11, commit `a29b90d` — but the
+    **Status: (c) DONE in substance, plan 11, commit `a29b90d` - but the
     stated symptom never occurred and the diagnosis was false.** The single
     real residual was structural: `listWebhooks` was the one caller bypassing
     the shared helper, so two tools could in principle report differently for
@@ -381,11 +381,11 @@ rather than trusting it.
     *not* survive contact with the source is the recursion claim.
     `src/schema/json-schema.ts:13-16` says so in its own docstring: the
     `undefined` branch covers exactly one thing, `z.toJSONSchema` refusing a
-    compiled zod schema it cannot express, and "Recursion is NOT such a case —
+    compiled zod schema it cannot express, and "Recursion is NOT such a case -
     zod emits `{"$ref":"#"}` and this returns it." Probed directly rather than
     taken on trust: direct self-reference, mutual recursion, recursion nested
     under `oneOf` / `allOf` / `additionalProperties`, every string and integer
-    `format`, object and array `const`/`enum`, and degenerate schemas — every
+    `format`, object and array `const`/`enum`, and degenerate schemas - every
     one converted successfully, none returned `undefined`. The types
     `z.toJSONSchema` does refuse (`bigint`, `date`, and similar) are types
     `src/schema/compile.ts` never constructs; grepping its constructors
@@ -394,7 +394,7 @@ rather than trusting it.
     `$comment` fallback is therefore unreachable from any document**, so no
     mutation of this fix is observable and no test can meaningfully pin it.
     Recorded this way on purpose: the fix is right, the reasoning that
-    justified it was not, and the difference matters — see "A deferred entry
+    justified it was not, and the difference matters - see "A deferred entry
     can carry a false diagnosis" below.
 
     **Merge note (2026-08-25).** The ledger-clearing cycle closed all three
@@ -670,7 +670,7 @@ rather than trusting it.
 
 *Items 42-46 are the known limitations refinements design §13 records for the
 plan 11 cycle, entered here so they outlive that worktree's ledger. §13's third
-limitation — `pattern` still ignored by generation — is item 28 above and is
+limitation - `pattern` still ignored by generation - is item 28 above and is
 not duplicated here.*
 
 42. **Registration enumeration is process-local.** The webhook destination
@@ -682,7 +682,7 @@ not duplicated here.*
     identical in kind to the delivery log's existing limitation (refinements
     design §3.5) and is accepted for the same reason: an enumerable index in
     the `Store` would need a key-range or set primitive the `Store` interface
-    does not have — the same missing-primitive shape as item 15.
+    does not have - the same missing-primitive shape as item 15.
     **Status: documented limitation, plan 11.** See refinements design §13
     limitation 1 and §3.5.
 
@@ -691,8 +691,8 @@ not duplicated here.*
     recalls a value remembered by an earlier response so a create-then-read
     sequence returns the same id. Past 1000 live entries or an hour of age,
     the evicted key recalls nothing and the read falls through to ordinary
-    seeded generation. That fall-through is deliberate — invariant 4's "a miss
-    is never an error" applies to a recall miss too — but from the caller's
+    seeded generation. That fall-through is deliberate - invariant 4's "a miss
+    is never an error" applies to a recall miss too - but from the caller's
     view it is a silent behavior change rather than a signalled one: the
     response is well-formed and on-contract, it simply no longer agrees with
     the create that preceded it. A long soak test or a high-cardinality
@@ -701,7 +701,7 @@ not duplicated here.*
     **And that bound is process-local, so it does not bound a shared store.**
     The recorded values go through the `Store`, but the insertion-ordered key
     index that decides what to evict lives in `createLinkTable`, in the
-    process — the same wall item 42 and the delivery log hit, for the same
+    process - the same wall item 42 and the delivery log hit, for the same
     reason: the `Store` interface has no enumeration or key-range primitive.
     Each process therefore evicts only the keys *it* recorded, so N processes
     sharing one `Store` can leave up to N × `max` entries per rule resident in
@@ -717,9 +717,9 @@ not duplicated here.*
     `redeliver(id)` resolves the original delivery out of the in-memory
     delivery log, which is bounded at 1000 entries; once an id has been
     evicted, the redelivery throws rather than quietly succeeding with a
-    freshly built payload. Throwing is the right call — a "redelivery" that
+    freshly built payload. Throwing is the right call - a "redelivery" that
     silently re-derived its body would not be the same delivery, which is the
-    whole point of the stable delivery identity §7 introduced — but it does
+    whole point of the stable delivery identity §7 introduced - but it does
     mean redelivery is only reliable within a recent window, and a test that
     drives 1000+ emissions before redelivering an early one will fail in a way
     that looks like a defect and is not.
@@ -730,7 +730,7 @@ not duplicated here.*
     error envelopes.** Variant selection is applied on the response-body path
     only. A webhook payload emitted by the same operation, and an error
     envelope served instead of the success body, are both generated without
-    consulting the selected variant — so a test that pins a variant and then
+    consulting the selected variant - so a test that pins a variant and then
     asserts on the emitted payload sees the unpinned shape. The boundary is
     defensible (the variant is a property of the operation's declared success
     schema, which is not what either of those paths generates from) but it is
@@ -741,7 +741,7 @@ not duplicated here.*
 
 46. **A `remember` expression addressing a non-scalar via a pointer records
     nothing.** `resolveExpression` funnels pointer forms through `scalar()`,
-    so `{$response.body#/items}` — a pointer landing on an array or object —
+    so `{$response.body#/items}` - a pointer landing on an array or object -
     resolves to a failure and the `remember` records nothing at all. Only the
     whole-body forms are special-cased into structured values. The failure is
     silent by design (invariant 4 again), which means a document author who
@@ -753,21 +753,29 @@ not duplicated here.*
 47. **No test covers the post-`close()` guard on `redeliver`.**
     `src/server/handler.ts:1308-1316` rejects a `redeliver()` call made after
     `close()`, mirroring the `emit()` guard immediately above it at
-    `src/server/handler.ts:1290-1297`. The `emit()` half is tested —
+    `src/server/handler.ts:1290-1297`. The `emit()` half is tested -
     `test/server/webhooks.test.ts:723`, "emit() after close() rejects rather
-    than silently sending" — and the redelivery half has no equivalent. The
+    than silently sending" - and the redelivery half has no equivalent. The
     guard is more than symmetry: a redelivery is an emission, so an unguarded
     one after `close()` would be untracked by `track()` and `settled()` would
     race past it, which is finding I2's exact failure mode reappearing on a
     second entry point. Deleting the `if (closed)` block from `redeliver`
     leaves the suite green.
-    **Status: documented deferral, plan 11.** The test is small and buildable;
-    it belongs to whoever next opens the webhook surface.
+    **Status: DONE, post-merge cleanup (2026-08-25).**
+    `test/server/webhooks.test.ts`, "redeliver() after close() rejects rather
+    than silently re-sending", sits beside the `emit()` half it mirrors.
+
+    Verified by mutation rather than assumed: with the `if (closed)` block
+    deleted from `redeliver`, the test fails with "Missing expected rejection"
+    - the redelivery actually goes through. The id it redelivers is a real one
+    from a prior `emit()` for exactly that reason; a bogus id rejects on its
+    own, so a test using one would have passed against the mutated source and
+    proved nothing.
 
 48. **An observed flake, not a confirmed defect: a `docs/webhooks.md`
     assertion that `settled()` waits out `afterMs` failed once under heavy
     parallel load.** The document asserts `resetElapsedMs >= 300` after a
-    `reset()` with a 300ms `afterMs`, demonstrating item 25's behavior — that
+    `reset()` with a 300ms `afterMs`, demonstrating item 25's behavior - that
     `reset()` leaves the real timer running, so `settled()` pays the delay
     anyway. It failed once during a fully parallel run of the suite and passed
     on four subsequent runs, twice of them in isolation. That is one
@@ -786,7 +794,7 @@ not duplicated here.*
 49. **A UUIDv7's uniqueness ACROSS requests rests entirely on the virtual
     clock, not on its 74 random bits.** Raised by the plan 11 docs implementer,
     who noticed that three `uuid7` values in `README.md` differ only in their
-    timestamp field — the random bits are byte-identical — and correctly
+    timestamp field - the random bits are byte-identical - and correctly
     declined to claim anything about entropy in the guide. Probed directly
     rather than reasoned about, per the lesson item 29(c) taught in this same
     cycle:
@@ -794,11 +802,11 @@ not duplicated here.*
       body) have **distinct** random bits. Entropy advances correctly within a
       stream; there is no defect in `generateUuid7`.
     - Three `uuid7`s generated from three independent, identically-seeded rngs
-      — which is what successive requests to one operation actually are — have
+      - which is what successive requests to one operation actually are - have
       **identical** random bits, and differ only in the timestamp.
     The second case is invariant 2 doing its job: the same request must produce
     the same bytes, so the PRNG must be at the same position. It is not new
-    with v7 — `format: uuid` behaves the same way, and three identically-seeded
+    with v7 - `format: uuid` behaves the same way, and three identically-seeded
     requests produce three byte-identical v4s today. v7 is strictly better
     there, because the advancing clock disambiguates where v4 cannot.
     The consequence worth knowing: **two v7s from separate requests would be
@@ -817,8 +825,8 @@ not duplicated here.*
     Design §8.3 specified "a per-mock counter, advancing by a fixed step on
     each v7 generated", and §11's determinism table asserted "Same sequence →
     same bytes? Yes; counter is seeded and stepped fixed." Both were false. The
-    counter was drawn at GENERATION time — which is after `readOverride`,
-    `readVariant` and the fixture resolver have all awaited — and a webhook
+    counter was drawn at GENERATION time - which is after `readOverride`,
+    `readVariant` and the fixture resolver have all awaited - and a webhook
     with `afterMs` generates its payload on a timer. So the order draws reached
     the counter was decided by wall-clock timing rather than by the request
     sequence. A strictly sequential caller doing `POST` then `GET` got a
@@ -828,11 +836,11 @@ not duplicated here.*
         gap=60   post …7c00  get …7c02  hook …7c01
 
     The random halves were byte-identical across both runs, which is what
-    isolated the shared counter as the sole cause — the per-request seeded rng
+    isolated the shared counter as the sole cause - the per-request seeded rng
     was never involved.
     **Why nine plans of habit did not prevent it.** Every other
-    sequence-dependent output in this codebase — request ordinals, the webhook
-    counter, `failNext` consumption, idempotency claim — is drawn
+    sequence-dependent output in this codebase - request ordinals, the webhook
+    counter, `failNext` consumption, idempotency claim - is drawn
     SYNCHRONOUSLY, per request, before anything can interleave. The clock was
     the first piece of generation state drawn after an await, and it was
     introduced by a design that reasoned about determinism carefully and still
@@ -841,8 +849,8 @@ not duplicated here.*
     problem, *when* it is drawn was.
     **The fix** (`src/generate/clock.ts`) makes the clock an allocator:
     `allocate()` reserves a block of `TICKS_PER_ALLOCATION` timestamps
-    synchronously — at request entry, and at emission SCHEDULING rather than
-    firing — and generation draws within its own block whenever it runs.
+    synchronously - at request entry, and at emission SCHEDULING rather than
+    firing - and generation draws within its own block whenever it runs.
     **Status: FIXED, plan 11 fix wave.** Two regression tests
     (`test/server/handler.test.ts`): a delayed emission not shifting the next
     request's timestamp, and two concurrent requests ordered by issue rather
@@ -862,17 +870,17 @@ not duplicated here.*
     had not yet paid for.
     - **The bare-expression fix missed the one call site its own rationale
       names.** `normalizeExpression` was applied to link keys, `remember`, the
-      idempotency key, `registerVia.url` and `scopeBy` — but not to the
+      idempotency key, `registerVia.url` and `scopeBy` - but not to the
       document's `callbacks` expression (`src/server/handler.ts`), which is
       precisely the site both `expr.ts` and `capture.ts` cite when explaining
       why bare spellings must be accepted ("OpenAPI's own `callbacks` keys are
       written bare"). A bare key resolved to itself, so the literal text
       `$request.body#/hook` was stored as a destination and used as a delivery
-      URL, with no warning — `isSupported` is vacuously true for a token-free
+      URL, with no warning - `isSupported` is vacuously true for a token-free
       string.
     - **The clock fix keyed its tickers by webhook NAME.** `trace.emits` is an
       array and two entries may name one webhook; a `Map` kept only the last,
-      so both emissions shared a block and drew offsets at FIRING time —
+      so both emissions shared a block and drew offsets at FIRING time -
       reintroducing, for that configuration, the exact race the reservation
       removes.
     **Status: FIXED, plan 11 re-review wave.** Both pinned by regression tests.
@@ -882,7 +890,7 @@ not duplicated here.*
     test certified it by only inspecting the first id); `normalizeExpression`
     now tests for a matched token rather than the presence of a `{`, so a stray
     brace is wrapped instead of passed through; and a README sentence claiming
-    a `PUT` rule replaces what a `POST` recorded was corrected — records are
+    a `PUT` rule replaces what a `POST` recorded was corrected - records are
     namespaced per rule index, so rules never overwrite one another and
     declaration order alone decides which recall wins.
 
@@ -892,7 +900,7 @@ not duplicated here.*
     and LEAVES `lastIndex` advanced, and `String.prototype.matchAll` begins
     from the regex's current `lastIndex`. So a `test` inside
     `normalizeExpression` made the next `isSupported` call skip the first token
-    of whatever expression it examined — reporting an unsupported expression as
+    of whatever expression it examined - reporting an unsupported expression as
     supported and silently withholding the startup warning. Four warning tests
     failed at once, which is the only reason it was noticed.
     **Status: FIXED, plan 11 re-review wave.** A separate stateless
@@ -1056,8 +1064,8 @@ fail, report the exact message. That caught all four.
 **A deferral's justification can expire.** See item 7.
 
 **A deferred entry can carry a false diagnosis, confidently worded, and be read
-as settled fact by every later cycle.** Item 29(c) named a specific symptom — a
-recursive webhook payload returning `payloadSchema: undefined` — with a source
+as settled fact by every later cycle.** Item 29(c) named a specific symptom - a
+recursive webhook payload returning `payloadSchema: undefined` - with a source
 citation and a plausible mechanism. No such document exists. The mechanism was
 contradicted by the docstring of the very file it cited
 (`src/schema/json-schema.ts:13-16`: "Recursion is NOT such a case"), and a probe
@@ -1070,7 +1078,7 @@ This is the mirror of the lesson above: item 7 is a justification that *expired*
 over time, this is one that was *never true*. Both are invisible to a later
 reader, because a ledger entry looks the same whether or not anyone ever
 reproduced it. Two countermeasures, both cheap: state in the entry whether the
-symptom was **observed** or **reasoned from the code** — those are different
+symptom was **observed** or **reasoned from the code** - those are different
 claims and only one of them survives being wrong; and when closing a deferred
 item, reproduce its symptom before fixing it, exactly as this project already
 requires a mutation observation before accepting a test. An unreproducible

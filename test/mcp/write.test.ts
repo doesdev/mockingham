@@ -131,7 +131,7 @@ test('emit_webhook can address a scoped registration', async () => {
   assert.equal(toB.url, 'http://hooks.test/tenant-b')
 
   // And no scope still addresses the unscoped registration, of which there is
-  // none — so it is unresolved rather than silently picking a tenant.
+  // none - so it is unresolved rather than silently picking a tenant.
   const unscoped = await toolNamed('emit_webhook', { write: true }).handler(ctx, {
     webhook: 'orderCreated'
   }) as { outcome: string }
@@ -202,7 +202,7 @@ const VARIANT_SEED = 'variants'
 /**
  * The seeded pick for this document under this seed, pinned exactly as
  * test/server/variant.test.ts pins it. Every test below asks for the OTHER
- * branch — otherwise a tool that stored nothing at all would still pass.
+ * branch - otherwise a tool that stored nothing at all would still pass.
  */
 const SEEDED_OUTCOME = 'created'
 const REQUESTED_OUTCOME = 'conflict'
@@ -232,7 +232,7 @@ test('set_variant steers what the next request generates', async () => {
   })
   assert.deepEqual(result, { target: 'upsert', variant: REQUESTED_OUTCOME })
 
-  // The effect, through the mock — not the echoed return value. A handler that
+  // The effect, through the mock - not the echoed return value. A handler that
   // built that object and called nothing would pass on the line above alone.
   const body = await upsertOnce(mock)
   assert.equal(body.outcome, REQUESTED_OUTCOME)
@@ -247,8 +247,8 @@ test('clear_variants with no target restores the seeded branch and echoes null',
   })
 
   const result = await toolNamed('clear_variants', { write: true }).handler(ctx, {})
-  // `null`, never '*'. A bare '*' is not a valid target — compileTarget reads a
-  // space-free string as an operationId — so echoing it would teach a calling
+  // `null`, never '*'. A bare '*' is not a valid target - compileTarget reads a
+  // space-free string as an operationId - so echoing it would teach a calling
   // agent a string that throws on its next call. Exactly the bug that shipped
   // in fail_next's description until plan 10 corrected it.
   assert.deepEqual(result, { cleared: null })
@@ -388,7 +388,7 @@ test('register_webhook_destination stores under the scope it is given', async ()
   assert.deepEqual(await mock.registrations(), [
     { webhook: 'orderCreated', url: 'http://hooks.test/tenant-a', scope: 'tenant-a' }
   ])
-  // A scoped registration does not answer the unscoped lookup — design §3.4.
+  // A scoped registration does not answer the unscoped lookup - design §3.4.
   // Without this, a handler that dropped `scope` on the floor would still pass
   // the assertion above only by accident of it being the sole entry.
   const emitted = await mock.emit('orderCreated')

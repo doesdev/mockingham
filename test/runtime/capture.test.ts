@@ -71,7 +71,7 @@ test('a rule whose collaborator is absent is skipped without stopping the pass',
   })
   // `register`/`unregister` need a `registry` and `link` needs a `link` table;
   // neither was passed here. Those three rules must be no-ops rather than
-  // throws, because a throw would fail the whole capture pass — and with it
+  // throws, because a throw would fail the whole capture pass - and with it
   // every other rule at this exit. The callback rule that FOLLOWS them still
   // captures, which is the only way to observe that the pass kept going.
   assert.equal(await store.get(callbackKey('onOrder')), 'https://consumer.example/h')

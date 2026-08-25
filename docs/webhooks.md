@@ -157,7 +157,7 @@ a URL, is:
 2. a **registration** for the resolved scope (next section)
 3. a captured runtime URL
 4. a configured `url`
-5. nothing — `unresolved`
+5. nothing - `unresolved`
 
 A registration sits above a captured callback URL because it is a deliberate,
 persistent statement about where a webhook goes, while a captured URL is
@@ -168,13 +168,13 @@ both is unusual; when it does, the explicit registration wins.
 
 A callback captures its destination from the request that triggers it. Plenty
 of real APIs do not work that way: you `PUT` a subscription once, naming a URL,
-and every later event goes there — a different operation entirely from the one
+and every later event goes there - a different operation entirely from the one
 that fires the webhook. That is what a **registration** is.
 
 Configure it under the webhook's own config with `registerVia` (which operation
 registers, and the runtime expression that yields the URL), `unregisterVia`
 (which operation removes it), and an optional `scopeBy` expression partitioning
-registrations — per tenant, per account, per whatever the document keys
+registrations - per tenant, per account, per whatever the document keys
 subscriptions on. `registerVia.operationId` is a control-plane target, not
 strictly an operationId: `'PUT /subscriptions/{name}'` and `'* /subs/**'` both
 work, and a target matching nothing throws at construction rather than silently
@@ -230,14 +230,14 @@ console.log(JSON.stringify(await registryMock.registrations(), null, 2))
 ]
 ```
 
-`registrations(name?)` returns entries **sorted by webhook then scope** — an
+`registrations(name?)` returns entries **sorted by webhook then scope** - an
 unordered iteration deciding an observable order is exactly what invariant 2
 forbids, and this list is observable from a test, from the API, and from the
 `list_registrations` MCP tool.
 
 Two tenants, two destinations, no overwriting: that is what `scopeBy` buys. It
 looks like a convenience and is not one. Without it both `PUT`s write the same
-key and the second tenant silently redirects the first tenant's webhooks — a
+key and the second tenant silently redirects the first tenant's webhooks - a
 wrong answer that looks like a working mock. An emission addresses one scope
 with `emit(name, { scope })`, which wins over any configured `scopeBy` the same
 way `to:` wins over any resolved destination:
@@ -254,9 +254,9 @@ acme: https://acme.test/hooks
 globex: https://globex.test/hooks
 ```
 
-An `emit()` with no scope addresses the **unscoped** registration — the one
+An `emit()` with no scope addresses the **unscoped** registration - the one
 stored under the empty scope. Nothing registered there means nothing to send,
-and — invariant 6 again — that is a `Delivery` with `outcome: 'unresolved'`,
+and - invariant 6 again - that is a `Delivery` with `outcome: 'unresolved'`,
 not an error and not a throw:
 
 ```ts
@@ -274,7 +274,7 @@ This is worth being explicit about, because "nothing was registered" is the
 state a registry spends most of its life in during a test, and it is easy to
 assume it must be an error. It is not: `unresolved` is a distinct outcome from
 a failure, it is recorded in `deliveries()` like any other, and `Delivery.status`
-and `Delivery.error` are both absent for it — so a test can tell "went nowhere"
+and `Delivery.error` are both absent for it - so a test can tell "went nowhere"
 from "went somewhere and failed" without any extra machinery.
 
 `unregisterVia` removes one scope's registration, keyed by the same expression
@@ -306,7 +306,7 @@ console.log(JSON.stringify(await registryMock.registrations('paymentFailed'), nu
 ```
 
 Acme is gone; globex is untouched. A test that wants to skip the request round
-trip entirely can write the same entries directly — `mock.register(webhook,
+trip entirely can write the same entries directly - `mock.register(webhook,
 url, scope?)` and `mock.unregister(webhook, scope?)` are the imperative form of
 exactly what those two operations do, with an absent scope meaning the unscoped
 registration:
@@ -329,7 +329,7 @@ after unregister: unresolved
 ```
 
 Two notes on the expression syntax and on scope. First, `{$request.body#/url}`
-and the bare `$request.body#/url` resolve identically — OpenAPI's own
+and the bare `$request.body#/url` resolve identically - OpenAPI's own
 `callbacks` keys are written bare, so a reader coming from the spec will type
 it that way, and the bare form is normalized by wrapping. Second, registrations
 live in the `Store`, alongside `failNext` state and runtime overrides, so
@@ -423,19 +423,19 @@ after clear: 0
 
 `Delivery` (`src/webhooks/deliver.ts`) is `{ id, webhook, url?, body, headers,
 outcome, status?, attempts, error? }`. The `id` is one per emission, not per
-attempt — a retry sequence is a single delivery with `attempts: n` and one id
-— and it is derived from the seed, the webhook name and the emission ordinal
+attempt - a retry sequence is a single delivery with `attempts: n` and one id
+- and it is derived from the seed, the webhook name and the emission ordinal
 rather than being random, so replaying a sequence reproduces it. Print
 `outcome`, not `status`: under
-`captureOnly: true` nothing is actually sent over the network, so `status` —
-an HTTP response code — is absent by design. Reaching for it here would teach
+`captureOnly: true` nothing is actually sent over the network, so `status` -
+an HTTP response code - is absent by design. Reaching for it here would teach
 an expectation that never holds under capture mode; `captureOnly` is what
 makes a webhook fully testable in-process with no receiver, the same way
 `fetch()` made responses testable without a port.
 
 ## Delivery ids and redelivery
 
-`mock.redeliver(id)` sends a recorded delivery again — the same bytes, the same
+`mock.redeliver(id)` sends a recorded delivery again - the same bytes, the same
 signature header, the same destination, and the same `id`. It does **not**
 regenerate the payload and does not re-resolve the destination: the whole point
 of a redelivery is proving your receiver's duplicate handling sees a duplicate,
@@ -473,7 +473,7 @@ records in the log: 2
 
 That id is not random. It is derived from the seed, the webhook name, and the
 per-webhook emission ordinal, so replaying the same sequence of requests in a
-fresh process reproduces it exactly — the same reason nothing else in a
+fresh process reproduces it exactly - the same reason nothing else in a
 generation path reaches for a UUID. One id belongs to one **emission**, not to
 one attempt: a retry sequence is a single delivery with `attempts: n` and one
 id, which is what makes "did my receiver see this same event twice?" a question
@@ -484,7 +484,7 @@ timestamp, so recomputing would produce a different header for identical bytes.
 That is a real behavior in production systems, but it is not what "identical
 bytes, identical id" asks for.
 
-An id that is not in the log throws — including one that has aged out of the
+An id that is not in the log throws - including one that has aged out of the
 1000-entry bound. Silently succeeding with nothing to send would be worse:
 
 ```ts

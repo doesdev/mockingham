@@ -230,7 +230,7 @@ test('a registering operation supplies the destination a later emit delivers to'
   await mock.fetch(new Request('http://mock/subscriptions/order-events', { method: 'DELETE' }))
   const after = await mock.emit('orderStatusChanged')
   // Invariant 6 and design §3.6: nothing registered is `unresolved`, a normal
-  // recorded Delivery — not a throw and not an onError.
+  // recorded Delivery - not a throw and not an onError.
   assert.equal(after.outcome, 'unresolved')
   assert.equal(after.url, undefined)
   assert.equal(after.error, undefined)
@@ -259,7 +259,7 @@ test('scopeBy keeps one tenant registration from redirecting another tenant webh
   assert.equal((await mock.emit('orderStatusChanged', { scope: 'tenant-2' })).url,
     'https://two.example/hook')
   // An emit with no scope addresses the unscoped registration, of which there
-  // is none — design §3.4's third case.
+  // is none - design §3.4's third case.
   assert.equal((await mock.emit('orderStatusChanged')).outcome, 'unresolved')
 
   assert.deepEqual(await mock.registrations('orderStatusChanged'), [
@@ -282,12 +282,12 @@ test('a registerVia url reading the RESPONSE body still registers', async () => 
   // The single exit only captures the response body when something declares a
   // need for it. Link rules were added to that gate; registry rules were not,
   // so a registerVia pointing at `$response.body` resolved against an
-  // undefined body and silently registered NOTHING — an emit then fell through
+  // undefined body and silently registered NOTHING - an emit then fell through
   // to `unresolved` forever, with no error anywhere. Found by the Task 3
   // implementer as the same defect on the link path.
   // Cast through `unknown` because `doc`'s inferred literal type narrows this
   // response to `{ description: string }`. An OpenAPI document is data, not a
-  // typed API surface — `loadApi` validates it at runtime.
+  // typed API surface - `loadApi` validates it at runtime.
   const responseDoc = structuredClone(doc) as unknown as {
     paths: Record<string, Record<string, { responses: Record<string, unknown> }>>
   }
@@ -330,7 +330,7 @@ test('registering an undeclared webhook name throws', async () => {
   // `emit` already throws on a name the document does not declare, because
   // that is a typo rather than a destination question. Registering one is the
   // same typo: it stores a destination nothing can ever deliver to, silently.
-  // This codebase refuses that class elsewhere in the same words —
+  // This codebase refuses that class elsewhere in the same words -
   // `assertValidOverrideKeys` rejects a key that "can never be read back and
   // would silently do nothing".
   const mock = createMock(doc, { captureOnly: true })

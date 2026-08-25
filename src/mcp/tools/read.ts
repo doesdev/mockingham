@@ -85,7 +85,7 @@ function jsonSchemaOf(schema: Schema): Record<string, unknown> {
  * matches. Without this an agent had to infer a variant name from raw JSON
  * Schema `const`s in the converted output.
  *
- * One level only — the union AT the response body, not a walk of the tree.
+ * One level only - the union AT the response body, not a walk of the tree.
  * `variant` applies at every union in the tree, but enumerating nested ones
  * would produce a flat list of names with no indication of where each applies,
  * which is more misleading than saying nothing. A branch with no const-valued
@@ -125,7 +125,7 @@ const describeOperation: McpTool = {
   description:
     'The full contract for one operation: parameters, request body schema, ' +
     'every declared response schema, security requirements, and declared ' +
-    'examples. Also what the operation does beyond generating a response — ' +
+    'examples. Also what the operation does beyond generating a response - ' +
     'which response-link rules it records for (linksFrom) or replays from ' +
     '(linksTo), which webhook destination it registers or unregisters, and ' +
     'where its idempotency key comes from. A response whose body is a union ' +
@@ -448,7 +448,7 @@ const listWebhooks: McpTool = {
         emittedBy,
         expression: callback?.expression,
         // Design §9: whether a registry is configured, and how many
-        // registrations exist — deliberately NOT the URLs. A registered
+        // registrations exist - deliberately NOT the URLs. A registered
         // destination is a consumer's endpoint and does not belong in a
         // capability listing an agent may dump into a log. list_registrations
         // returns them, because asking is a different act from being told.
@@ -465,14 +465,14 @@ const listWebhooks: McpTool = {
 const listRegistrations: McpTool = {
   name: 'list_registrations',
   description:
-    'Webhook destinations currently registered with this mock — webhook name, ' +
-    'URL, and scope — sorted by webhook then scope. These are the URLs an ' +
+    'Webhook destinations currently registered with this mock - webhook name, ' +
+    'URL, and scope - sorted by webhook then scope. These are the URLs an ' +
     'emission will actually deliver to. Filter by webhook name.',
   inputSchema: {
     webhook: z.string().optional().describe('Only registrations for this webhook')
   },
   handler(ctx: McpContext, args: Record<string, unknown>) {
-    // Sorting is the registry's own contract, not re-imposed here — one
+    // Sorting is the registry's own contract, not re-imposed here - one
     // ordering, decided in one place, so this listing and mock.registrations()
     // cannot disagree.
     return ctx.registrations(args.webhook as string | undefined)

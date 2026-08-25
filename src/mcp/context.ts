@@ -31,20 +31,20 @@ export interface McpContext {
   outage(target: string, opts?: McpOutageOptions): Promise<void>
   override(target: string, value: RuntimeOverride): Promise<void>
   clearOverrides(target?: string): Promise<void>
-  /** Stored union-branch preference — design §5.5's `set_variant`. */
+  /** Stored union-branch preference - design §5.5's `set_variant`. */
   setVariant(target: string, name: string): Promise<void>
   clearVariants(target?: string): Promise<void>
   setSeed(seed: string): Promise<void>
   reset(): Promise<void>
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
-  /** Re-sends one recorded delivery verbatim — design §7.3. */
+  /** Re-sends one recorded delivery verbatim - design §7.3. */
   redeliver(id: string): Promise<Delivery>
   deliveries(): Delivery[]
   register(webhook: string, url: string, scope?: string): Promise<void>
   unregister(webhook: string, scope?: string): Promise<void>
-  /** Registered webhook destinations, URLs included — design §9's `list_registrations`. */
+  /** Registered webhook destinations, URLs included - design §9's `list_registrations`. */
   registrations(webhook?: string): Promise<Registration[]>
-  /** Which operations recall, register, or carry an idempotency key — design §9. */
+  /** Which operations recall, register, or carry an idempotency key - design §9. */
   capabilities(): Capabilities
   /** A scoped re-bake. Throws when no llm source is configured. */
   bake(options?: { only?: BakeScope }): Promise<BakeSummary>

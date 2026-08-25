@@ -1,4 +1,4 @@
-# mockingham — refinements delta design (plan 11)
+# mockingham - refinements delta design (plan 11)
 
 2026-08-25. A delta against the master spec
 (`2026-08-11-mockingham-design.md`), covering seven refinements proposed after
@@ -14,7 +14,7 @@ here.
 ## 1. Scope
 
 Seven items, all in. The proposal document tiered them; that tiering is
-preserved below as a label but does not affect scope — everything ships.
+preserved below as a label but does not affect scope - everything ships.
 
 | § | Item | Proposal tier |
 |---|---|---|
@@ -35,7 +35,7 @@ documented subset" and lacks only chronology. It does not generate at all:
 `src/generate/constraints.ts`, while `src/schema/compile.ts` compiles it into
 the zod validator requests are checked against. The two directions disagree,
 which is invariant 1's failure mode showing up in a place invariant 1 does not
-reach — one traversal, but only one of its two consumers reads the keyword.
+reach - one traversal, but only one of its two consumers reads the keyword.
 
 Fixing it means a regex-to-string generator: a real subsystem, with its own
 supported-construct subset, its own startup-warning surface for constructs
@@ -54,7 +54,7 @@ oversight.
 
 ## 2. The finding that shapes this cycle: §3 and §4 are one mechanism
 
-The registry (§3) and response linking (§4) read as unrelated features — one
+The registry (§3) and response linking (§4) read as unrelated features - one
 is outbound webhooks, the other is inbound request correlation. They are the
 same three steps:
 
@@ -65,7 +65,7 @@ same three steps:
 3. Later, read it back on a different request or emission.
 
 All three steps already exist in the codebase, for one narrow case. Callback
-destination capture — "destination tier 2" — does exactly this at
+destination capture - "destination tier 2" - does exactly this at
 `src/server/handler.ts:799-819`: it waits for a final response with a status
 below 400, builds an `exprInput` carrying both request and result, resolves
 each declared callback expression, and writes the result to
@@ -80,8 +80,8 @@ rules, and give the stored values two readers instead of one.**
 This collapses the work substantially and, more importantly, means the two
 features cannot drift apart. They share:
 
-- `resolveExpression` and `ExprInput` (`src/webhooks/expr.ts`) — unchanged.
-- The `exprInput` construction at the single exit — extracted to a named
+- `resolveExpression` and `ExprInput` (`src/webhooks/expr.ts`) - unchanged.
+- The `exprInput` construction at the single exit - extracted to a named
   helper, since three call sites will now build it instead of one.
 - The `status < 400` precondition and its rationale, quoted at
   `handler.ts:794-798`: a 401 has not subscribed to anything, and capturing
@@ -90,8 +90,8 @@ features cannot drift apart. They share:
   record.
 - One capture pass over one rule list, so every capture kind shares one set of
   preconditions and one error boundary instead of each feature growing its own
-  block. Within that list the order is *feature* order — callbacks, then
-  registry, then link — fixed by the concatenation that builds it, not by the
+  block. Within that list the order is *feature* order - callbacks, then
+  registry, then link - fixed by the concatenation that builds it, not by the
   order rules appear in config. That is unobservable as long as the kinds write
   disjoint key namespaces (`callback|`, `registration|`, `link|`), which they
   do: no two rules in a single pass can contend for the same key. A future kind
@@ -131,7 +131,7 @@ stored. `DELETE` unregisters; emissions afterward have nowhere to go.
 `to`, a captured callback URL, a configured `url`, then nothing. The captured
 tier is written only from a `callbacks` expression evaluated inside the
 triggering request. There is no path by which one operation writes a
-destination another operation's emission reads, and no scoping axis at all —
+destination another operation's emission reads, and no scoping axis at all -
 `callbackKey(name)` is keyed by webhook name alone.
 
 ### 3.3 Configuration
@@ -150,7 +150,7 @@ createMock(doc, {
 ```
 
 `registerVia.operationId` accepts any control-plane target string, not only an
-operationId — `compileTarget` (`src/resolve/target.ts:24`) already parses
+operationId - `compileTarget` (`src/resolve/target.ts:24`) already parses
 `'PUT /subscriptions/{name}'`, `'* /subs/**'`, and a bare operationId, and
 `resolveTarget` already throws on a target matching nothing. Reusing it means
 a typo fails loudly at construction, consistent with every other target in the
@@ -158,7 +158,7 @@ system. The field keeps the name `operationId` from the proposal for
 familiarity but its documented type is "a control-plane target".
 
 Note the brace syntax. `src/webhooks/expr.ts` resolves `{$request.body#/url}`,
-with braces — the proposal document wrote `$request.body#/url` bare. Bare
+with braces - the proposal document wrote `$request.body#/url` bare. Bare
 forms are accepted and normalized by wrapping, because OpenAPI's own
 `callbacks` keys are written bare and a reader coming from the spec will type
 it that way. Both spellings resolve identically; this is stated in the docs.
@@ -181,7 +181,7 @@ every tenant overwriting one key, so the second tenant's registration silently
 redirects the first tenant's webhooks. That is not an inconvenience to work
 around later; it is a wrong answer that looks like a working mock.
 
-An emission resolves its scope the same way — but an emission triggered by
+An emission resolves its scope the same way - but an emission triggered by
 `mock.emit()` has no request to evaluate an expression against. Three cases:
 
 - **Operation-linked emit** (an `emits` config firing at the single exit):
@@ -190,7 +190,7 @@ An emission resolves its scope the same way — but an emission triggered by
   expression, exactly as `to` wins over any resolved destination.
 - **`mock.emit(name)` with a `scopeBy` configured and no explicit scope**: the
   scope resolves to the empty string, which addresses the unscoped
-  registration. If none exists, the emit is `unresolved` — see §3.6.
+  registration. If none exists, the emit is `unresolved` - see §3.6.
 
 ### 3.5 Runtime surface
 
@@ -204,7 +204,7 @@ mock.unregister(name, scope?): Promise<void>
 
 `registrations()` returns entries **sorted by `webhook` then `scope`**.
 Invariant 2 forbids letting an unordered iteration decide anything observable,
-and this method is observable — through the API, through the MCP read tool in
+and this method is observable - through the API, through the MCP read tool in
 §9, and through anything a test asserts on. The `Store` interface has no
 enumeration primitive (`src/runtime/store.ts:1-7`), which is the same wall
 `createDeliveryLog` hit and solved by keeping an in-process index
@@ -226,8 +226,8 @@ precisely an emit that resolved no destination, so it produces a `Delivery`
 with `outcome: 'unresolved'` and no `url`, recorded in `deliveries()` like any
 other. Routing it to `onError` instead would contradict the invariant.
 
-The proposal's underlying worry — that a silent drop is indistinguishable from
-a delivery that failed elsewhere — does not apply: `unresolved` is already a
+The proposal's underlying worry - that a silent drop is indistinguishable from
+a delivery that failed elsewhere - does not apply: `unresolved` is already a
 distinct outcome from a failure, and `Delivery.status` and `Delivery.error`
 are both documented as absent for it (`src/webhooks/deliver.ts:19-22`). The
 observability the proposal asks for exists; nothing is needed.
@@ -286,7 +286,7 @@ construction, so a typo throws rather than silently never linking.
 A subtlety: `remember: '{$response.body}'` must record the response body as a
 **value**, not as the string `resolveExpression` returns. `resolveToken`
 funnels `body` through `scalar()` (`src/webhooks/expr.ts:45-49,79`), which
-returns `undefined` for an object — so the bare `{$response.body}` template
+returns `undefined` for an object - so the bare `{$response.body}` template
 resolves to a failure today, not to the body. The capture pass therefore
 special-cases a `remember` that is exactly `{$response.body}` or
 `{$request.body}` and takes the parsed value directly, using
@@ -303,7 +303,7 @@ link|<rule index>|<key value>
 Keyed by rule index rather than by operation, so two rules recording under the
 same extracted key value do not collide.
 
-**A recall table is unbounded by construction** — every `POST` mints a new id
+**A recall table is unbounded by construction** - every `POST` mints a new id
 and adds an entry. Two bounds, both required:
 
 - `link[].ttlMs`, default 3,600,000 (one hour). Store TTLs are already lazy
@@ -319,7 +319,7 @@ production, so it is specified rather than left to the implementer.
 ### 4.4 Where the replay happens in the pipeline
 
 The recall read happens at **stage 7.5**, immediately after status selection
-and immediately before the fixture resolves — that is, right at
+and immediately before the fixture resolves - that is, right at
 `handler.ts:569`, where `fixtureResolver.resolve` is awaited today.
 
 Recall produces a value that behaves exactly like a fixture layer: it sits
@@ -331,7 +331,7 @@ runtime override > config override > link recall > fixture > example > generated
 ```
 
 Link recall above fixture because a recalled entity is more specific than a
-fixture for the operation — the fixture answers "what does this endpoint
+fixture for the operation - the fixture answers "what does this endpoint
 return", the recall answers "what does this endpoint return *for this id*".
 
 Only a **success** status recalls. A recall replaying its stored body into a
@@ -346,7 +346,7 @@ processes. Linking makes a `GET /orders/{id}` response depend on whether a
 
 **Amendment.** Invariant 2 is refined to: *the same request sequence produces
 byte-identical output across processes.* Determinism was always
-sequence-scoped in fact — request ordinals feed `requestIdFor`, the webhook
+sequence-scoped in fact - request ordinals feed `requestIdFor`, the webhook
 counter feeds emission seeds, idempotency records replay prior responses, and
 `failNext` consumes armed failures in order. Every one of those already makes
 a response depend on what came before it. Linking adds another such
@@ -374,7 +374,7 @@ otherwise `rng.pick` unchanged.
 
 `classify` already extracts `discriminator: schema.discriminator?.propertyName`
 (`src/schema/walk.ts:130`) and generation ignores it today. A new pure helper
-beside `classify` — schema interpretation belongs in `walk.ts`, invariant 1 —
+beside `classify` - schema interpretation belongs in `walk.ts`, invariant 1 -
 determines a branch's name:
 
 - With a formal `discriminator`, read that property on the branch and take its
@@ -404,7 +404,7 @@ behavior, and it matches the sibling directive.
 
 The name applies at every union in the tree. A nested union with a matching
 branch takes it; one without falls back to seeded. No path targeting, no
-per-union syntax — a second addressing scheme for schema positions would be a
+per-union syntax - a second addressing scheme for schema positions would be a
 new concept, and the value it buys is small.
 
 ### 5.4 Wiring, and where it deliberately does not go
@@ -415,11 +415,11 @@ and threads it into the `generateOptions` given to `createResponders`.
 
 The other three `generateOptions` construction sites do **not** receive it:
 
-- `runEmit` (`handler.ts:284`) — an emitted webhook has no request, so no
+- `runEmit` (`handler.ts:284`) - an emitted webhook has no request, so no
   `Prefer` header.
-- `failWith` (`handler.ts:318`) — steering an error envelope's union from a
+- `failWith` (`handler.ts:318`) - steering an error envelope's union from a
   request header is not a behavior to introduce silently.
-- the header builder (`render.ts:57`) — same reasoning.
+- the header builder (`render.ts:57`) - same reasoning.
 
 ### 5.5 `set_variant`, which does not come along for free
 
@@ -452,14 +452,14 @@ mock.clearVariants(target?): Promise<void>
 ```
 
 plus `set_variant` and `clear_variants` MCP write tools, mirroring
-`set_override` / `clear_overrides` — including the `clear_overrides` detail
+`set_override` / `clear_overrides` - including the `clear_overrides` detail
 that the no-target case echoes `null` rather than `'*'`, because a bare `'*'`
 is not a valid target and echoing it teaches a caller a string that throws on
 its next call.
 
 Write-tool count goes from seven to nine; `mcpTools({ write: true })` from
 fourteen to sixteen, before §7's and §9's additions. The pinned tool inventory
-test moves accordingly — see §10.
+test moves accordingly - see §10.
 
 ---
 
@@ -470,7 +470,7 @@ test moves accordingly — see §10.
 `isIdempotent` (`src/runtime/idempotency.ts:85-92`) recognizes an operation as
 idempotent only when the document declares the configured header as a header
 parameter, or when config names its method. Plenty of documents put the key in
-the body — `meta.requestId`, `messageId`, `eventId` — and instruct consumers
+the body - `meta.requestId`, `messageId`, `eventId` - and instruct consumers
 to deduplicate on that field.
 
 ### 6.2 The proposal's dependency claim is wrong, in a useful direction
@@ -495,7 +495,7 @@ idempotency: {
 ```
 
 Keys are control-plane targets, resolved at construction. An operation with a
-configured key is idempotent regardless of what the document declares —
+configured key is idempotent regardless of what the document declares -
 `isIdempotent` gains a third sufficient route, joining the declared-header and
 configured-method routes, and the existing "either route is sufficient,
 neither wins" rule at `idempotency.ts:80-84` extends unchanged.
@@ -505,11 +505,11 @@ neither wins" rule at `idempotency.ts:80-84` extends unchanged.
 The idempotency stage is **stage 5**; the body is parsed at **stage 2**
 (`trace.bytesIn = parsed.body.raw.length`, `handler.ts:428`). A body pointer
 therefore has a parsed body available by the time it is evaluated. Confirmed
-against the pipeline order rather than assumed — an expression evaluated
+against the pipeline order rather than assumed - an expression evaluated
 before its source exists is exactly the class of defect this repo's delta
 designs exist to catch.
 
-When the pointer resolves to nothing — a body missing the field — the request
+When the pointer resolves to nothing - a body missing the field - the request
 is **not** idempotent and proceeds normally, matching the existing behavior
 for a missing header (`idempotency.ts:160-162`: "No key, nothing to key on").
 
@@ -521,7 +521,7 @@ at `idempotency.ts:22-28`.
 There is one interaction worth stating: with the default scope including
 `bodyHash`, a body-pointer key is *inside* the body it is fingerprinted
 against. Two requests with the same `requestId` and any other field differing
-conflict with `MOCK_IDEMPOTENCY_MISMATCH` — which is correct and is what a
+conflict with `MOCK_IDEMPOTENCY_MISMATCH` - which is correct and is what a
 document instructing "deduplicate on `meta.requestId`" means.
 
 ---
@@ -531,8 +531,8 @@ document instructing "deduplicate on `meta.requestId`" means.
 ### 7.1 Not the small item it is listed as
 
 `Delivery` (`src/webhooks/deliver.ts:11-23`) has no id field. There is no
-`deliveryId` to redeliver *by*. The proposal's one-line surface —
-`mock.redeliver(name, deliveryId)` — requires first inventing delivery
+`deliveryId` to redeliver *by*. The proposal's one-line surface -
+`mock.redeliver(name, deliveryId)` - requires first inventing delivery
 identity, which is a contract addition to a type that already appears in
 `deliveries()`, in the `emit_webhook` tool's return, and in the webhooks
 guide.
@@ -547,7 +547,7 @@ fnv1a(`${seed}|delivery|${webhook}|${ordinal}`)
 
 where `ordinal` is the existing per-webhook counter already feeding the
 emission rng (`handler.ts:283`). Deterministic, so a replayed request sequence
-produces the same delivery ids — required by §4.5's amended invariant 2, and
+produces the same delivery ids - required by §4.5's amended invariant 2, and
 the reason this is not a UUID.
 
 **One id per emission, not per attempt.** A retry sequence is one delivery
@@ -561,20 +561,20 @@ identifier as the first attempt.
 mock.redeliver(id): Promise<Delivery>
 ```
 
-Keyed by id alone — the webhook name is recoverable from the record, and a
+Keyed by id alone - the webhook name is recoverable from the record, and a
 two-argument form that could disagree with itself is a defect surface for no
 benefit. This diverges from the proposal's `redeliver(name, deliveryId)`
 deliberately.
 
 Redelivery re-sends the recorded bytes: same body, same signature header, same
 destination, same id. It does **not** regenerate the payload, and it does not
-re-resolve the destination — the point is to prove that a duplicate carries
+re-resolve the destination - the point is to prove that a duplicate carries
 the same identity, and regenerating would defeat it. The returned `Delivery`
 is a new record with the same `id`, appended to the log.
 
 A signature is reused rather than recomputed. `sign` takes a timestamp
 (`emit.ts:139`), so recomputing would produce a different signature header for
-identical bytes — which is a real behavior in production systems but is not
+identical bytes - which is a real behavior in production systems but is not
 what "identical bytes, identical ids" asks for. The recorded header is
 replayed verbatim.
 
@@ -595,7 +595,7 @@ worse.
 ### 8.1 The gap, restated correctly
 
 `generateString`'s `uuid` case (`src/generate/values.ts:51-54`) hardcodes
-version 4 — literal `4` in the version position, `[89ab]` in the variant
+version 4 - literal `4` in the version position, `[89ab]` in the variant
 position. Values are well-formed v4 UUIDs and carry no time ordering.
 
 UUIDv7 (RFC 9562) exists so identifiers sort by creation time, and sorting by
@@ -634,7 +634,7 @@ below.
 createMock(doc, { seedTime: 1735689600000 })   // 2025-01-01T00:00:00Z
 ```
 
-Default `seedTime` is a fixed epoch constant, **not** `Date.now()` — a default
+Default `seedTime` is a fixed epoch constant, **not** `Date.now()` - a default
 that reads the wall clock would make baked fixtures unstable across runs,
 which is the exact failure `seedTime` exists to prevent. The default is
 declared as a named constant beside the generator.
@@ -642,13 +642,13 @@ declared as a named constant beside the generator.
 The step is 1 ms per generated v7. A fixed step rather than a seeded jitter
 keeps "sorts by generation order" exactly true rather than probably true.
 
-**Amended 2026-08-25, during this cycle's whole-branch review — the paragraph
+**Amended 2026-08-25, during this cycle's whole-branch review - the paragraph
 below replaces "the virtual clock is per-mock, not per-request", which was
 implemented as specified and was WRONG.**
 
 A single per-mock counter drawn at generation time does not satisfy §4.5.
 Generation runs after `readOverride`, `readVariant` and the fixture resolver
-have all awaited, and an emission with `afterMs` generates on a timer — so the
+have all awaited, and an emission with `afterMs` generates on a timer - so the
 order draws reached the shared counter was decided by wall-clock timing, not by
 the request sequence. Reproduced with an identical sequence, the same seed, and
 only the caller's wait between two calls varying:
@@ -659,12 +659,12 @@ gap=60   post …7c00  get …7c02  hook …7c01
 ```
 
 The `get` there is a caller-visible response body. The random halves were
-byte-identical in both runs — those come from the per-request seeded rng, which
+byte-identical in both runs - those come from the per-request seeded rng, which
 was never the problem; only the timestamp moved.
 
 **The clock is an allocator.** Each request, and each emission, reserves a
-block of `TICKS_PER_ALLOCATION` (65,536) timestamps **synchronously** — at
-request entry, and at emission *scheduling* rather than firing — and draws
+block of `TICKS_PER_ALLOCATION` (65,536) timestamps **synchronously** - at
+request entry, and at emission *scheduling* rather than firing - and draws
 within its own block thereafter. Reservation order is arrival order, which is
 what "the request sequence" means; completion order stops mattering, and two
 concurrent requests are ordered by which was issued first rather than which
@@ -675,8 +675,8 @@ which were already drawn synchronously per request. The clock was the one piece
 of generation state that was not, which is why it was the one that broke.
 
 The block size bounds how many v7s one request can mint. Beyond it a block
-spills into its successor's range and **collides with it immediately** — the
-spilling block's 65,537th value equals its successor's first — so both ordering
+spills into its successor's range and **collides with it immediately** - the
+spilling block's 65,537th value equals its successor's first - so both ordering
 and uniqueness break. Reachable only from an array with `minItems` above 65,536,
 which nothing bounds today; 65,536 values in one response is far outside what a
 mock is for.
@@ -691,7 +691,7 @@ request, which destroys the ordering the validation exists to protect.
 
 The 74 random bits come from the existing seeded PRNG, unchanged. Note that
 they are identical across identically-seeded requests at the same schema
-position — so **uniqueness across requests rests on the clock, not on entropy**
+position - so **uniqueness across requests rests on the clock, not on entropy**
 (deferred item 49). `format: uuid` has the same property today.
 
 ---
@@ -710,7 +710,7 @@ Three surfaces, all read-only:
   (webhook names), and `idempotencyKey` (the resolved source: a header name, a
   body pointer, or absent).
 - **`list_webhooks`** gains `registry`: whether the webhook has a registry
-  configured, and how many registrations currently exist. Not the URLs —
+  configured, and how many registrations currently exist. Not the URLs -
   a registered destination is a consumer's endpoint and does not belong in a
   capability listing that an agent may log.
 - **A new `list_registrations` read tool**, which does return URLs, because
@@ -720,7 +720,7 @@ Three surfaces, all read-only:
 `GET /__mock/capabilities` from the proposal is **not** built. An HTTP admin
 control plane is a stated non-goal of the master spec ("Non-goals (v1)"), and
 adding one endpoint to the request surface would put a reserved path in front
-of every document — including documents that legitimately define `/__mock/*`.
+of every document - including documents that legitimately define `/__mock/*`.
 The MCP read tools reach the same information without that cost.
 
 While `read.ts` is open, the three residuals recorded as deferred item 29
@@ -750,7 +750,7 @@ Read tools 7 → 8. Write tools 7 → 12. `mcpTools({ write: true })` 14 → 20.
 The tool inventory test is pinned by design (commit `13c012b` strengthened it
 precisely so an accidental addition or removal fails). It is updated
 deliberately as part of this cycle, and the count above is the expected
-value — an implementer finding a different number has found a defect, not a
+value - an implementer finding a different number has found a defect, not a
 stale test.
 
 ---
@@ -761,12 +761,12 @@ Every item, against invariant 2 as amended by §4.5.
 
 | Item | Sequence-dependent? | Same sequence → same bytes? |
 |---|---|---|
-| §3 registry | Yes — a registration changes later destinations | Yes; registration is a pure function of the registering request |
-| §4 linking | Yes — by construction | Yes; recall replays recorded bytes |
+| §3 registry | Yes - a registration changes later destinations | Yes; registration is a pure function of the registering request |
+| §4 linking | Yes - by construction | Yes; recall replays recorded bytes |
 | §5 variant | No | Yes; a pure function of the header and the schema |
-| §6 body-pointer idempotency | Yes — already true of idempotency | Yes; unchanged mechanism, new key source |
-| §7 delivery ids | Yes — ordinal-derived | Yes; `fnv1a` over seed, name, ordinal |
-| §8 uuid7 | Yes — virtual clock advances | Yes, but ONLY because blocks are reserved synchronously. As originally specified — one shared counter drawn at generation time — this row was false; see §8.3's amendment |
+| §6 body-pointer idempotency | Yes - already true of idempotency | Yes; unchanged mechanism, new key source |
+| §7 delivery ids | Yes - ordinal-derived | Yes; `fnv1a` over seed, name, ordinal |
+| §8 uuid7 | Yes - virtual clock advances | Yes, but ONLY because blocks are reserved synchronously. As originally specified - one shared counter drawn at generation time - this row was false; see §8.3's amendment |
 | §9 exposure | No | Read-only |
 
 Two things that would break determinism and are therefore forbidden, stated so
@@ -792,7 +792,7 @@ Constraints on that task, which are non-negotiable:
 - Existing callback-capture tests must pass **unmodified**. If a test needs
   changing, the refactor changed behavior and is wrong.
 - The task ships with an end-to-end test through `mock.fetch` proving a
-  document's `callbacks` destination still resolves after the refactor — the
+  document's `callbacks` destination still resolves after the refactor - the
   lesson from plan 7 being that per-task review cannot see a seam defect, only
   an end-to-end test through the public surface can.
 
@@ -813,7 +813,7 @@ Constraints on that task, which are non-negotiable:
    throws rather than silently succeeding (§7.3).
 5. **`set_variant` and `Prefer: variant=` do not reach webhook payloads or
    error envelopes** (§5.4).
-6. **A `remember` expression addressing a non-scalar via a pointer** — say
-   `{$response.body#/items}` — resolves to a failure and records nothing,
+6. **A `remember` expression addressing a non-scalar via a pointer** - say
+   `{$response.body#/items}` - resolves to a failure and records nothing,
    because `resolveExpression` funnels through `scalar()`. Only the whole-body
    forms are special-cased (§4.2).

@@ -74,12 +74,12 @@ function warningsFor(options: Record<string, unknown>): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// M2 — a configured webhook name the document never declares.
+// M2 - a configured webhook name the document never declares.
 
 test('a webhooks option naming an undeclared webhook throws at construction', () => {
   // The gap this closes: such a config builds capture rules that write a
-  // registration `registrations()` LISTS, that no emission can resolve —
-  // `emitWebhook` throws on the undeclared name — and that `unregister`
+  // registration `registrations()` LISTS, that no emission can resolve -
+  // `emitWebhook` throws on the undeclared name - and that `unregister`
   // refuses to remove, because the imperative path asserts what the config
   // path did not.
   assert.throws(
@@ -117,7 +117,7 @@ test('a declared webhook name is accepted and its rule is armed', async () => {
 })
 
 // ---------------------------------------------------------------------------
-// M1 — an expression outside the supported subset warns, on every field that
+// M1 - an expression outside the supported subset warns, on every field that
 // takes one.
 
 test('an unsupported registerVia url warns at construction', () => {

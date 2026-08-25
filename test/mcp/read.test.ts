@@ -240,7 +240,7 @@ test('describe_operation reports a header idempotency key as the header name', a
   )) as Described
   assert.deepEqual(post.idempotencyKey, { source: 'header', value: 'X-Request-Id' })
 
-  // A GET is not in `methods`, so it must report nothing — otherwise the field
+  // A GET is not in `methods`, so it must report nothing - otherwise the field
   // is just echoing the configured header for every operation.
   const get = (await toolNamed('describe_operation').handler(
     ctx, { operationId: 'getOrder' }
@@ -379,8 +379,8 @@ test('findOperation raises on a partial contradiction of method alone', async ()
 
 test('list_webhooks keeps a callback declaring operation in emittedBy alongside a configured emitter', async () => {
   // BOTH halves are required for this test to be able to fail: `POST /orders`
-  // declares the `orderShipped` callback, and `POST /events` — a DIFFERENT
-  // operation — is configured to emit it. Before the fix, the presence of the
+  // declares the `orderShipped` callback, and `POST /events` - a DIFFERENT
+  // operation - is configured to emit it. Before the fix, the presence of the
   // configured emitter dropped the declaring operation entirely.
   const options: MockOptions = {
     captureOnly: true,
@@ -446,8 +446,8 @@ const recursiveWebhookDoc = {
 /**
  * Item 29(c) as recorded expects a recursive payload to come back as the
  * `$comment` placeholder. It does not, and cannot: `src/schema/json-schema.ts`
- * says so in its own docstring — "Recursion is NOT such a case — zod emits
- * {"$ref":"#"} and this returns it" — and the assertion below is the evidence.
+ * says so in its own docstring - "Recursion is NOT such a case - zod emits
+ * {"$ref":"#"} and this returns it" - and the assertion below is the evidence.
  * The residual is nonetheless real: `listWebhooks` was the one caller that
  * bypassed `jsonSchemaOf`, so the two tools could report different things for
  * the same schema. That divergence is what these tests pin.
@@ -457,7 +457,7 @@ test('list_webhooks reports the same converted schema describe_operation would',
   const ctx = contextForMock(mock, {})
   const entry = (await webhooks(ctx)).find((candidate) => candidate.name === 'treeChanged')
 
-  // Recursion converts, and it converts to the self-reference — not to
+  // Recursion converts, and it converts to the self-reference - not to
   // `undefined`, which an agent reads as "this webhook carries no payload".
   assert.deepEqual(entry?.payloadSchema?.properties, {
     name: { type: 'string' },
@@ -495,7 +495,7 @@ test('a non-recursive webhook payload schema is still converted', async () => {
 /**
  * An agent choosing a `set_variant` name had to infer it from raw JSON Schema
  * `const`s buried in a `oneOf`. `describe_operation` names them instead, using
- * `variantName` — the same module `Prefer: variant=` selection reads, so the
+ * `variantName` - the same module `Prefer: variant=` selection reads, so the
  * names an agent is shown are the names the mock answers to.
  */
 const variantDoc = {
@@ -572,7 +572,7 @@ test('describe_operation names the variants of a union response', async () => {
 
 test('describe_operation reports no variants for a response that is not a union', async () => {
   // The other half of the pair. Without this, `variants` could be populated
-  // unconditionally — an empty array on every object response would teach an
+  // unconditionally - an empty array on every object response would teach an
   // agent that `set_variant` applies where it does not.
   const responses = await describedResponses(variantDoc, 'createPayment')
   const notFound = responses.find((response) => response.status === 404)

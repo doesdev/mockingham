@@ -901,8 +901,18 @@ with `as const` replace enums cleanly.
   document, an auth-and-idempotency-heavy document, and a deliberately nasty one
   (deep nesting, recursion, `oneOf` with discriminator, every format).
 - **Adapter smoke test** through a real `node:http` port.
-- **Determinism test**: the same request twice, across a fresh process, must be
-  byte-identical.
+- **Determinism test**: the same request *sequence*, replayed across a fresh
+  process at the same seed, must be byte-identical at every step. Asserted by
+  `test/determinism/cross-process.test.ts`, which spawns two real processes and
+  diffs them - two `createMock` calls inside one process share module state and
+  a warm rng, so they prove nothing about a second `node` invocation.
+
+  > **Amended 2026-08-25 (post-merge cleanup).** This bullet said "the same
+  > request twice". Sequence is the honest scope and always was: request
+  > ordinals, the webhook counter, idempotency replay and armed `failNext`
+  > failures each make a response depend on what preceded it, and the
+  > refinements cycle's response linking added another. See that cycle's
+  > design §4.5, which argues the amendment, and CLAUDE.md invariant 2.
 - **Webhooks** tested in `captureOnly` mode end-to-end (subscribe via a real
   request carrying a callback URL, trigger the operation, assert the captured
   delivery), plus one real loopback delivery to a throwaway `node:http` receiver

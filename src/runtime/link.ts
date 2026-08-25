@@ -8,7 +8,7 @@ import type { Store } from './store.ts'
  *
  * A write records its generated response against a key it minted; a read whose
  * key matches replays those recorded bytes; a miss falls through to ordinary
- * generation. That is the entire feature — no mutation, no partial update, no
+ * generation. That is the entire feature - no mutation, no partial update, no
  * lifecycle, no delete semantics, no list endpoint reflecting what was created.
  * The master spec's non-goals list "stateful CRUD persistence" and this does
  * not become one: the only claim is that an identifier the mock itself minted
@@ -17,7 +17,7 @@ import type { Store } from './store.ts'
  * Determinism, per design §4.5: invariant 2 is refined to SEQUENCE
  * determinism. Recall makes a `GET` depend on whether a `POST` ran earlier,
  * which is the same shape as request ordinals, the webhook counter,
- * idempotency replay, and `failNext` — every one of those already makes a
+ * idempotency replay, and `failNext` - every one of those already makes a
  * response depend on what came before it. Replaying an identical sequence
  * against a fresh process with the same seed still produces identical bytes.
  */
@@ -28,7 +28,7 @@ export interface LinkRule {
   /**
    * Defaults to the whole response body. `resolveExpression` funnels body
    * values through a scalar coercion, so the whole-body forms are special-cased
-   * by the capture pass rather than resolved — design §4.2.
+   * by the capture pass rather than resolved - design §4.2.
    */
   remember?: string
   ttlMs?: number
@@ -57,8 +57,8 @@ export const LINK_TTL_MS = 3_600_000
 
 /**
  * Matching `MAX_DELIVERIES`'s precedent as a documented constant rather than an
- * open-ended knob. A recall table is unbounded by construction — every POST
- * mints a new id and adds an entry — so both bounds are required, not optional.
+ * open-ended knob. A recall table is unbounded by construction - every POST
+ * mints a new id and adds an entry - so both bounds are required, not optional.
  * Without them a long-lived mock leaks until the process dies, which is
  * invisible in a test suite and obvious in production.
  */
@@ -73,7 +73,7 @@ export function linkKey(index: number, key: string): string {
 
 /**
  * A deep copy on the way out. The recalled value is layered on by the override
- * machinery, whose second pass mutates containers in place to settle promises —
+ * machinery, whose second pass mutates containers in place to settle promises -
  * handing out the stored reference would let one request's rendering rewrite
  * what every later recall replays. Link values are parsed JSON by construction,
  * so a structured clone is total over them.
@@ -86,7 +86,7 @@ function copy(value: unknown): unknown {
 export function createLinkTable(store: Store, rules: ResolvedLinkRule[]): LinkTable {
   // The Store has no enumeration primitive, so eviction order is tracked here,
   // the same wall `createDeliveryLog` hit. Insertion-ordered arrays rather than
-  // a Set iteration feeding anything observable — determinism forbids the
+  // a Set iteration feeding anything observable - determinism forbids the
   // latter. Process-local, like the delivery log's index.
   const order: string[][] = rules.map(() => [])
 
@@ -129,7 +129,7 @@ export interface CompiledLinkRule {
 
 /**
  * Targets are resolved at construction, so a typo throws rather than silently
- * never linking — the same contract every other control-plane target in the
+ * never linking - the same contract every other control-plane target in the
  * system has.
  *
  * All three expressions are normalized here, once. Left bare, none of them

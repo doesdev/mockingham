@@ -34,7 +34,7 @@ export interface IdempotencyConfig {
   /**
    * Per-operation keys read out of the request itself, delta design §6. The
    * record key is a control-plane target and the value is a runtime expression
-   * — in practice a body pointer, `{$request.body#/meta/requestId}`, for the
+   * - in practice a body pointer, `{$request.body#/meta/requestId}`, for the
    * many documents that carry the key in the body rather than in a header.
    */
   operations?: Record<string, { key: string }>
@@ -69,7 +69,7 @@ export type IdempotencyEntry =
     }
 
 /**
- * `known` is the document's operations, so a configured target resolves — and,
+ * `known` is the document's operations, so a configured target resolves - and,
  * more importantly, a typo throws here rather than arming a key nothing ever
  * reads. It is optional only because a unit test may resolve a config with no
  * document in hand; without it the target string is taken as the `targetKey`
@@ -93,7 +93,7 @@ export function resolveIdempotency(
   for (const [target, entry] of Object.entries(config.operations ?? {})) {
     // Normalized here, once, like every other compile site. A bare key
     // expression matches no token, so `resolveExpression` returns the literal
-    // expression TEXT as an `ok` value — collapsing every request in the
+    // expression TEXT as an `ok` value - collapsing every request in the
     // document onto one record key and answering the second one with a
     // spurious MOCK_IDEMPOTENCY_MISMATCH 409.
     const key = normalizeExpression(entry.key)
@@ -118,7 +118,7 @@ export function resolveIdempotency(
  * Per §11, an operation is idempotent when the document declares the key as a
  * header parameter, or when config names its method. Delta design §6 adds a
  * third route: config names a key expression for the operation. The document
- * wins nothing and loses nothing — each route is sufficient on its own, and
+ * wins nothing and loses nothing - each route is sufficient on its own, and
  * none takes precedence over another.
  */
 export function isIdempotent(operation: Operation, config: ResolvedIdempotency): boolean {
@@ -141,7 +141,7 @@ export function isIdempotent(operation: Operation, config: ResolvedIdempotency):
  * supplementing it: an operation whose key lives in the body has no header to
  * fall back to, and inventing one would key two different callers together.
  * An expression that resolves to nothing yields `undefined`, exactly as a
- * missing header does — the request is then not idempotent and proceeds.
+ * missing header does - the request is then not idempotent and proceeds.
  */
 export function suppliedKey(ctx: Ctx, config: ResolvedIdempotency): string | undefined {
   const expression = config.operations.get(targetKey(ctx.operation))

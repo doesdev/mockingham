@@ -4,7 +4,7 @@
  * A v7 UUID's first 48 bits are a millisecond timestamp, which is the whole
  * point of the format and also the whole problem: reading a real clock inside
  * a generation path violates invariant 2 outright. So the timestamp comes from
- * a counter instead — starting at `seedTime`, advancing a fixed step per
+ * a counter instead - starting at `seedTime`, advancing a fixed step per
  * generated value.
  *
  * ## Why this is an allocator rather than one shared counter
@@ -22,7 +22,7 @@
  *     gap=60   post …7c00  get …7c02  hook …7c01
  *
  * The `get` there is a caller-visible response body, not merely a webhook
- * payload. The random halves were byte-identical across both runs — they come
+ * payload. The random halves were byte-identical across both runs - they come
  * from the per-request seeded rng, which was never the problem.
  *
  * The fix is to reserve a block SYNCHRONOUSLY, at request entry and at
@@ -42,8 +42,8 @@ export interface Ticker {
 
 export interface VirtualClock {
   /**
-   * Reserves a block of timestamps. MUST be called synchronously — at request
-   * entry, or when an emission is scheduled — never at generation time, which
+   * Reserves a block of timestamps. MUST be called synchronously - at request
+   * entry, or when an emission is scheduled - never at generation time, which
    * is the bug this exists to prevent.
    */
   allocate(): Ticker
@@ -52,7 +52,7 @@ export interface VirtualClock {
 }
 
 /**
- * 2025-01-01T00:00:00.000Z. A fixed epoch, deliberately **not** `Date.now()` —
+ * 2025-01-01T00:00:00.000Z. A fixed epoch, deliberately **not** `Date.now()` -
  * a wall-clock default would make baked fixtures unstable across runs, which is
  * the exact failure `seedTime` exists to prevent.
  */
@@ -69,15 +69,15 @@ export const SEED_TIME_STEP_MS = 1
  *
  * This is the ceiling on UUIDv7 values a single request or emission can
  * generate. Beyond it a block spills into its successor's range and **collides
- * with it immediately** — the spilling block's 65,537th value equals its
- * successor's first — so ordering and uniqueness both break, not just
+ * with it immediately** - the spilling block's 65,537th value equals its
+ * successor's first - so ordering and uniqueness both break, not just
  * ordering. Since §8.3 records that uniqueness across requests rests on the
  * clock rather than on entropy, that is worth stating exactly rather than
  * softening.
  *
  * Reachable only from an array with `minItems` above 65,536, which nothing
  * bounds today. 65,536 v7 values in one response body is far outside anything
- * a mock is for, and the alternative — asking a shared counter per value — is
+ * a mock is for, and the alternative - asking a shared counter per value - is
  * precisely the async-ordering bug this design exists to prevent.
  */
 export const TICKS_PER_ALLOCATION = 65_536

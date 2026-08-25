@@ -29,10 +29,18 @@ Breaking any of these is a defect even if tests pass.
 1. **One schema interpretation.** `schema/walk.ts` is shared by value generation
    and zod compilation. Never add a second traversal - "what we generate" and
    "what we validate" diverging is the worst bug class in this project.
-2. **Determinism.** The same request must produce byte-identical output across
-   processes. Never introduce `Math.random()`, `Date.now()`, or iteration over
-   an unordered `Set`/object into a generation path. Randomness comes from the
-   seeded PRNG in `generate/rng.ts`; time comes from an injectable clock.
+2. **Determinism.** The same request *sequence* must produce byte-identical
+   output across processes: replay an identical sequence against a fresh
+   process with the same seed and every step matches. Sequence, not a lone
+   request - response linking, idempotency replay, request ordinals, the
+   webhook counter and armed `failNext` failures each already make a response
+   depend on what came before it. Read the bare "same request" form as the
+   special case it is; the refinements design §4.5 is where the amendment is
+   argued. Never introduce `Math.random()`, `Date.now()`, or iteration over an
+   unordered `Set`/object into a generation path. Randomness comes from the
+   seeded PRNG in `generate/rng.ts`; time comes from an injectable clock, and
+   UUIDv7 timestamps from the seeded allocator in `generate/clock.ts`, which
+   must be reserved synchronously before any await.
 3. **The core is pure.** `server/handler.ts` and everything it imports must not
    touch Node APIs. Node-only code belongs in `server/node.ts` or `server/cli.ts`.
 4. **A fixture or LLM miss is never an error.** It falls through to seeded

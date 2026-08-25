@@ -250,7 +250,7 @@ test('matchesVariant matches on any const property, not only the first', () => {
 
 test('matchesVariant honors a formal discriminator exclusively', () => {
   // With a discriminator declared, a non-discriminator const property must
-  // NOT match — otherwise the document's own declaration is ignored.
+  // NOT match - otherwise the document's own declaration is ignored.
   const branch: Schema = {
     type: 'object',
     properties: {

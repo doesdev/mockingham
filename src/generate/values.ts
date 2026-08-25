@@ -66,7 +66,7 @@ function generateDate(rng: Rng): Date {
 /**
  * `format: "uuid7"` plus the RFC-adjacent spellings. `format` is an open string
  * in JSON Schema, so recognizing these is a legal extension rather than a
- * redefinition of the registered `uuid` format — which stays v4, unchanged.
+ * redefinition of the registered `uuid` format - which stays v4, unchanged.
  *
  * An array rather than a Set: membership is all that is needed, and invariant 2
  * forbids iteration over an unordered Set in a generation path.
@@ -94,7 +94,7 @@ function wantsUuid7(schema: Schema): boolean {
  * seeded virtual clock and the random bits from the existing seeded PRNG, so
  * the value is reproducible across processes despite carrying a time.
  *
- * With no clock supplied — a call site that generates outside a mock — every
+ * With no clock supplied - a call site that generates outside a mock - every
  * value carries the same constant timestamp. Still deterministic, still a
  * well-formed v7; it simply loses the ordering, which is nothing to order.
  */
