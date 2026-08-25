@@ -30,7 +30,7 @@ function pairs(values: Record<string, string>): Array<[string, string]> {
 }
 
 /**
- * The fixture key is the request identity WITHOUT the root seed — design
+ * The fixture key is the request identity WITHOUT the root seed - design
  * section 2.1. Including the seed would mean a run started with a different
  * `seed` misses every fixture on disk, which turns varying the seed into
  * silently abandoning reviewed data.

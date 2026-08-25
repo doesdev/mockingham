@@ -1,4 +1,4 @@
-# mockingham Phase 12 — Docs Implementation Plan
+# mockingham Phase 12 - Docs Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,8 +10,8 @@ test suite.
 concatenates its ```ts fences into one program, runs that program in a child
 process inside a sandbox directory, and compares stdout byte-for-byte against
 the file's own ```console fences. Fences that cannot be executed get targeted
-checks instead — shell lines are fed to the real CLI parser, the MCP client
-config is parsed and its flags checked — and an unrecognized fence language is a
+checks instead - shell lines are fed to the real CLI parser, the MCP client
+config is parsed and its flags checked - and an unrecognized fence language is a
 test failure. No file under `src/` changes in this plan.
 
 **Tech Stack:** TypeScript run directly by Node 24's native type stripping,
@@ -26,10 +26,10 @@ the delta wins wherever they disagree.
 
 - **No file under `src/` is modified by this plan.** Not one line. If a task
   appears to need a source change, stop and record it as a deferred item
-  instead — spec §1, §7.
+  instead - spec §1, §7.
 - **Node >= 24.2.0**, ESM, erasable syntax only: no `enum`, no `namespace`, no
   parameter properties. Use `const X = {...} as const`.
-- **US English spelling** everywhere — `honor`, `behavior`, `serialize`,
+- **US English spelling** everywhere - `honor`, `behavior`, `serialize`,
   `normalize`, `canceled`.
 - **One plain command per Bash call, with literal arguments.** No `&&`, no
   pipes, no `$(...)`, no redirects, no heredocs, no `cd`. Use the Write tool for
@@ -39,7 +39,7 @@ the delta wins wherever they disagree.
 - `npm test` runs `node --test 'test/**/*.test.ts'`. `npx tsc --noEmit` must stay
   clean.
 - **Docs cite, they do not restate.** Where a guide states a rule, it names the
-  invariant or spec section the rule comes from — spec §4.
+  invariant or spec section the rule comes from - spec §4.
 - **Nothing in the docs suite reaches the network.** Every provider, sink, and
   destination is injected.
 
@@ -75,8 +75,8 @@ the delta wins wherever they disagree.
 **The sandbox convention, decided once here so every guide reads naturally:**
 each document runs in a fresh temp directory containing a copy of
 `docs/example.json` named `openapi.json`. The child's `cwd` is that directory.
-So a guide writes `readFile('./openapi.json', 'utf8')` — the path a reader
-actually has — and it resolves. Fixture directories the guides create land in
+So a guide writes `readFile('./openapi.json', 'utf8')` - the path a reader
+actually has - and it resolves. Fixture directories the guides create land in
 the same sandbox and vanish with it.
 
 ---
@@ -153,7 +153,7 @@ test('every operation carries a tag, so the MCP search tools have something real
 
 **These are the real shapes, already checked against `src/spec/types.ts`:**
 `Api` is `{ version, operations, schemaNames, securitySchemes, webhooks }`
-where `webhooks` is a `Record<string, WebhookSpec>` keyed by name — a top-level
+where `webhooks` is a `Record<string, WebhookSpec>` keyed by name - a top-level
 `webhooks` entry only. A **callback is not a webhook** at this layer: it lands
 on `Operation.callbacks` as a `CallbackSpec[]`, because its destination is a
 runtime expression that can only be resolved against a live request. The two
@@ -162,7 +162,7 @@ assertions above test the two different places on purpose.
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/docs/example-doc.test.ts`
-Expected: FAIL — `ENOENT`, no `docs/example.json`.
+Expected: FAIL - `ENOENT`, no `docs/example.json`.
 
 - [ ] **Step 3: Write the document**
 
@@ -371,7 +371,7 @@ would have to document a callback that can never fire.
 Run: `node src/server/cli.ts docs/example.json --port 4100`
 Expected: it starts and prints a listening line. Stop it with Ctrl-C. If it
 warns about an unsupported `pattern` or runtime expression, that warning is
-information the guides must carry — write it into the task ledger now.
+information the guides must carry - write it into the task ledger now.
 
 - [ ] **Step 6: Commit**
 
@@ -452,7 +452,7 @@ test('assertKnownFences accepts every language the harness handles', () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/docs/harness.test.ts`
-Expected: FAIL — cannot resolve `./harness.ts`.
+Expected: FAIL - cannot resolve `./harness.ts`.
 
 - [ ] **Step 3: Implement extraction**
 
@@ -582,7 +582,7 @@ test('strings, template literals and JSON.stringify are accepted', () => {
   assertPrintableLogs('console.log(JSON.stringify(payment, null, 2))', 'doc.md', 3)
 })
 
-test('a relative import into src is rejected — a reader cannot write one', () => {
+test('a relative import into src is rejected - a reader cannot write one', () => {
   assert.throws(
     () => assertBareSpecifier("import { createMock } from '../src/index.ts'", 'doc.md', 3),
     /bare specifier/
@@ -638,7 +638,7 @@ test('malformed JSON in a json fence fails', () => {
 - [ ] **Step 2: Run and watch them fail**
 
 Run: `node --test test/docs/harness.test.ts`
-Expected: FAIL — cannot resolve `./fence-checks.ts`.
+Expected: FAIL - cannot resolve `./fence-checks.ts`.
 
 - [ ] **Step 3: Implement the checks**
 
@@ -665,7 +665,7 @@ export function assertPrintableLogs(block: string, file: string, line: number): 
     if (!ok) {
       throw new Error(
         `${file}:${line}: console.log must print a string, a template literal, ` +
-          'or JSON.stringify(value, null, 2) — util.inspect output is not stable ' +
+          'or JSON.stringify(value, null, 2) - util.inspect output is not stable ' +
           'across Node versions.'
       )
     }
@@ -674,7 +674,7 @@ export function assertPrintableLogs(block: string, file: string, line: number): 
 
 /**
  * The docs must import the way a reader can. A relative path into `src/` would
- * run fine here and be uncopyable there — the exact drift this harness exists
+ * run fine here and be uncopyable there - the exact drift this harness exists
  * to catch.
  */
 export function assertBareSpecifier(block: string, file: string, line: number): void {
@@ -683,7 +683,7 @@ export function assertBareSpecifier(block: string, file: string, line: number): 
     const specifier = match[1] as string
     if (specifier.startsWith('node:') || specifier === 'mockingham') continue
     throw new Error(
-      `${file}:${line}: import from "${specifier}" — docs must use the bare ` +
+      `${file}:${line}: import from "${specifier}" - docs must use the bare ` +
         'specifier \'mockingham\' or a node: builtin.'
     )
   }
@@ -744,7 +744,7 @@ export function checkJsonFence(content: string, file: string, line: number): voi
     parsed = JSON.parse(content)
   } catch (error) {
     throw new Error(
-      `${file}:${line}: fence is not valid JSON — ${(error as Error).message}`
+      `${file}:${line}: fence is not valid JSON - ${(error as Error).message}`
     )
   }
 
@@ -761,7 +761,7 @@ export function checkJsonFence(content: string, file: string, line: number): voi
       checkMockinghamArgs(argv.slice(start))
     } catch (error) {
       throw new Error(
-        `${file}:${line}: mcpServers.${name} — ${(error as Error).message}`
+        `${file}:${line}: mcpServers.${name} - ${(error as Error).message}`
       )
     }
   }
@@ -769,7 +769,7 @@ export function checkJsonFence(content: string, file: string, line: number): voi
 ```
 
 Note the `jsonc` case: `checkJsonFence` is called for `json` fences only.
-`jsonc` fences are parsed after `//` line comments are stripped — implement
+`jsonc` fences are parsed after `//` line comments are stripped - implement
 that in Task 4's dispatcher, not here, and only if a guide actually needs a
 commented config. Prefer plain `json` and put the commentary in prose.
 
@@ -810,7 +810,7 @@ git commit -m 'test: per-language fence checks for the docs harness'
   - `assembleProgram(fences: Fence[], entryPath: string): string`
   - `expectedOutput(fences: Fence[]): string`
   - `runDocument(docPath: string): Promise<{ stdout: string; stderr: string; code: number }>`
-  - `assertDocument(docPath: string): Promise<void>` — the whole check for one
+  - `assertDocument(docPath: string): Promise<void>` - the whole check for one
     file; this is what `docs.test.ts` calls.
 
 - [ ] **Step 1: Write the fixture documents**
@@ -844,7 +844,7 @@ second block
 ```
 ````
 
-Create `test/docs/fixtures/mismatch.md` — identical to `good.md` except the
+Create `test/docs/fixtures/mismatch.md` - identical to `good.md` except the
 first ```console fence reads `operations: 5`.
 
 Create `test/docs/fixtures/throws.md`:
@@ -912,7 +912,7 @@ test('a document whose program throws fails with the child stderr attached', asy
 - [ ] **Step 3: Run and watch them fail**
 
 Run: `node --test test/docs/harness.test.ts`
-Expected: FAIL — `assembleProgram` is not exported.
+Expected: FAIL - `assembleProgram` is not exported.
 
 - [ ] **Step 4: Implement assembly and execution**
 
@@ -970,7 +970,7 @@ function runChild(
 /**
  * Each document runs in its own sandbox holding a copy of the example document
  * named `openapi.json`, with the child's cwd set to it. That is what lets a
- * guide write `readFile('./openapi.json')` — the path a reader actually has —
+ * guide write `readFile('./openapi.json')` - the path a reader actually has -
  * and still resolve here.
  */
 export async function runDocument(
@@ -1028,7 +1028,7 @@ export async function assertDocument(docPath: string): Promise<void> {
 ```
 
 **Note on the specifier rewrite:** it replaces the literal `'mockingham'`
-anywhere in a `ts` block, not only in an import. That is deliberate and blunt —
+anywhere in a `ts` block, not only in an import. That is deliberate and blunt -
 `assertBareSpecifier` already guarantees imports use it, and a `ts` block has no
 other reason to contain that exact quoted string. If a guide ever needs the
 literal string `'mockingham'` in code (a seed value, say), use double quotes.
@@ -1039,10 +1039,10 @@ Run: `node --test test/docs/harness.test.ts`
 Expected: PASS, 21 tests.
 
 If `good.md` reports a different operation count than 4, do not edit the
-assertion until you know why — the count comes from Task 1's document and a
+assertion until you know why - the count comes from Task 1's document and a
 mismatch means one of the two is wrong.
 
-- [ ] **Step 6: Prove the harness can fail — the mutation gate**
+- [ ] **Step 6: Prove the harness can fail - the mutation gate**
 
 This is the step the whole plan rests on. A docs harness that passes against
 wrong docs converts "nobody checked" into "the suite says it is fine."
@@ -1133,7 +1133,7 @@ for (const document of DOCUMENTS) {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/docs/docs.test.ts`
-Expected: FAIL — `ENOENT` for `README.md` and the four guides. That is correct;
+Expected: FAIL - `ENOENT` for `README.md` and the four guides. That is correct;
 this task only turns `docs/fixtures.md` green. The other four subtests stay red
 until their tasks, which is the plan's own progress signal.
 
@@ -1142,14 +1142,14 @@ until their tasks, which is the plan's own progress signal.
 Cover, in this order (spec §3.4):
 
 1. What a fixture is, and invariant 4 up front: a fixture or LLM miss is never
-   an error — it falls through to seeded generation. Cite `CLAUDE.md`
+   an error - it falls through to seeded generation. Cite `CLAUDE.md`
    invariant 4.
 2. The four modes: `off`, `bake`, `lazy`, `live`.
 3. **Local model first.** A ```sh block with `ollama serve` / `ollama pull`,
    then `mockingham bake ./openapi.json --fixtures ./fixtures --model llama3.3`.
    The default provider is `openai-compatible` against `http://localhost:11434/v1`.
 4. A runnable ```ts block that bakes without a model, using
-   `createRecordedSource` — this is what actually executes:
+   `createRecordedSource` - this is what actually executes:
 
 ```ts
 import { createMock, createRecordedSource } from 'mockingham'
@@ -1181,7 +1181,7 @@ const summary = await mock.bake()
 console.log(JSON.stringify(summary, null, 2))
 ```
 
-   `BakeSummary` is `{ generated, skipped, failed }` — already checked against
+   `BakeSummary` is `{ generated, skipped, failed }` - already checked against
    `src/fixtures/bake.ts`. Explain all three in the prose, because the
    distinction is the guide's real content: `skipped` means never attempted
    (recursive, no JSON body, or over the call budget), while `failed` means
@@ -1191,8 +1191,8 @@ console.log(JSON.stringify(summary, null, 2))
 
 5. Commit the fixtures, then serve them: `mockingham ./openapi.json --fixtures ./fixtures`.
 6. The staleness warning when the document moves under a fixture, and that it
-   is diagnostic only — a stale fixture keeps serving.
-7. `scope.byName` / `scope.bySchema`, `persona`, and `budget` — carrying the
+   is diagnostic only - a stale fixture keeps serving.
+7. `scope.byName` / `scope.bySchema`, `persona`, and `budget` - carrying the
    caveat verbatim: **`maxConcurrency` is a per-call batch size, not a
    concurrency bound. Nothing in the bake pipeline runs concurrently.**
 8. Anthropic as the hosted alternative, briefly, noting `@anthropic-ai/sdk` is
@@ -1243,7 +1243,7 @@ git commit -m 'docs: the fixture workflow guide, and the document runner'
 - Create: `docs/webhooks.md`
 
 **Interfaces:**
-- Consumes: `assertDocument`, already wired by Task 5's `DOCUMENTS` list — no
+- Consumes: `assertDocument`, already wired by Task 5's `DOCUMENTS` list - no
   test file changes.
 - Produces: nothing later tasks consume.
 
@@ -1293,11 +1293,11 @@ console.log(`after clear: ${mock.deliveries().length}`)
 ```
 
    `Delivery` is `{ webhook, url?, body, headers, outcome, status?, attempts,
-   error? }` — already checked against `src/webhooks/deliver.ts`. Print
+   error? }` - already checked against `src/webhooks/deliver.ts`. Print
    `outcome`, not `status`: under `captureOnly` nothing is sent, so `status` is
    absent by design and a guide printing it would teach the wrong expectation.
    `url` is absent when nothing resolved a destination, which is the
-   `unresolved` outcome invariant 6 describes — worth its own short example.
+   `unresolved` outcome invariant 6 describes - worth its own short example.
 
 5. Signing: what `secret` produces on the wire, and how a receiver verifies it.
 6. Invariant 6, stated plainly and cited: emission never affects the response.
@@ -1348,7 +1348,7 @@ Expected: `docs/logging-datadog.md` fails with `ENOENT`.
 
 Cover, in this order (spec §3.3):
 
-1. The `LogRecord` field table, taken from `src/runtime/logging.ts` — `ts`,
+1. The `LogRecord` field table, taken from `src/runtime/logging.ts` - `ts`,
    `durationMs`, `requestId`, `method`, `route`, `path`, `status`, `bytesIn`,
    `bytesOut`, `params`, `query`, `seed`, `operationId`, `decisions`, `error`,
    `custom`.
@@ -1401,7 +1401,7 @@ console.log(JSON.stringify(batch, null, 2))
    header, called explicitly so its request is printed and asserted.
 
    The 401 that the bearer-protected `getPayment` returns without credentials is
-   itself a good log record to show — a short-circuited response is logged, and
+   itself a good log record to show - a short-circuited response is logged, and
    that is exactly the record an operator most wants. If you would rather show a
    200, supply the `Authorization` header.
 
@@ -1414,7 +1414,7 @@ console.log(JSON.stringify(batch, null, 2))
 
 Run: `node --test test/docs/docs.test.ts`
 Same rule as before: every difference is a decision. In particular, verify that
-`now` really does fix the log `ts` — if a timestamp still moves between runs,
+`now` really does fix the log `ts` - if a timestamp still moves between runs,
 that is a finding, and the block must not ship until it is deterministic
 (spec §2.4).
 
@@ -1456,7 +1456,7 @@ Cover, in this order (spec §3.6):
    method that already exists. `@modelcontextprotocol/sdk` is an optional peer
    dependency; without it the server throws a message telling you to install it.
 2. **stdio**, with a ```sh block: `mockingham mcp ./openapi.json`.
-3. **http**, runnable — mounted on the mock's own fetch surface, which works
+3. **http**, runnable - mounted on the mock's own fetch surface, which works
    before or after `listen()`:
 
 ```ts
@@ -1506,7 +1506,7 @@ await server.close()
 - [ ] **Step 3: Run and reconcile**
 
 Run: `node --test test/docs/docs.test.ts`
-Same rule. Note that `mcp()` needs the SDK installed — it is a devDependency
+Same rule. Note that `mcp()` needs the SDK installed - it is a devDependency
 here, so it resolves in this repo. If the block fails on a missing SDK, that is
 a finding about how the guide must be written, not a reason to change `src/`.
 
@@ -1549,12 +1549,12 @@ In this order (spec §3.2):
 1. **What it is.** An OpenAPI-driven HTTP mock server: point it at a document,
    get a server that answers every declared operation with schema-valid,
    deterministic data.
-2. **Why not Prism, MSW, or WireMock.** Be specific and fair — determinism as a
+2. **Why not Prism, MSW, or WireMock.** Be specific and fair - determinism as a
    guarantee rather than a happy accident, one schema interpretation shared by
    generation and validation, errors that stay on the operation's declared
    error schema, and a control plane designed to be driven by a machine.
 3. **Requirements and install.** Node >= 24.2.0. State the no-build-step choice
-   and its reason near the top — the published package is TypeScript source,
+   and its reason near the top - the published package is TypeScript source,
    stripped by Node itself, so the code you debug is the code that shipped.
    `zod` is the only runtime dependency; the Anthropic and MCP SDKs are optional
    peers imported lazily.
@@ -1582,14 +1582,14 @@ console.log(JSON.stringify(await response.json(), null, 2))
 5. **Determinism, demonstrated rather than asserted:** two mocks on the same
    seed produce the same bytes. Then a sentence pointing at
    `scripts/determinism.ts` and the test that runs it, which is where the
-   cross-process claim is actually proven. Do not spawn a subprocess here —
+   cross-process claim is actually proven. Do not spawn a subprocess here -
    spec §3.2.
 6. **The tour**, one tight section each, every one ending in a link to its
    guide where one exists: generation and determinism; overrides and headers;
    validation and auth; failure simulation; idempotency; webhooks; fixtures and
    LLM content; MCP; logging.
 7. **CLI reference** for `mockingham`, `mockingham bake`, and `mockingham mcp`.
-   Every flag shown must appear in a ```sh fence or match the real usage text —
+   Every flag shown must appear in a ```sh fence or match the real usage text -
    the harness parses the fences, so a renamed flag fails the suite.
 8. **Known limitations, up front**, restating master §19 for a public audience,
    corrected to what actually shipped.
@@ -1640,7 +1640,7 @@ git commit -m 'docs: README'
 - [ ] **Step 1: Verify CLAUDE.md's run command now works**
 
 Run: `node src/server/cli.ts docs/example.json --port 4100`
-Expected: it serves. Stop it. If it works, `CLAUDE.md:15` needs no edit — the
+Expected: it serves. Stop it. If it works, `CLAUDE.md:15` needs no edit - the
 document it referenced now exists, which was the fix. If the command needs
 different wording, correct it.
 
@@ -1654,12 +1654,12 @@ surface lists:
 ```
 
 It has never been implemented. Mark it as deferred to the runtime-override
-cycle rather than deleting it — the history of why it was specified matters —
+cycle rather than deleting it - the history of why it was specified matters -
 using a comment that makes its status unmistakable to anyone reading the
 surface as a contract:
 
 ```ts
-  // NOT IMPLEMENTED — deferred to the runtime-override cycle. See the phase 10
+  // NOT IMPLEMENTED - deferred to the runtime-override cycle. See the phase 10
   // MCP delta section 1 and the phase 12 docs delta section 5.2.
   override(target: string, value: Override): void
 ```
@@ -1667,7 +1667,7 @@ surface as a contract:
 - [ ] **Step 3: Reconcile master §19's limitations**
 
 Read §19's seven bullets against what shipped. For each, either confirm it or
-correct it at the source. Do not silently delete one — if a limitation no longer
+correct it at the source. Do not silently delete one - if a limitation no longer
 holds, say so and name the change that lifted it.
 
 - [ ] **Step 4: Write the ledger entries**
@@ -1696,7 +1696,7 @@ Expected: no output.
 - [ ] **Step 7: Confirm nothing under src/ changed**
 
 Run: `git diff --stat main -- src`
-Expected: no output. If there is any, spec §1's hard boundary was crossed —
+Expected: no output. If there is any, spec §1's hard boundary was crossed -
 stop and raise it rather than absorbing it.
 
 - [ ] **Step 8: Commit**
@@ -1715,12 +1715,12 @@ git commit -m 'docs: correct the phantom override method and record phase 12 fin
 
 The plan is done when all of these hold:
 
-1. `npm test` passes — 898 existing tests plus the docs suite.
+1. `npm test` passes - 898 existing tests plus the docs suite.
 2. `npx tsc --noEmit` produces no output.
 3. `git diff --stat main -- src` produces no output.
 4. Each of the three harness failure modes has been observed at least once, with
    the message recorded in the ledger: a wrong ```console fence, an unknown
    fence language, and a bad flag inside the MCP client config.
-5. Every document in `docs/*.md` appears in `docs.test.ts`'s `DOCUMENTS` list —
+5. Every document in `docs/*.md` appears in `docs.test.ts`'s `DOCUMENTS` list -
    asserted by the coverage test, not by inspection.
 6. Every finding from Tasks 5–9 has a ledger entry with a ruling.

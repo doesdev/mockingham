@@ -28,6 +28,11 @@ export interface GenerateOptions {
    * single shared counter broke invariant 2.
    */
   clock?: Ticker
+  /**
+   * Called with a `pattern` value generation cannot express, every time one is
+   * generated. The handler deduplicates and routes it to `onWarn`.
+   */
+  onUnsupportedPattern?: (pattern: string) => void
 }
 
 const DEFAULT_MAX_DEPTH = 3
@@ -51,7 +56,7 @@ export function generateValue(
     )
     // A resolver may legitimately return undefined, so hit is checked rather
     // than the value. A returned promise is left in the tree for the override
-    // pass to settle — generation itself stays synchronous.
+    // pass to settle - generation itself stays synchronous.
     if (hook?.hit) return hook.value
 
     if (preferExamples && current.example !== undefined) return current.example
@@ -60,7 +65,7 @@ export function generateValue(
     const kind = classify(current)
     // `classify` merges `allOf` internally to decide the shape, but the
     // constraint readers below (`generateString`, `generateInteger`, ...)
-    // still need the merged view — otherwise a bound that lives only on an
+    // still need the merged view - otherwise a bound that lives only on an
     // `allOf` member is silently dropped even though `classify` saw it. This
     // must mirror `src/schema/compile.ts` exactly, or generation and
     // validation drift on precisely the schemas that need them to agree most.
@@ -72,7 +77,10 @@ export function generateValue(
       case 'enum':
         return rng.pick(kind.values)
       case 'string':
-        return generateString(merged, rng, options.clock)
+        // `GenerateOptions` already satisfies `StringOptions` structurally -
+        // `clock` and `onUnsupportedPattern` both live on it - so this passes
+        // through rather than rebuilding an object for every string generated.
+        return generateString(merged, rng, options)
       case 'integer':
         return generateInteger(merged, rng)
       case 'number':

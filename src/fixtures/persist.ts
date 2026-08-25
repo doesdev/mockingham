@@ -32,8 +32,8 @@ export async function loadFixtures(
   try {
     names = await readdir(dir)
   } catch (error) {
-    // A missing fixture directory is the normal case. Anything else — a
-    // permission problem, a path that is not a directory — would otherwise be
+    // A missing fixture directory is the normal case. Anything else - a
+    // permission problem, a path that is not a directory - would otherwise be
     // indistinguishable from "no fixtures", which an operator cannot diagnose.
     if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
       onWarn?.(`mockingham: could not read the fixture directory ${dir}; serving no fixtures`)
@@ -74,8 +74,8 @@ export async function loadFixtures(
         // file can carry `null`, a scalar, or an object with no `value` at
         // this position, and every consumer downstream (warnOnStaleFixtures,
         // resolve(), peek()) assumes an entry it reads back out is at least
-        // `{ value: ... }`. Skipping it here is what keeps invariant 4 —
-        // never an error — true for this shape too.
+        // `{ value: ... }`. Skipping it here is what keeps invariant 4 -
+        // never an error - true for this shape too.
         if (typeof entry !== 'object' || entry === null || Array.isArray(entry) || !('value' in entry)) {
           onWarn?.(
             `mockingham: fixture file ${name} has a malformed entry ${JSON.stringify(key)} ` +
@@ -112,7 +112,7 @@ export async function writeFixtures(dir: string, store: FixtureStore): Promise<v
 
 /**
  * A schemaHash mismatch means the document moved under a generated fixture.
- * It warns and the fixture is STILL SERVED — design section 2.13. Rejecting it
+ * It warns and the fixture is STILL SERVED - design section 2.13. Rejecting it
  * would silently discard reviewed, committed, hand-edited data, which is the
  * opposite of what the store is for. `bake` is what regenerates it.
  *
@@ -150,7 +150,7 @@ export async function createDiskFixtureStore(
   let timer: ReturnType<typeof setTimeout> | undefined
 
   // Serialized rather than concurrent. writeFixtures always writes the full
-  // current store, so chaining makes last-write-wins correct by construction —
+  // current store, so chaining makes last-write-wins correct by construction -
   // two overlapping writes could otherwise land their renames out of order and
   // leave stale content behind a resolved flush().
   let queue: Promise<void> = Promise.resolve()

@@ -7,6 +7,7 @@ import type { Operation, Parameter, Schema } from '../../spec/types.ts'
 import { createRng } from '../../generate/rng.ts'
 import { generateValue } from '../../generate/generate.ts'
 import { targetKey } from '../../runtime/failure.ts'
+import { schemaHashLookup } from '../../fixtures/source.ts'
 
 // One compiler for the module: compilation is pure and its cache is a win
 // across calls. It holds no per-request state.
@@ -41,7 +42,8 @@ export function findOperation(
         `mockingham: operationId "${operationId}" is ` +
           `${found.method.toUpperCase()} ${found.path}, but method and path say ` +
           `${(method ?? found.method).toUpperCase()} ${path ?? found.path}. ` +
-          'Supply operationId alone, or a method and path that agree with it.'
+          'The two disagree; supply operationId alone, or a method and path ' +
+          'that agree with it.'
       )
     }
     return found
@@ -170,6 +172,10 @@ const describeOperation: McpTool = {
         .sort((a, b) => a.status - b.status)
         .map((response) => ({
           status: response.status,
+          // A range response carries its bucket's LOWER BOUND as `status`, so
+          // `4XX` and an exactly declared `400` both report 400. Without this
+          // flag they are indistinguishable to a caller.
+          ...(response.range === true ? { range: true } : {}),
           description: response.description,
           content: contentSchemas(response.content),
           // Convenience: the JSON body schema most callers actually want,
@@ -193,8 +199,8 @@ const describeOperation: McpTool = {
 const getAuthRequirements: McpTool = {
   name: 'get_auth_requirements',
   description:
-    'The security schemes this API declares, plus — when operationId is given ' +
-    '— that operation\'s own security requirements. Without operationId only ' +
+    'The security schemes this API declares, plus - when operationId is given ' +
+    '- that operation\'s own security requirements. Without operationId only ' +
     'the schemes are returned, not a document-level default. An empty ' +
     'requirements array means the operation needs no auth.',
   inputSchema: { operationId: z.string().optional() },
@@ -246,7 +252,7 @@ const listOperations: McpTool = {
  * A path parameter the caller did not supply. Seeded on the operation and
  * parameter name and NOT on the mock's root seed: a synthesized parameter is
  * an address, not content. `set_seed` must change what `/orders/abc` returns
- * without turning it into `/orders/xyz` — otherwise every sample an agent
+ * without turning it into `/orders/xyz` - otherwise every sample an agent
  * recorded stops resolving the moment anything reseeds. It also keeps fixture
  * keys stable, since fixtureKey includes params.
  *
@@ -262,7 +268,7 @@ function synthesizeParam(operation: Operation, parameter: Parameter): string {
 const sampleResponse: McpTool = {
   name: 'sample_response',
   description:
-    'A live response for an operation, produced by the real request pipeline — ' +
+    'A live response for an operation, produced by the real request pipeline - ' +
     'the exact bytes your code will receive, not a schema you have to guess ' +
     'from. Path parameters you omit are filled with schema-valid values. Use ' +
     '`status` to ask for a specific declared response.',
@@ -387,8 +393,8 @@ const searchOperations: McpTool = {
 const listWebhooks: McpTool = {
   name: 'list_webhooks',
   description:
-    'Outbound requests this API can make — top-level webhooks and per-operation ' +
-    'callbacks — with payload schemas and which operations are configured to ' +
+    'Outbound requests this API can make - top-level webhooks and per-operation ' +
+    'callbacks - with payload schemas and which operations are configured to ' +
     'emit them. An empty emittedBy means the document declares it but nothing ' +
     'fires it. `registry` reports whether a destination registry is configured ' +
     'and how many registrations exist; call list_registrations for the URLs.',
@@ -421,12 +427,14 @@ const listWebhooks: McpTool = {
       // configured to. The old conditional reported it only when `configured`
       // was empty, so the moment some unrelated operation's `emits` named the
       // webhook, the operation that actually declares it vanished from the
-      // list. Appended rather than sorted in: `configured` is already in
-      // document order, and the declarer is the tail the caller did not have.
-      const emittedBy = [...configured]
-      if (callback !== undefined && !emittedBy.includes(callback.owner)) {
-        emittedBy.push(callback.owner)
-      }
+      // list. The declarer LEADS, then configured emitters in document order:
+      // it is the document's own statement about the callback, while config is
+      // an addition to it. A configured emitter that is also the declarer is
+      // named once, not twice.
+      const emittedBy =
+        callback === undefined
+          ? [...configured]
+          : [callback.owner, ...configured.filter((entry) => entry !== callback.owner)]
 
       out.push({
         name,
@@ -474,7 +482,7 @@ const listRegistrations: McpTool = {
 const listDeliveries: McpTool = {
   name: 'list_deliveries',
   description:
-    'Webhook deliveries this mock has made so far, oldest first — the feedback ' +
+    'Webhook deliveries this mock has made so far, oldest first - the feedback ' +
     'loop for verifying your own receiver. Filter by webhook name or outcome.',
   inputSchema: {
     webhook: z.string().optional(),
@@ -483,10 +491,60 @@ const listDeliveries: McpTool = {
   handler(ctx: McpContext, args: Record<string, unknown>) {
     const webhook = args.webhook as string | undefined
     const outcome = args.outcome as string | undefined
-    // Filtered here rather than by widening Mock.deliveries() — design 3.9.
+    // Filtered here rather than by widening Mock.deliveries() - design 3.9.
     return ctx.deliveries()
       .filter((delivery) => webhook === undefined || delivery.webhook === webhook)
       .filter((delivery) => outcome === undefined || delivery.outcome === outcome)
+  }
+}
+
+const listFixtures: McpTool = {
+  name: 'list_fixtures',
+  description:
+    'What is in the fixture store: which operations and statuses have a ' +
+    'stored response, when it was generated, and whether it has gone stale ' +
+    'because the document changed underneath it. Values are omitted unless ' +
+    'you ask for them. Pair with regenerate_fixture to refresh a stale one.',
+  inputSchema: {
+    operationId: z.string().optional(),
+    status: z.number().int().optional(),
+    includeValues: z
+      .boolean()
+      .optional()
+      .describe('Default false - a whole document of values is a lot of tokens')
+  },
+  handler(ctx: McpContext, args: Record<string, unknown>) {
+    const operationId = args.operationId as string | undefined
+    const status = args.status as number | undefined
+    const includeValues = args.includeValues === true
+    // Computed with the same helper the startup staleness check uses, so the
+    // two can never disagree about what stale means.
+    const hashFor = schemaHashLookup(ctx.api, compiler)
+
+    // `records()` is already sorted - persistence depends on it writing
+    // byte-identical files - so this must not re-sort by anything derived
+    // from object key order.
+    return ctx.fixtures()
+      .filter((record) => operationId === undefined || record.operationId === operationId)
+      .filter((record) => status === undefined || record.status === status)
+      .map((record) => {
+        const stored = record.entry.meta?.schemaHash
+        return {
+          operationId: record.operationId,
+          status: record.status,
+          key: record.key,
+          generatedAt: record.entry.meta?.generatedAt,
+          schemaHash: stored,
+          scoped: record.entry.meta?.scoped,
+          // An entry with no stored hash is NOT stale: it predates hashing, or
+          // came from a schema neither path can convert. Reporting it stale
+          // would send an agent regenerating something that is fine.
+          stale:
+            stored !== undefined &&
+            stored !== hashFor(record.operationId, record.status),
+          ...(includeValues ? { value: record.entry.value } : {})
+        }
+      })
   }
 }
 
@@ -498,5 +556,6 @@ export const READ_TOOLS: McpTool[] = [
   searchOperations,
   listWebhooks,
   listRegistrations,
-  listDeliveries
+  listDeliveries,
+  listFixtures
 ]

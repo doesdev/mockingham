@@ -1,6 +1,19 @@
 export interface Store {
   get(key: string): Promise<unknown | undefined>
   set(key: string, value: unknown, ttlMs?: number): Promise<void>
+  /**
+   * Compare-and-set: creates the entry only when the key is absent (or its
+   * entry has expired), and reports whether THIS call created it.
+   *
+   * Required rather than optional, deliberately. Idempotency's claim is a
+   * lookup-then-write, and without an atomic primitive two concurrent
+   * identical requests both read `undefined`, both claim, and both execute -
+   * measured as `runs: 2` during plan 5. An optional method with a
+   * get-then-set fallback would reintroduce exactly that race while the mock
+   * advertised atomicity it did not have, so a custom `Store` must implement
+   * this rather than inherit a weaker one.
+   */
+  setIfAbsent(key: string, value: unknown, ttlMs?: number): Promise<boolean>
   delete(key: string): Promise<void>
   incr(key: string, by?: number): Promise<number>
   clear(): Promise<void>
@@ -15,7 +28,7 @@ interface Entry {
  * The in-process `Store`.
  *
  * `now` is injected because determinism forbids scattering wall-clock reads
- * through the runtime — tests drive expiry with a fake clock rather than by
+ * through the runtime - tests drive expiry with a fake clock rather than by
  * waiting. The default is a FUNCTION called fresh on every operation; the
  * invariant is that this parameter is the only `Date.now()` call site in the
  * runtime, not that it is read once. Snapshotting it at construction would
@@ -47,6 +60,19 @@ export function createMemoryStore(now: () => number = () => Date.now()): Store {
         value,
         expiresAt: ttlMs === undefined ? undefined : now() + ttlMs
       })
+    },
+
+    async setIfAbsent(key, value, ttlMs) {
+      // Through `live()`, not `entries.has()`: expiry is lazy, so an entry
+      // past its deadline is absent. Reading it with `has` would let a dead
+      // in-flight marker block every later claim permanently, turning a
+      // wedged request into a wedged key.
+      if (live(key) !== undefined) return false
+      entries.set(key, {
+        value,
+        expiresAt: ttlMs === undefined ? undefined : now() + ttlMs
+      })
+      return true
     },
 
     async delete(key) {

@@ -5,6 +5,8 @@ import type { EmitOptions, Capabilities } from '../server/handler.ts'
 import type { Registration } from '../webhooks/registry.ts'
 import type { CompiledConfig } from '../runtime/config.ts'
 import type { RuntimeOverride } from '../runtime/overrides.ts'
+import type { BakeScope, BakeSummary } from '../fixtures/bake.ts'
+import type { FixtureRecord } from '../fixtures/store.ts'
 
 export interface McpFailNextOptions {
   times?: number
@@ -20,7 +22,7 @@ export interface McpOutageOptions {
  * What a tool is allowed to reach. Deliberately narrower than `Mock`: a tool
  * that can reach `close()` is a tool that can be made to close the mock, and a
  * narrow interface is one a test can build by hand. Options types are declared
- * here rather than imported from `../index.ts` — that module imports this one.
+ * here rather than imported from `../index.ts` - that module imports this one.
  */
 export interface McpContext {
   api: Api
@@ -44,6 +46,10 @@ export interface McpContext {
   registrations(webhook?: string): Promise<Registration[]>
   /** Which operations recall, register, or carry an idempotency key — design §9. */
   capabilities(): Capabilities
+  /** A scoped re-bake. Throws when no llm source is configured. */
+  bake(options?: { only?: BakeScope }): Promise<BakeSummary>
+  /** Everything in the fixture store, already sorted by `records()`. */
+  fixtures(): FixtureRecord[]
   /** Webhook name → the operation targets configured to emit it. See design §3.6. */
   emitters: Map<string, string[]>
   /**
@@ -58,7 +64,7 @@ export interface McpContext {
  * The members of `McpContext` a `Mock` supplies directly. Typed
  * structurally rather than as `Mock` on purpose: `../index.ts` imports this
  * module, so naming its type here would close a cycle. It is also the whole
- * point of the narrowing — this is every part of a `Mock` a tool may reach.
+ * point of the narrowing - this is every part of a `Mock` a tool may reach.
  */
 export interface McpContextSource {
   api: Api
@@ -78,12 +84,14 @@ export interface McpContextSource {
   unregister(webhook: string, scope?: string): Promise<void>
   registrations(webhook?: string): Promise<Registration[]>
   capabilities(): Capabilities
+  bake(options?: { only?: BakeScope }): Promise<BakeSummary>
+  fixtures(): FixtureRecord[]
 }
 
 /**
  * The one construction path for an `McpContext`. `createMock().mcp()` and the
  * test helpers both call this, so there is no second literal that could drift
- * out of step with the first — a seam where two independently-correct
+ * out of step with the first - a seam where two independently-correct
  * constructions disagree is the defect shape this exists to make impossible.
  */
 export function createMcpContext(
@@ -109,6 +117,8 @@ export function createMcpContext(
     unregister: (webhook, scope) => source.unregister(webhook, scope),
     registrations: (webhook) => source.registrations(webhook),
     capabilities: () => source.capabilities(),
+    bake: (options) => source.bake(options),
+    fixtures: () => source.fixtures(),
     emitters: computeEmitters(source.api.operations, configs),
     origin
   }
@@ -117,14 +127,14 @@ export function createMcpContext(
 export interface McpTool {
   name: string
   description: string
-  /** A zod raw shape — the SDK's `registerTool` takes exactly this. */
+  /** A zod raw shape - the SDK's `registerTool` takes exactly this. */
   inputSchema: Record<string, ZodType>
   handler(ctx: McpContext, args: Record<string, unknown>): Promise<unknown> | unknown
 }
 
 /**
  * Which operations are configured to emit which webhook (design §3.6). A
- * top-level `webhooks` entry carries no declared emitter — the linkage lives
+ * top-level `webhooks` entry carries no declared emitter - the linkage lives
  * in mockingham's own operation config, which is why this is computed from the
  * compiled configs rather than from the document.
  */

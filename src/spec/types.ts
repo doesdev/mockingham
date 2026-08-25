@@ -70,14 +70,21 @@ export interface MediaType {
 }
 
 export interface ResponseSpec {
+  /**
+   * For a range key (`4XX`) this is the range's LOWER BOUND - 400, not 4 - so
+   * that every `response.status === x` comparison keeps its meaning and only
+   * code that must distinguish a range reads `range`.
+   */
   status: number
+  /** True when the document spelled this response as a `1XX`-`5XX` range. */
+  range?: boolean
   description?: string
   headers: Record<string, Schema>
   content: Record<string, MediaType>
 }
 
 /**
- * One outbound request the document says the API can make — a 3.1 top-level
+ * One outbound request the document says the API can make - a 3.1 top-level
  * `webhooks` entry, or a per-operation `callbacks` entry contributing its
  * payload schema under its own name.
  */
@@ -91,7 +98,7 @@ export interface WebhookSpec {
 
 /**
  * A per-operation `callbacks` entry. `expression` is the OpenAPI runtime
- * expression exactly as written — it can only be resolved against a live
+ * expression exactly as written - it can only be resolved against a live
  * request, so it stays text until then.
  */
 export interface CallbackSpec {

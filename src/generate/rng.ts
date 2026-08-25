@@ -18,7 +18,7 @@ export function fnv1a(input: string): number {
  * fnv1a over raw bytes. The idempotency fingerprint hashes the request body as
  * it arrived rather than a re-serialization of the parsed value: re-serializing
  * depends on key insertion order, so `{"a":1,"b":2}` and `{"b":2,"a":1}` would
- * differ anyway — but only by accident, and a future canonicalization would
+ * differ anyway - but only by accident, and a future canonicalization would
  * silently change which requests conflict. Hashing bytes makes the rule
  * explicit: byte-identical bodies replay, anything else conflicts.
  */

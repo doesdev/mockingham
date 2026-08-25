@@ -31,7 +31,7 @@ const configSchema = z
         apiKey: z.string().optional(),
         structuredOutput: z.enum(['json_schema', 'json_object', 'none']).optional(),
         // Passed straight through to createOpenAiSource's own `strict` option
-        // (correction 1 in the task brief) — kept here, in the openai block,
+        // (correction 1 in the task brief) - kept here, in the openai block,
         // rather than promoted to a shared namespace, for the same reason
         // every other provider knob lives here: a `.strict()` block is what
         // makes a misplaced option fail loudly instead of doing nothing.
@@ -60,7 +60,7 @@ export type LlmConfig = z.input<typeof configSchema>
  * never imports the real SDK until `generate()` runs (and `LlmConfig` has no
  * `client` field to inject one through), so calling it and inspecting the
  * returned `ContentSource` cannot prove `model`/`apiKey`/`batchThreshold`
- * reached it — this function is what makes that threading observable
+ * reached it - this function is what makes that threading observable
  * without touching the SDK at all.
  */
 export function anthropicOptionsFrom(

@@ -28,12 +28,12 @@ const doc = {
 }
 
 // off and post-bake serving are fully deterministic. `lazy` is deterministic
-// once warm. `live` is deliberately NOT deterministic — design section 2.11 —
+// once warm. `live` is deliberately NOT deterministic - design section 2.11 -
 // and is excluded here by design rather than by oversight.
 //
 // This is the file the design designates as the determinism proof for the
 // whole fixture subsystem, so the assertion that matters is that the SERVED
-// BODY IS THE STORED FIXTURE VALUE — not merely that two responses agree
+// BODY IS THE STORED FIXTURE VALUE - not merely that two responses agree
 // with each other. Two responses agreeing is guaranteed by the pre-existing
 // seeded generator for a fixed seed with no fixture involved at all, so a
 // same-as-itself comparison proves nothing about fixture resolution
@@ -60,7 +60,7 @@ test('a baked store serves the stored fixture value, byte-identically, across ha
 // drives the same claim through two INDEPENDENTLY constructed stores,
 // populated from independently constructed plain objects (not the same
 // object reference, and via a JSON round trip so no reference survives at
-// all), through two independently constructed handlers — and checks each
+// all), through two independently constructed handlers - and checks each
 // served body against the fixture value directly, not merely against each
 // other.
 test('two independently constructed handlers over independently constructed fixtures each serve the stored fixture value', async () => {
@@ -81,7 +81,7 @@ test('two independently constructed handlers over independently constructed fixt
   const bodyOne = await (await handlerOne.fetch(new Request('https://x/u'))).text()
   const bodyTwo = await (await handlerTwo.fetch(new Request('https://x/u'))).text()
   assert.equal(bodyOne, bodyTwo)
-  // `doc`'s schema only declares a `bio` property — `nested` has no schema
+  // `doc`'s schema only declares a `bio` property - `nested` has no schema
   // to have been generated from. A body that matches this exactly can only
   // have come from the stored fixture, whole, not from seeded generation.
   assert.deepEqual(JSON.parse(bodyOne), fixtureValue)

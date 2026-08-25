@@ -39,7 +39,7 @@ export interface ContextInput {
 
 export function createContext(input: ContextInput): Ctx {
   // Built by iterating searchParams in order of appearance rather than through
-  // a Set, so the result is deterministic — invariant 2 forbids unordered
+  // a Set, so the result is deterministic - invariant 2 forbids unordered
   // iteration anywhere a generated value can depend on it.
   const query: Record<string, string | string[]> = {}
   for (const [key, value] of input.url.searchParams) {
@@ -72,7 +72,7 @@ export function createContext(input: ContextInput): Ctx {
     example: (status, name) => input.example(status, name),
     // Async because serializing is the point at which promises must be gone.
     // `ctx.generate` deliberately stays synchronous and may hand back a tree
-    // with unsettled promises in it — an async resolver leaves them there for
+    // with unsettled promises in it - an async resolver leaves them there for
     // the override pass. The pipeline settles them through `applyOverrides`;
     // a response callback bypasses the pipeline, so `respond` runs the same
     // settle pass here rather than stringifying a Promise into `{}`.

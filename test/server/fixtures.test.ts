@@ -129,7 +129,7 @@ test('lazy mode single-flights concurrent identical requests', async () => {
       calls += 1
       notifyStarted!()
       // Held open until the test explicitly releases it, so the second
-      // request is guaranteed to arrive while this call is still pending —
+      // request is guaranteed to arrive while this call is still pending -
       // not a timer race the second request might simply lose.
       await gate
       return reqs.map(() => ({ value: { id: '42', bio: 'once' } }))
@@ -140,7 +140,7 @@ test('lazy mode single-flights concurrent identical requests', async () => {
     llm: { mode: 'lazy', source, budget: { maxConcurrency: 4, timeoutMs: 1000 } }
   })
   const first = handler.fetch(new Request('https://x/users/42'))
-  // Wait for the source call itself to have started — synchronously true the
+  // Wait for the source call itself to have started - synchronously true the
   // instant `generate` begins running, since resolve()'s in-flight map is
   // populated in the same synchronous stretch that invokes `generate` and
   // suspends on its first `await`, before control ever returns to this test.
@@ -148,19 +148,19 @@ test('lazy mode single-flights concurrent identical requests', async () => {
   await started
   const second = handler.fetch(new Request('https://x/users/42'))
   // Give the second request's own pipeline (auth, validation, idempotency,
-  // failure stages — all synchronous logic wrapped in promises, no real I/O
+  // failure stages - all synchronous logic wrapped in promises, no real I/O
   // or timers by default) a full turn to run to completion up to wherever it
   // can get without the gate opening. A macrotask yield drains the entire
   // microtask queue first, so this deterministically lets the second request
   // reach fixtureResolver.resolve() and either find the existing in-flight
-  // promise (correct) or wrongly kick off its own source call (broken) —
+  // promise (correct) or wrongly kick off its own source call (broken) -
   // BEFORE the gate is released and the store gets written. Releasing the
   // gate first would let the second request take an unrelated shortcut (a
   // store hit on the now-persisted fixture) that says nothing about
   // single-flight.
   await new Promise((resolve) => setTimeout(resolve, 0))
   // If single-flight were broken, the second request would have issued its
-  // OWN source call by now, while the first is still gated on `gate` — this
+  // OWN source call by now, while the first is still gated on `gate` - this
   // catches it regardless of timing, not merely because the first finished
   // first.
   assert.equal(calls, 1)
@@ -258,7 +258,7 @@ test('live mode ignores an existing stored fixture and calls the source anyway',
   const store = createMemoryFixtureStore()
   // Planted as if a previous lazy or baked run had written it. `live` exists
   // to vary every response regardless of what is already on record, so this
-  // must not come back — proving live does not merely fail to WRITE the
+  // must not come back - proving live does not merely fail to WRITE the
   // store (covered elsewhere) but also never READS it.
   store.set('getUser', 200, keyFor('42'), { value: { id: '42', bio: 'stale from a prior run' } })
   let calls = 0
@@ -293,7 +293,7 @@ test('a scoped fixture layers beneath the override machinery, a whole fixture re
 
   const scopedStore = createMemoryFixtureStore()
   // Scoped: only `bio` is in the fixture, keyed the same as a whole fixture
-  // would be — the resolver reads it as `layer`, not `whole`, because the
+  // would be - the resolver reads it as `layer`, not `whole`, because the
   // llm scope config says only `bio` is ever in scope.
   scopedStore.set('getUser', 200, keyFor('42'), { value: { bio: 'scoped bio' } })
   const scopedHandler = createHandler(loadApi(doc), {
@@ -308,7 +308,7 @@ test('a scoped fixture layers beneath the override machinery, a whole fixture re
   const scopedBody = (await scopedResponse.json()) as { id: string; bio: string }
   // A scoped fixture is a LAYER: `bio` comes from the store, `id` still comes
   // from ordinary seeded generation because the fixture never replaced the
-  // whole body — proving this went through `renderResponse`'s layer path
+  // whole body - proving this went through `renderResponse`'s layer path
   // (`applyOverrides`), not the generate seam's whole-body replacement.
   assert.equal(scopedBody.bio, 'scoped bio')
   assert.equal(typeof scopedBody.id, 'string')
@@ -316,7 +316,7 @@ test('a scoped fixture layers beneath the override machinery, a whole fixture re
 })
 
 // A lazy source whose calls are counted rather than merely asserted-against
-// inline: `resolve()` wraps the source call in a try/catch (invariant 4 — a
+// inline: `resolve()` wraps the source call in a try/catch (invariant 4 - a
 // throwing source must never propagate), so throwing from inside `generate`
 // would be silently swallowed and never surface as a loud test failure; it
 // would just fall through to seeded generation, same as any other miss. A
@@ -324,7 +324,7 @@ test('a scoped fixture layers beneath the override machinery, a whole fixture re
 // observe an unwanted call.
 //
 // Its presence matters because `resolve()` is the only place that decides
-// whether to call the source at all — `renderResponse`'s `fixture` hook
+// whether to call the source at all - `renderResponse`'s `fixture` hook
 // falls back to a synchronous `peek()` whenever `resolve()` found nothing, so
 // a body-only assertion could pass even with `resolve()`'s own wildcard
 // fallback broken, entirely on the strength of `peek()`'s. `calls` stays 0
@@ -386,7 +386,7 @@ test('an exact-key fixture beats a wildcard fixture for the same request', async
   assert.deepEqual(await exactResponse.json(), { id: '42', bio: 'specific to 42' })
 
   // A different id has no exact entry, so it still falls back to the
-  // wildcard — precedence, not exclusivity.
+  // wildcard - precedence, not exclusivity.
   const wildcardResponse = await handler.fetch(new Request('https://x/users/7'))
   assert.deepEqual(await wildcardResponse.json(), { id: 'any', bio: 'baked for any id' })
   assert.equal(calls(), 0)
@@ -425,7 +425,7 @@ test('lazy mode still writes under the exact key, so a different id is not serve
   assert.deepEqual(await first.json(), { id: '42', bio: 'fetched for 42' })
 
   // No wildcard entry was ever written (lazy never writes one), and no exact
-  // entry exists for 43 — the wildcard fallback must not let 42's cached
+  // entry exists for 43 - the wildcard fallback must not let 42's cached
   // value leak into this request.
   const second = await handler.fetch(new Request('https://x/users/43'))
   assert.deepEqual(await second.json(), { id: '43', bio: 'fetched for 43' })
@@ -433,10 +433,10 @@ test('lazy mode still writes under the exact key, so a different id is not serve
 })
 
 // --- A null (or otherwise malformed) fixture entry must never take the mock
-// down — invariant 4, "a fixture problem is never an error". loadFixtures
+// down - invariant 4, "a fixture problem is never an error". loadFixtures
 // itself now filters this shape (see persist.test.ts), but a store can also
-// be populated through some other route — a hand-rolled disk loader, a
-// programmatic caller — that never goes through that validation, so
+// be populated through some other route - a hand-rolled disk loader, a
+// programmatic caller - that never goes through that validation, so
 // createMock's own construction-time check (warnOnStaleFixtures) and the
 // per-request resolve() path both need their own guard.
 
@@ -501,7 +501,7 @@ test('a fixture stored under a body-less (204) status is never served, and the r
 })
 
 // --- A fixture baked WITH a scope config must still be applied as a LAYER
-// when later served under a config with no scope at all — the design's own
+// when later served under a config with no scope at all - the design's own
 // mode table permits exactly that combination. Reading whole-vs-layer from
 // the ambient config alone (rather than from the entry) misreads the
 // narrowed value as a whole body, dropping every field the fixture did not
@@ -520,13 +520,13 @@ test('a fixture baked WITH scope is still applied as a layer when served WITHOUT
     scope: { byName: ['bio'] }
   })
 
-  // Served with no llm config at all — nothing tells this handler the store
+  // Served with no llm config at all - nothing tells this handler the store
   // was ever scoped.
   const handler = createHandler(loadApi(doc), { fixtures: { store } })
   const response = await handler.fetch(new Request('https://x/users/42'))
   const body = (await response.json()) as { id: string; bio: string }
-  // If shape() misread this as a whole body, `id` — required by the schema,
-  // never covered by the { byName: ['bio'] } scope — would be missing
+  // If shape() misread this as a whole body, `id` - required by the schema,
+  // never covered by the { byName: ['bio'] } scope - would be missing
   // entirely, since a whole-body fixture bypasses ordinary generation.
   assert.equal(body.bio, 'scoped bio')
   assert.equal(typeof body.id, 'string')

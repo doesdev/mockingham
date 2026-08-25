@@ -17,7 +17,7 @@ export interface FixtureRequest {
   /**
    * The response body as plain JSON Schema. This is the field that makes the
    * interface genuinely provider-neutral: a source for another provider needs
-   * this and nothing else from us — design section 2.3.
+   * this and nothing else from us - design section 2.3.
    */
   jsonSchema: Record<string, unknown>
   /** The same schema compiled, for client-side validation by any source. */
@@ -35,7 +35,7 @@ export interface FixtureResult {
 
 /**
  * A provider. Results are positionally aligned with `reqs`; `null` is a miss,
- * never an error. Implementations need not be defensive — the driver wraps
+ * never an error. Implementations need not be defensive - the driver wraps
  * them and treats a throw as all-nulls.
  */
 export interface ContentSource {
@@ -47,7 +47,7 @@ export interface ContentSource {
    *
    * It exists because a source can have a threshold the driver cannot know.
    * The Anthropic source only switches to the Batches API at or above its
-   * `batchThreshold`, and the driver's default budget is far below that — so
+   * `batchThreshold`, and the driver's default budget is far below that - so
    * without this the batch path was unreachable under default configuration.
    */
   chunkSize?: number
@@ -56,7 +56,7 @@ export interface ContentSource {
 /**
  * Structured outputs do not support recursive schemas, so a recursive response
  * never reaches any source and stays generator-only. Walks through
- * `classify()`, like everything else that reads a schema — every branch that
+ * `classify()`, like everything else that reads a schema - every branch that
  * can hold a nested `Schema` (`array` items, `object` properties AND its
  * `additional` schema, `union` variants) is followed, or a cycle routed
  * through the branch this walk skips would build a request whose JSON Schema
@@ -64,12 +64,12 @@ export interface ContentSource {
  *
  * `seen` tracks visited schemas by identity along the current path only (a
  * fresh copy is threaded into each recursive call rather than mutated in
- * place), so a schema reachable twice via two different branches — a diamond,
- * not a cycle — is not mistaken for recursion.
+ * place), so a schema reachable twice via two different branches - a diamond,
+ * not a cycle - is not mistaken for recursion.
  *
  * `classify()` merges `allOf` internally and that merge allocates a new
  * object on every call, but the merge never re-wraps nested `items` or
- * `properties` values — `mergeAllOf`'s `absorb` copies those references
+ * `properties` values - `mergeAllOf`'s `absorb` copies those references
  * through untouched. So the schema objects this walk actually recurses into
  * are always the original, pre-merge references, and identity tracked in
  * `seen` still lines up across a cycle expressed through `allOf`.
@@ -99,12 +99,12 @@ export function isRecursive(schema: Schema): boolean {
 
 /**
  * A fingerprint of a schema's compiled JSON Schema form, used to detect when
- * a stored fixture was generated against a document that has since moved —
+ * a stored fixture was generated against a document that has since moved -
  * design section 2.13. `bake` and the startup staleness check both call this
  * one function so their hashes can never drift apart; two independent
  * derivations would produce spurious warnings the moment they disagreed.
  *
- * Same derivation `buildRequest` uses — both route through `toJsonSchema` —
+ * Same derivation `buildRequest` uses - both route through `toJsonSchema` -
  * so a schema this hashes is exactly a schema `buildRequest` could turn into
  * a request. A schema zod cannot express as JSON Schema yields no hash at
  * all, which the caller treats as "nothing to compare" rather than a
@@ -122,7 +122,7 @@ export function schemaHash(schema: Schema, compiler: Compiler): string | undefin
  *
  * Shared rather than written at each call site. Both `createMock` and the CLI's
  * serve path run this check, and two copies of the derivation would eventually
- * disagree — at which point every fixture reports stale against a document that
+ * disagree - at which point every fixture reports stale against a document that
  * never changed, which is worse than not checking at all.
  */
 export function schemaHashLookup(
@@ -161,7 +161,7 @@ export function buildRequest(input: BuildRequestInput): FixtureRequest | undefin
   const jsonSchema = fromZod(zodSchema)
   if (jsonSchema === undefined) return undefined
   // An undiscriminated `oneOf` compiles to `z.unknown().superRefine(...)`
-  // (compile.ts's shared interpretation, deliberately not changed here — see
+  // (compile.ts's shared interpretation, deliberately not changed here - see
   // Finding 3), which converts to a JSON Schema carrying none of these keys:
   // no type, no properties, nothing a provider could shape a body around. A
   // shapeless schema cannot yield a conforming response, so this is a miss

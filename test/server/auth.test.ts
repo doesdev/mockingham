@@ -92,3 +92,65 @@ test('unmet scopes are a 403', async () => {
   const response = await handle(new Request('http://mock/guarded', withToken))
   assert.equal(response.status, 403)
 })
+
+test('a scheme type this mock cannot inspect is not enforced as bearer', async () => {
+  // `mutualTLS` is valid OpenAPI 3.1 and carries its credential in the TLS
+  // handshake, which a mock never sees. It used to fall through to the bearer
+  // branch, so a document declaring it 401'd on every request with no way to
+  // satisfy the requirement - and a typo'd type behaved the same way, because
+  // `toSecuritySchemes` casts rather than validates. Deferred item 13.
+  const doc = {
+    openapi: '3.1.0',
+    components: { securitySchemes: { mtls: { type: 'mutualTLS' } } },
+    security: [{ mtls: [] }],
+    paths: {
+      '/guarded': {
+        get: {
+          operationId: 'guarded',
+          responses: {
+            '200': {
+              description: 'ok',
+              content: { 'application/json': { schema: { type: 'object' } } }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const handle = createHandler(loadApi(doc), { seed: 'auth' }).fetch
+  const response = await handle(new Request('http://mock/guarded'))
+  assert.equal(response.status, 200, 'an unenforceable scheme must not 401')
+})
+
+test('an unknown scheme type does not weaken a scheme that IS enforceable', async () => {
+  // The requirement is an AND: an unenforceable member is skipped, but a
+  // bearer member alongside it still has to be satisfied.
+  const doc = {
+    openapi: '3.1.0',
+    components: {
+      securitySchemes: {
+        mtls: { type: 'mutualTLS' },
+        bearerAuth: { type: 'http', scheme: 'bearer' }
+      }
+    },
+    security: [{ mtls: [], bearerAuth: [] }],
+    paths: {
+      '/guarded': {
+        get: {
+          operationId: 'guarded',
+          responses: {
+            '200': {
+              description: 'ok',
+              content: { 'application/json': { schema: { type: 'object' } } }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const handle = createHandler(loadApi(doc), { seed: 'auth' }).fetch
+  assert.equal((await handle(new Request('http://mock/guarded'))).status, 401)
+  assert.equal((await handle(new Request('http://mock/guarded', withToken))).status, 200)
+})

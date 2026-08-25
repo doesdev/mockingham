@@ -10,7 +10,7 @@ import type { ContentSource, FixtureRequest, FixtureResult, McpOptions, McpServe
 
 /**
  * The bake-commit-serve loop is what this subsystem exists for, and until now
- * none of the pieces needed to drive it were reachable from the package root —
+ * none of the pieces needed to drive it were reachable from the package root -
  * only the types were exported, never the factories. These tests fail if any of
  * them stops being part of the public surface, which is otherwise invisible:
  * deep imports into `src/fixtures/...` keep working regardless.
@@ -104,4 +104,56 @@ test('the package exposes the MCP server surface', () => {
   assert.equal(typeof handle.handleRequest, 'function')
   assert.equal(typeof handle.connectStdio, 'function')
   assert.equal(handle.path, undefined, 'inline transport mounts nothing')
+})
+
+const unsupportedPatternDoc = {
+  openapi: '3.1.0',
+  info: { title: 't', version: '1' },
+  paths: {
+    '/lookahead': {
+      get: {
+        operationId: 'lookahead',
+        responses: {
+          '200': {
+            description: 'ok',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['secret'],
+                  // A lookahead - outside the generator's subset, so it warns
+                  // and falls back rather than emitting a wrong value silently.
+                  properties: { secret: { type: 'string', pattern: '^(?=.*\\d)[a-z]+$' } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+test('an unsupported pattern warns once, not once per request', async () => {
+  const warnings: string[] = []
+  const mock = createMock(unsupportedPatternDoc, {
+    seed: 'warn-once',
+    onWarn: (message: string) => warnings.push(message)
+  })
+
+  await mock.fetch(new Request('http://mock/lookahead'))
+  await mock.fetch(new Request('http://mock/lookahead'))
+  await mock.fetch(new Request('http://mock/lookahead'))
+
+  assert.equal(warnings.length, 1, warnings.join(' | '))
+  // The message must name the pattern, or it cannot be acted on. Asserted on
+  // content rather than order: dedupe is keyed per pattern and warning order
+  // follows request order, which no test should depend on.
+  assert.match(warnings[0] as string, /\(\?=/)
+})
+
+test('a document with no unsupported pattern warns not at all', () => {
+  const warnings: string[] = []
+  createMock(doc, { seed: 'quiet', onWarn: (message: string) => warnings.push(message) })
+  assert.deepEqual(warnings, [])
 })

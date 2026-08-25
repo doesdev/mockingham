@@ -90,6 +90,6 @@ test('an invalid recording resolves as a miss rather than rejecting', async () =
   ])
   // Distinguishes "caught and turned into a miss" from "would have thrown
   // past generate() had the miss path used request.zodSchema.parse instead
-  // of safeParse" — invariant 4 requires the source never throw.
+  // of safeParse" - invariant 4 requires the source never throw.
   await assert.doesNotReject(() => source.generate([request('k')]))
 })

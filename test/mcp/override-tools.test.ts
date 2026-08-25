@@ -78,7 +78,7 @@ test('a non-status override key surfaces as a tool error, not a silent success',
 test('tools/call refuses set_override when the gate is closed', async () => {
   // The second half of the gate, modelled on the equivalent test in
   // write.test.ts: a gate that only hides the tools from tools/list is not a
-  // gate — an agent can still call one by name. server.ts derives the
+  // gate - an agent can still call one by name. server.ts derives the
   // disabled-tool registrations from WRITE_TOOLS rather than a literal list,
   // specifically so a new write tool cannot silently lose its refusal
   // message; this asserts that holds rather than trusting the comment.
@@ -151,21 +151,28 @@ test('tools/call refuses clear_overrides when the gate is closed', async () => {
 
 test('the tool inventory is exactly the size the design pins it at', () => {
   // Pinned deliberately (commit 13c012b) so an accidental addition or removal
-  // fails the suite. The numbers come from refinements design §10: eight read
-  // tools, twelve write tools, twenty with the write gate open. An implementer
-  // who computes a different number has found a defect, not a stale test — the
-  // fix is never to edit the number until the count is green.
+  // fails the suite. An implementer who computes a different number has found
+  // a defect, not a stale test — the fix is never to edit the number until the
+  // count is green.
+  //
+  // Nine read, thirteen write, twenty-two with the gate open. The refinements
+  // design §10 pinned 8/12/20 and the regenerate delta §7 pinned 8/8/16; those
+  // two cycles ran on separate branches and each counted only its own
+  // additions. This is their union: the refinements' `list_registrations`,
+  // `set_variant`, `clear_variants`, `redeliver_webhook`,
+  // `register_webhook_destination` and `unregister_webhook_destination`, plus
+  // the regenerate cycle's `list_fixtures` and `regenerate_fixture`.
   const read = mcpTools().map((tool) => tool.name)
   const all = mcpTools({ write: true }).map((tool) => tool.name)
 
-  assert.equal(read.length, 8, `read tools: ${read.join(', ')}`)
-  assert.equal(all.length, 20, `all tools: ${all.join(', ')}`)
-  assert.equal(all.length - read.length, 12, 'write tools')
+  assert.equal(read.length, 9, `read tools: ${read.join(', ')}`)
+  assert.equal(all.length, 22, `all tools: ${all.join(', ')}`)
+  assert.equal(all.length - read.length, 13, 'write tools')
   assert.equal(new Set(all).size, all.length, 'every tool name must be unique')
 })
 
 /**
- * Extracts the tool names listed as `- \`name\` — ...` bullets in the section
+ * Extracts the tool names listed as `- \`name\` - ...` bullets in the section
  * that runs from `heading` to the next `## ` heading (or end of file).
  */
 function bulletedToolNames(guide: string, heading: string): string[] {
@@ -174,44 +181,37 @@ function bulletedToolNames(guide: string, heading: string): string[] {
   const afterHeading = guide.slice(start + heading.length)
   const nextHeading = afterHeading.indexOf('\n## ')
   const section = nextHeading === -1 ? afterHeading : afterHeading.slice(0, nextHeading)
-  return [...section.matchAll(/^- `([a-zA-Z0-9_]+)` — /gm)].map((match) => match[1] as string)
+  return [...section.matchAll(/^- `([a-zA-Z0-9_]+)` - /gm)].map((match) => match[1] as string)
 }
 
 test('every shipped tool is named exactly once in the guide inventory, and nowhere in "what isn\'t here yet"', async () => {
   // The guide's inventory is prose, so nothing but this test relates it to the
   // code. This asserts two things a plain substring search cannot: the
-  // inventory list under "## The twenty tools" names exactly the shipped
+  // inventory list under "## The twenty-two tools" names exactly the shipped
   // set (set equality both ways — a tool added without listing it there, or
   // listed there after removal, fails), and no shipped tool's name still
   // appears under "## What isn't here yet" (a tool documented as absent
   // while it in fact ships, which is what a plain substring check would miss
-  // — that section named `set_override` and `clear_overrides` for a full
+  // - that section named `set_override` and `clear_overrides` for a full
   // cycle before this test existed).
   const guide = await readFile(new URL('../../docs/mcp.md', import.meta.url), 'utf8')
   const shipped = mcpTools({ write: true }).map((tool) => tool.name).sort()
 
-  const listed = bulletedToolNames(guide, '## The twenty tools').sort()
+  const listed = bulletedToolNames(guide, '## The twenty-two tools').sort()
   assert.deepEqual(
     listed,
     shipped,
-    'the "## The twenty tools" bullet list must name exactly the shipped tools'
+    'the "## The twenty-two tools" bullet list must name exactly the shipped tools'
   )
 
-  const deferredStart = guide.indexOf('## What isn\'t here yet')
-  assert.ok(deferredStart !== -1, '"## What isn\'t here yet" section not found in docs/mcp.md')
-  const deferredSection = guide.slice(deferredStart)
-  for (const name of shipped) {
-    assert.ok(
-      !deferredSection.includes(name),
-      `${name} ships but is still named in "what isn't here yet"`
-    )
-  }
-
-  const notShipped = ['regenerate_fixture']
-  for (const name of notShipped) {
-    assert.ok(
-      !shipped.includes(name),
-      `${name} is listed as deferred but now ships — update the guide and this list`
-    )
-  }
+  // Nothing is deferred any more, so the guide must no longer carry a section
+  // claiming otherwise. This replaces the previous check, which walked a
+  // `notShipped` list and a "what isn't here yet" section: emptying that list
+  // would have left a loop over zero entries, passing whatever the guide said.
+  // A vacuous check that reads as coverage is worse than no check.
+  assert.equal(
+    guide.indexOf('## What isn\'t here yet'),
+    -1,
+    'every declared tool ships - the deferral section must be gone, not emptied'
+  )
 })

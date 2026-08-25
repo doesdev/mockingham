@@ -13,14 +13,15 @@ import { mcpDoc } from './doc.ts'
 // tools rather than the auth stage.
 const AUTH = { authorization: 'Bearer test' }
 
-// The twelve write tools, in the order WRITE_TOOLS declares them. Named once
+// The thirteen write tools, in the order WRITE_TOOLS declares them. Named once
 // here rather than repeated per test: the pinned inventory assertions in
 // override-tools.test.ts own the COUNT, and these own the gate.
 const WRITE_TOOL_NAMES = [
   'fail_next', 'outage', 'emit_webhook', 'set_seed', 'reset',
   'set_override', 'clear_overrides',
   'set_variant', 'clear_variants', 'redeliver_webhook',
-  'register_webhook_destination', 'unregister_webhook_destination'
+  'register_webhook_destination', 'unregister_webhook_destination',
+  'regenerate_fixture'
 ]
 
 test('write tools are absent from the default tool list', () => {
@@ -40,7 +41,7 @@ test('write tools appear when write is enabled', () => {
 
 test('tools/call refuses a write tool when the gate is closed', async () => {
   // The second half of the gate. A gate that only hides the tools from
-  // tools/list is not a gate — an agent can still call one by name.
+  // tools/list is not a gate - an agent can still call one by name.
   const mock = createMock(mcpDoc)
   mock.mcp({ transport: 'http', path: '/mcp' })
 
@@ -142,7 +143,7 @@ test('set_seed and reset take effect through the tools', async () => {
   const ctx = contextForMock(mock)
 
   // Credentials required: getOrder inherits bearerAuth. /health would avoid
-  // auth entirely, but its body is a single boolean — too few values for a
+  // auth entirely, but its body is a single boolean - too few values for a
   // "the body changed with the seed" comparison to mean anything.
   const before = await (await mock.fetch(
     new Request('http://mock.local/orders/abc', { headers: AUTH })

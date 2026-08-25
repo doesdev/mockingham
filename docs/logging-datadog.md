@@ -1,11 +1,11 @@
 # Shipping logs to Datadog
 
-Every request the mock answers can produce one structured log record —
+Every request the mock answers can produce one structured log record -
 `onLog` receives it after the response is final, and nothing about receiving
 it can change what the caller got back. This guide builds a sink that shapes
 each record for Datadog's Logs API, posts a batch to it in one shot, and
-survives the sink itself misbehaving; it also describes — in prose, not as
-runnable code — how a real batching sink adds triggers to flush on size, on
+survives the sink itself misbehaving; it also describes - in prose, not as
+runnable code - how a real batching sink adds triggers to flush on size, on
 an interval, and on close.
 
 ## The `LogRecord` fields
@@ -17,7 +17,7 @@ request:
 |---|---|---|
 | `ts` | `number` | When the request started, from the injected clock. |
 | `durationMs` | `number` | How long handling took, from the same clock. |
-| `requestId` | `string` | A 16-character hex id, hashed from request identity rather than random — see below. |
+| `requestId` | `string` | A 16-character hex id, hashed from request identity rather than random - see below. |
 | `method` | `string` | The HTTP method. |
 | `route` | `string` | The **templated** path. Safe as a tag. |
 | `path` | `string` | The **resolved** path. Not safe as a tag. |
@@ -28,15 +28,15 @@ request:
 | `query` | `Record<string, string \| string[]>` | Resolved query parameters. |
 | `seed` | `string` | The seed in effect for this request. |
 | `operationId?` | `string` | Absent when no operation matched. |
-| `decisions` | `Decisions` | What each pipeline stage decided — `auth`, `failure`, and so on. |
+| `decisions` | `Decisions` | What each pipeline stage decided - `auth`, `failure`, and so on. |
 | `error?` | `string` | Set only when `produce()` itself threw. |
-| `custom` | `Record<string, unknown>` | `ctx.log` contributions — see below. |
+| `custom` | `Record<string, unknown>` | `ctx.log` contributions - see below. |
 
 `ts` and `durationMs` come from the same injected clock and sit outside the
 determinism invariant by design: a log record is an observational side
 channel that never enters a response (`src/runtime/logging.ts`, citing the
 phases 7-9 design §2.1). A real clock makes `durationMs` genuinely variable
-run to run, which is why it stays out of the runnable examples below — but
+run to run, which is why it stays out of the runnable examples below - but
 worth knowing: `durationMs` is `now() - startedAt` computed from the exact
 same injected `now`, so under the fixed clock every example here uses,
 `durationMs` is not merely stable, it is always `0`. `requestId` is not
@@ -50,19 +50,19 @@ invariant the moment logging was switched on.
 This is worth its own section rather than a passing mention, because getting
 it backwards is how a mock server produces a surprising metrics bill.
 
-`route` is the **templated** path — `/payments/{id}`, not
-`/payments/7c8f1f5e-...` — and is bounded by the document: one value per
+`route` is the **templated** path - `/payments/{id}`, not
+`/payments/7c8f1f5e-...` - and is bounded by the document: one value per
 operation, forever. That is what makes it safe to use as a tag (`ddtags`,
 a Prometheus label, anything a time-series backend indexes on). `path` is
-the **resolved** path a specific caller actually hit. It is unbounded — one
+the **resolved** path a specific caller actually hit. It is unbounded - one
 distinct value per UUID, per customer id, per anything a path parameter
-happens to carry — and indexing on an unbounded value is exactly what turns
+happens to carry - and indexing on an unbounded value is exactly what turns
 a metrics bill into an incident. The source states both halves of this in
 its own comments: `route` is documented as "a bounded tag," `path` as
 "high cardinality, never a tag" (`src/runtime/logging.ts`).
 
 When no operation matches at all, `route` falls back to the literal string
-`'<unmatched>'` — still one bounded value, so an attacker throwing random
+`'<unmatched>'` - still one bounded value, so an attacker throwing random
 paths at the mock cannot blow up tag cardinality either. Log `path` for
 debugging a specific request; tag on `route`, `status`, and `operationId`
 for everything aggregate.
@@ -71,13 +71,13 @@ for everything aggregate.
 
 The clock is fixed so `ts` is stable across runs, and note what is
 deliberately *not* passed here: `fetch` is an option `createMock` forwards
-to webhook delivery and the LLM content source, not to `onLog` — nothing
+to webhook delivery and the LLM content source, not to `onLog` - nothing
 about shipping logs runs through it. The flush function below reaches for
 its own injected `fetch` directly, from scope.
 
 `getPayment` requires a bearer credential. The first call below sends none,
 so auth stage short-circuits it into a `401` before the operation's own
-response logic ever runs — and that short-circuited record is itself worth
+response logic ever runs - and that short-circuited record is itself worth
 seeing: an operator watching Datadog wants to know about the request that
 never got in, not only the ones that did. The second call supplies
 `Authorization` and also demonstrates `ctx.log`, covered just after. The
@@ -171,7 +171,7 @@ was actually requested.
 
 ## `ctx.log` becomes `record.custom`
 
-`ctx.log` (`src/runtime/context.ts`) starts as `{}` on every request — a
+`ctx.log` (`src/runtime/context.ts`) starts as `{}` on every request - a
 plain mutable object exposed on `Ctx`, there for exactly this: any override
 function that receives `ctx` can write to it, and whatever is there when the
 response goes out lands verbatim in `record.custom`. Above,
@@ -182,7 +182,7 @@ produces the normal seeded body underneath it.
 ## Flushing to Datadog
 
 The flush function is deliberately plain: it takes the batch and an
-injected `fetch`, and posts once. Nothing about `createMock` is involved —
+injected `fetch`, and posts once. Nothing about `createMock` is involved -
 this call happens entirely outside it:
 
 ```ts
@@ -228,7 +228,7 @@ console.log(JSON.stringify(sent, null, 2))
 ```
 
 `Headers` lower-cases every name it stores, which is why `DD-API-KEY` above
-comes back as `dd-api-key` — the real Datadog intake reads headers
+comes back as `dd-api-key` - the real Datadog intake reads headers
 case-insensitively, same as every other HTTP server, so this is cosmetic
 only.
 
@@ -236,8 +236,8 @@ only.
 
 `onError` exists so that a sink which throws, or returns a rejected
 promise, cannot turn into a broken response. `emitLog`
-(`src/runtime/logging.ts`) calls the sink, and — its own comment is exact
-about why this matters — "a bare floating promise turns a logger's
+(`src/runtime/logging.ts`) calls the sink, and - its own comment is exact
+about why this matters - "a bare floating promise turns a logger's
 rejection into an unhandled rejection, which can take the process down," so
 the rejection is routed to `onError` explicitly rather than left to float:
 
@@ -272,12 +272,12 @@ onError saw: datadog intake unreachable
 ```
 
 The `200` is exactly what the same request would have returned with no
-`onLog` configured at all — a broken sink is a logging problem, never a
+`onLog` configured at all - a broken sink is a logging problem, never a
 caller-visible one.
 
 ## Flushing on size, on an interval, and on close
 
-A real sink rarely posts once per request — it batches. The shape is the
+A real sink rarely posts once per request - it batches. The shape is the
 same regardless of what triggers a flush: push the shaped record onto a
 pending array, and flush it (POST, clear the array) when the array reaches
 some size, on a timer, or when the mock is shutting down and anything left
@@ -286,12 +286,12 @@ this should be `unref()`'d, the same way any interval a library starts on a
 caller's behalf should be, so a batching sink never becomes the reason a
 short-lived script hangs.
 
-`onLog` returning a promise is awaited — `emitLog` chains `.catch()` onto
-it — but "awaited" here does not mean the response waits for it. The call
+`onLog` returning a promise is awaited - `emitLog` chains `.catch()` onto
+it - but "awaited" here does not mean the response waits for it. The call
 to `sink(record)` happens after the response has already been built, and
 the caller's `fetch()` returns without ever pausing on the sink's promise:
 a slow flush delays nothing but the next flush. Rather than take that on
-faith, here is the ordering a slow sink actually produces — `onLog` below
+faith, here is the ordering a slow sink actually produces - `onLog` below
 does not resolve until a macrotask later, and the log of what happened
 when shows the response returning first regardless:
 

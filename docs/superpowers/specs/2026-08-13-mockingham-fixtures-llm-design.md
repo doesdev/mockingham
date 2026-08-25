@@ -1,4 +1,4 @@
-# mockingham Phase 11 Design — Fixtures and the Content Path
+# mockingham Phase 11 Design - Fixtures and the Content Path
 
 **Status:** approved 2026-08-13; awaiting an implementation plan.
 **Covers:** §14 and §18 phase 11 of `2026-08-11-mockingham-design.md`, which
@@ -22,7 +22,7 @@ it into any revision of the spec.
 
 ## 1. Scope
 
-**Plan 7 is the whole of phase 11** — the fixture store, the resolution layer,
+**Plan 7 is the whole of phase 11** - the fixture store, the resolution layer,
 the bake driver, the provider interface, and three sources. The remaining phases
 are 10 (MCP) and 12 (docs).
 
@@ -30,10 +30,10 @@ This is a larger plan than phase 8. It is designed as one subsystem with an
 explicit internal ordering, so that if execution runs long it can be cut at a
 seam rather than argued down mid-flight:
 
-1. `key`, `store`, `persist` — the store, on disk, with nothing populating it.
-2. `resolve`, `scope` — the resolution layer wired into the pipeline. At this
+1. `key`, `store`, `persist` - the store, on disk, with nothing populating it.
+2. `resolve`, `scope` - the resolution layer wired into the pipeline. At this
    point hand-written fixtures work end to end and the plan has standalone value.
-3. `source`, the OpenAI-compatible source, `bake` — the default content path.
+3. `source`, the OpenAI-compatible source, `bake` - the default content path.
 4. The Anthropic source and its batch path.
 5. The recorded source.
 
@@ -57,9 +57,9 @@ fixture on disk. The seed exists to vary *generated* content across runs; a bake
 fixture is not generated content, and varying the seed must not silently stop the
 mock from using reviewed data that is sitting right there.
 
-The fixture key is therefore the request identity **without** the root seed —
+The fixture key is therefore the request identity **without** the root seed -
 method, templated path, resolved path params, and the configured query and header
-contributors — hashed with the existing `fnv1a` to eight lowercase hex
+contributors - hashed with the existing `fnv1a` to eight lowercase hex
 characters, matching the `"a3f19c2e"` in §14's storage example. It is scoped per
 operation and per status, so the key space per bucket stays small.
 
@@ -69,8 +69,8 @@ operation and per status, so the key space per bucket stays small.
 user-supplied function", and then names exactly one built-in: Anthropic, via
 `@anthropic-ai/sdk` as an optional peer dependency.
 
-The OpenAI-compatible wire format — `POST {baseUrl}/chat/completions`, spoken by
-Ollama, llama.cpp, vLLM, and LM Studio — is absent from every revision of the
+The OpenAI-compatible wire format - `POST {baseUrl}/chat/completions`, spoken by
+Ollama, llama.cpp, vLLM, and LM Studio - is absent from every revision of the
 master spec, including the first. It belongs here, and it fits the project's
 constraints better than the Anthropic source does:
 
@@ -79,7 +79,7 @@ constraints better than the Anthropic source does:
   an optional peer dependency.
 - **It reuses the injected `fetch` seam.** `options.fetch` already exists for
   webhook delivery. The source takes the same injected fetch, so it is tested at
-  the wire level — real request shaping, real response parsing — while §17's
+  the wire level - real request shaping, real response parsing - while §17's
   "no network in the test suite" holds. The Anthropic source can only be stubbed
   one level up, at `ContentSource`.
 - **It works offline**, which is the same posture as invariant 4.
@@ -115,7 +115,7 @@ uses the Batches API above its own configured `batchThreshold`; the
 OpenAI-compatible source calls its endpoint sequentially, one request at a time,
 deliberately not fanning out on its own. `bake`'s driver already owns
 concurrency and its budget (`maxConcurrency`) at the `ContentSource.generate`
-boundary — a source that ran its own bounded concurrency underneath that would
+boundary - a source that ran its own bounded concurrency underneath that would
 mean two layers each believing they control the fan-out, and `maxConcurrency`
 would no longer describe the actual load a source puts on its endpoint.
 `batchThreshold` moves out of the shared budget and into the Anthropic source's
@@ -140,7 +140,7 @@ promises an array positionally aligned with its input, so the Anthropic source
 keys each request by `custom_id` and re-aligns before returning.
 
 This is called out as its own amendment because it is the one defect in this
-subsystem that produces no error at all — it silently attaches the wrong body to
+subsystem that produces no error at all - it silently attaches the wrong body to
 the wrong request, and every fixture is individually plausible. It gets a
 dedicated unit test.
 
@@ -194,7 +194,7 @@ not covering it. `off`, `bake`, and post-bake serving are fully deterministic;
 A full response callback (§4) runs before status selection, so there is no
 selected status to resolve a fixture against and no point at which the pipeline
 can await a source on its behalf. Inside a callback, `ctx.generate()` sees baked
-fixtures — a store hit is synchronous — but never triggers a lazy fetch. A cold
+fixtures - a store hit is synchronous - but never triggers a lazy fetch. A cold
 lazy miss there falls through to seeded generation, which invariant 4 already
 requires.
 
@@ -205,8 +205,8 @@ about serving. Rejecting a stale fixture at runtime would silently discard
 reviewed, committed, hand-edited data, which is the opposite of what §14 says the
 store is for.
 
-A `schemaHash` mismatch emits one startup warning naming the operation — the same
-shape as §3's `pattern` warning, through the existing `onWarn` — and the fixture
+A `schemaHash` mismatch emits one startup warning naming the operation - the same
+shape as §3's `pattern` warning, through the existing `onWarn` - and the fixture
 is still served. `bake` is what regenerates it. Hand-written fixtures carry no
 `meta` at all, so they are never stale and never warned.
 
@@ -255,7 +255,7 @@ request hash, exactly as §14 specifies:
 ```
 
 Loaded into a Map at startup, written atomically (temp file plus rename) with a
-debounce. `meta` is optional — a hand-written fixture is `{ "value": … }` and
+debounce. `meta` is optional - a hand-written fixture is `{ "value": … }` and
 nothing more. `generatedAt` comes from the injectable clock, not `Date.now()`.
 
 ### Resolution
@@ -264,10 +264,10 @@ After status selection, `resolveFixture()` runs once. It is async, so `lazy` and
 `live` can await a source. It yields one of three outcomes, and the two
 non-empty ones are applied differently:
 
-- **nothing** — `generate()` behaves exactly as it does today.
-- **a whole-body fixture** — returned at the `createResponders.generate` seam in
+- **nothing** - `generate()` behaves exactly as it does today.
+- **a whole-body fixture** - returned at the `createResponders.generate` seam in
   place of `generateValue`, so no body is generated and discarded.
-- **a scoped fixture** — passed to `renderResponse` as the first body layer,
+- **a scoped fixture** - passed to `renderResponse` as the first body layer,
   beneath the user's layers.
 
 Precedence falls out without a new traversal. The scoped fixture is overlaid on
@@ -284,7 +284,7 @@ second walk. This is the single most important structural decision in the
 subsystem: a hand-written merge for partial fixtures is exactly where a second
 schema traversal gets accidentally born, against invariant 1.
 
-Responses with no body — 204 and anything with no JSON content — skip fixture
+Responses with no body - 204 and anything with no JSON content - skip fixture
 resolution entirely.
 
 ---
@@ -323,7 +323,7 @@ provider block fails loudly instead of doing nothing.
 
 **`baseUrl` has no default in the core.** With an LLM mode set, no `source`, and
 no `llm.openai.baseUrl`, construction fails with an explicit instruction. In
-`off` mode — the default — no source is constructed and nothing is required.
+`off` mode - the default - no source is constructed and nothing is required.
 
 **The CLI fills it in.** `server/cli.ts` resolves `baseUrl`, `model`, and
 `apiKey` from the environment, defaulting `baseUrl` to
@@ -345,7 +345,7 @@ client-side.
 | `off` (default) | never | no | full |
 | `bake` | offline, via `mock.bake()` or the CLI | yes | full (serving is `off`) |
 | `lazy` | on a store miss, inline | yes | full once warm |
-| `live` | every request | no | **none, by design** — see §2.11 |
+| `live` | every request | no | **none, by design** - see §2.11 |
 
 **Lazy is single-flighted.** Concurrent identical requests share one in-flight
 promise keyed by the fixture key, so a cold burst makes one call rather than N.
@@ -354,13 +354,13 @@ here: one process, one Map, no store round-trip.
 
 **One failure path.** A timeout, an exhausted budget, a refusal, a null result, a
 constraint violation surviving one retry, and a source that throws all resolve
-identically — fall through to seeded generation, record the reason, surface no
+identically - fall through to seeded generation, record the reason, surface no
 error to the caller. Sources are wrapped in try/catch by the driver; a throwing
 source reaches `onError` and yields all nulls, mirroring how invariant 6 treats
 emission.
 
 **Bake** walks operations × declared statuses × named examples. It skips
-operations with no JSON response content, and skips recursive schemas per §14 —
+operations with no JSON response content, and skips recursive schemas per §14 -
 structured outputs do not support recursion. Error statuses are **not** skipped:
 they have declared schemas under invariant 5, and a coherent on-contract error
 body is worth generating. The driver reports a summary: generated, skipped,
@@ -377,7 +377,7 @@ interface ContentSource {
 ```
 
 Positionally aligned. `null` is a miss, never an error. Implementations are not
-required to be defensive — the driver wraps them.
+required to be defensive - the driver wraps them.
 
 **OpenAI-compatible (default, zero dependencies).** `POST
 {baseUrl}/chat/completions` with the persona as a system message and the request
@@ -413,31 +413,31 @@ The stub source used by the tests lives in `test/`, not `src/`, per §17.
 
 Offline throughout, per §17.
 
-- **Store** — round-trip, atomic write, debounce, missing `meta` tolerated,
+- **Store** - round-trip, atomic write, debounce, missing `meta` tolerated,
   `schemaHash` mismatch warns once and still serves.
-- **Key** — stable across a root-seed change (§2.1), varies with path params,
+- **Key** - stable across a root-seed change (§2.1), varies with path params,
   varies with configured query contributors.
-- **Resolution** — four-way precedence; a scoped fixture merges through
+- **Resolution** - four-way precedence; a scoped fixture merges through
   `applyOverrides` with `generateValue` called exactly once; a whole-body fixture
   calls it exactly zero times; 204 skips resolution.
-- **Determinism** — the same request twice across a fresh process with a baked
+- **Determinism** - the same request twice across a fresh process with a baked
   store is byte-identical. `live` is named as excluded.
-- **OpenAI-compatible source, at the wire** — against the injected `fetch`:
+- **OpenAI-compatible source, at the wire** - against the injected `fetch`:
   `json_schema` request shape, `json_object` fallback, schema-in-prompt under
   `none`, malformed JSON retried once then seeded, HTTP 500 seeded, timeout
   seeded, `Authorization` present only with an `apiKey`.
-- **Anthropic source** — stubbed at `ContentSource`, plus a dedicated unit test
+- **Anthropic source** - stubbed at `ContentSource`, plus a dedicated unit test
   on `custom_id` re-alignment (§2.6) and one on refusal handling with a null
   `stop_details` (§2.10).
-- **Interface neutrality** — a source implemented against the public
+- **Interface neutrality** - a source implemented against the public
   `FixtureRequest` shape alone, importing no zod and no mockingham internal
   (§2.3).
-- **Driver** — lazy single-flight proves two concurrent identical requests make
+- **Driver** - lazy single-flight proves two concurrent identical requests make
   one source call; budget exhaustion, refusal, recursive schema, and a throwing
   source all reach seeded generation; a throwing source reaches `onError`.
-- **Bake** — walk coverage including error statuses, and the summary counts.
+- **Bake** - walk coverage including error statuses, and the summary counts.
 
-**Every one of these is verified by mutation before it is accepted** — break the
+**Every one of these is verified by mutation before it is accepted** - break the
 implementation, watch the test fail. This subsystem is unusually exposed to the
 recurring defect of tests that cannot fail, because "falls through to seeded
 generation" is also exactly what a test that is not wired up correctly does. A
@@ -466,7 +466,7 @@ one that works.
 - **A `default` response is never baked.** `bake` walks `operation.responses`
   only. A `default` entry carries a sentinel status that resolves to a concrete
   one at request time, so baking it would mean guessing which status to file it
-  under — and a wrong guess stores fixtures under keys no request looks up. An
+  under - and a wrong guess stores fixtures under keys no request looks up. An
   operation declaring both a 2xx and a `default` still gets its 2xx; only a
   `default`-only operation gets nothing and falls through to generation.
 - **`narrow()` does not descend beneath a union.** Scope narrowing walks the
@@ -474,7 +474,7 @@ one that works.
   silently out of scope rather than an error. Fails safe, per invariant 4, but
   a `byName` entry naming such a field will never match.
 - **The bake summary reports `generated`, `skipped`, and `failed` only.** §14
-  also lists `refused` and `unchanged`. `refused` is unrepresentable —
+  also lists `refused` and `unchanged`. `refused` is unrepresentable -
   `ContentSource` returns `FixtureResult | null`, so the driver cannot tell a
   refusal from any other miss, and a field pinned at zero is worse than an
   absent one. Refusals count in `failed`.
@@ -483,7 +483,7 @@ one that works.
   before starting the next, and every shipped source handles its array
   sequentially. The name predates that reality. A source may override the size
   with `ContentSource.chunkSize`, which is how the Anthropic source reaches its
-  own batch threshold — without it, the batch path was unreachable under
+  own batch threshold - without it, the batch path was unreachable under
   default configuration.
 
 ---

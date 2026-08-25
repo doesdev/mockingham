@@ -143,7 +143,7 @@ test('a discriminated union with a variant missing the key falls back instead of
     oneOf: [
       { type: 'object', required: ['kind'], properties: { kind: { const: 'a' }, a: { type: 'string' } } },
       // `required: ['b']` is what keeps this variant mutually exclusive with
-      // the first under the exactly-one check below — without it, this is a
+      // the first under the exactly-one check below - without it, this is a
       // loose object that matches everything, and the two assertions after
       // doesNotThrow would fail for the same reason oneOf now rejects an
       // ambiguous payload. Do not simplify this away.
@@ -219,7 +219,7 @@ test('oneOf requires exactly one variant to match', () => {
       { type: 'object', properties: { b: { type: 'string' } } }
     ]
   }
-  // Both variants are loose objects, so this matches BOTH — oneOf must reject it.
+  // Both variants are loose objects, so this matches BOTH - oneOf must reject it.
   assert.equal(parse(schema, { a: 'x', b: 'y' }).success, false)
 })
 

@@ -185,10 +185,10 @@ test('a thrown SDK call is a miss, not an error', async () => {
   assert.equal(result, null)
 })
 
-test('constructing the source does not import the SDK — only generate() does', async () => {
+test('constructing the source does not import the SDK - only generate() does', async () => {
   // If createAnthropicSource ever started an un-awaited import('@anthropic-ai/sdk')
   // at construction time (rather than inside generate()), that import would
-  // reject — the package is not installed in this repo — and surface as an
+  // reject - the package is not installed in this repo - and surface as an
   // unhandled rejection shortly after construction, not as a thrown error
   // from the synchronous factory call itself.
   let caught: unknown
@@ -208,7 +208,7 @@ test('constructing the source does not import the SDK — only generate() does',
 
 // --- Fix round 1: output_config.format.schema must be strippable ----------
 // Anthropic validates output_config.format.schema strictly and returns a 400
-// on minLength/minimum/pattern/etc — sending them unstripped would be a
+// on minLength/minimum/pattern/etc - sending them unstripped would be a
 // deterministic, permanent miss for any document using them.
 
 test('output_config.format.schema carries no stripped keywords, and the stripped constraints reach description', async () => {
@@ -276,7 +276,7 @@ test('a schema with no constraints reaches output_config.format.schema unchanged
 // --- Task 14: the batch path -----------------------------------------------
 
 test('above the threshold the batch path runs and results realign by custom_id', async () => {
-  // Deliberately returned in reverse order — the API makes no ordering promise,
+  // Deliberately returned in reverse order - the API makes no ordering promise,
   // and getting this wrong attaches the wrong body to the wrong request with no
   // error at all. Design section 2.6.
   const source = createAnthropicSource({
@@ -317,7 +317,7 @@ test('same key, different statuses: each status realigns to its own body, not to
           create: async () => ({ id: 'batch_1' }),
           retrieve: async () => ({ processing_status: 'ended' }),
           results: async function* () {
-            // Reverse order, same as the custom_id realignment test above —
+            // Reverse order, same as the custom_id realignment test above -
             // the API makes no ordering promise.
             yield { custom_id: 'k-404', result: { type: 'succeeded', message: { parsed_output: { bio: 'not-found body' } } } }
             yield { custom_id: 'k-200', result: { type: 'succeeded', message: { parsed_output: { bio: 'ok body' } } } }
@@ -424,7 +424,7 @@ test('the batch path does not send fallbacks', async () => {
   })
   await source.generate([request('k1'), request('k2')])
   const requests = sent.requests as Array<{ params: Record<string, unknown> }>
-  // fallbacks is rejected on the Batches API — design section 2.5.
+  // fallbacks is rejected on the Batches API - design section 2.5.
   assert.equal('fallbacks' in (requests[0]?.params ?? {}), false)
 })
 
@@ -432,7 +432,7 @@ test('the batch path does not send fallbacks', async () => {
 
 test('the batch path also omits betas, not just fallbacks', async () => {
   // The brief's fallbacks test alone would still pass a mutant that dropped
-  // ONLY the fallbacks key but left betas in place — betas is meaningless
+  // ONLY the fallbacks key but left betas in place - betas is meaningless
   // without the fallbacks beta feature it enables, but a partial fix is still
   // a bug. This asserts both keys are gone from the SAME per-request params
   // object the fallbacks test inspects.
@@ -534,7 +534,7 @@ test('polling terminates on a stuck batch rather than hanging, and every request
             return { processing_status: 'in_progress' }
           },
           results: async function* () {
-            throw new Error('results() must not be read — the batch never ended')
+            throw new Error('results() must not be read - the batch never ended')
           }
         }
       }

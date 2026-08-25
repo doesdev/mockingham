@@ -14,10 +14,10 @@ import type { Registration } from './webhooks/registry.ts'
 import { resolveLlm } from './fixtures/config.ts'
 import type { LlmConfig } from './fixtures/config.ts'
 import { createMemoryFixtureStore } from './fixtures/store.ts'
-import type { FixtureStore } from './fixtures/store.ts'
+import type { FixtureStore, FixtureRecord } from './fixtures/store.ts'
 import { createCompiler } from './schema/compile.ts'
 import { bake as bakeFixtures } from './fixtures/bake.ts'
-import type { BakeSummary } from './fixtures/bake.ts'
+import type { BakeSummary, BakeScope } from './fixtures/bake.ts'
 import { warnOnStaleFixtures } from './fixtures/persist.ts'
 import { schemaHashLookup } from './fixtures/source.ts'
 import { createMcpServer } from './mcp/server.ts'
@@ -29,7 +29,7 @@ const JSON_TYPE = 'application/json'
 
 export interface MockOptions extends Omit<HandlerOptions, 'llm'> {
   /**
-   * The user-facing configuration surface — validated and resolved to a
+   * The user-facing configuration surface - validated and resolved to a
    * `ResolvedLlm` (a `ContentSource`, not raw provider options) before it
    * reaches `createHandler`, which keeps provider modules out of the pure
    * core. See `src/fixtures/config.ts`.
@@ -55,7 +55,7 @@ export interface Mock {
   outage(target: string, opts?: OutageOptions): Promise<void>
   /**
    * Layers a runtime override over any configured one for every operation the
-   * target resolves to. JSON data only — see `assertSerializable`.
+   * target resolves to. JSON data only - see `assertSerializable`.
    */
   override(target: string, value: RuntimeOverride): Promise<void>
   /** No target clears every operation in the document. */
@@ -102,10 +102,20 @@ export interface Mock {
   settled(): Promise<void>
   /**
    * Prewarms the fixture store by walking every operation the configured llm
-   * source can serve. Requires an llm source — either `llm.source` directly,
+   * source can serve. Requires an llm source - either `llm.source` directly,
    * or a provider block with `llm.mode` set to something other than `off`.
+   *
+   * `only` narrows the walk to one operation, and optionally one status - the
+   * scoped re-bake `regenerate_fixture` is built on. A filter that matches no
+   * operation throws rather than reporting a summary of zeroes.
    */
-  bake(): Promise<BakeSummary>
+  bake(options?: { only?: BakeScope }): Promise<BakeSummary>
+  /**
+   * Everything currently in the fixture store, sorted. This is what
+   * `list_fixtures` reports, and what a caller needs to see whether a bake
+   * landed or a fixture has gone stale.
+   */
+  fixtures(): FixtureRecord[]
   /**
    * Builds an MCP server over this mock. `transport: 'http'` mounts it on the
    * mock's own fetch surface, so it works before or after `listen()`.
@@ -126,7 +136,7 @@ export function createMock(
   const compiler = createCompiler()
 
   // A schemaHash mismatch means the document moved under a fixture `bake`
-  // generated earlier. This is diagnostic only — warnOnStaleFixtures never
+  // generated earlier. This is diagnostic only - warnOnStaleFixtures never
   // removes anything from `fixtureStore`, so a stale fixture keeps serving
   // exactly as it did before this check ran. Design section 2.13.
   warnOnStaleFixtures(
@@ -196,7 +206,7 @@ export function createMock(
       assertValidOverrideKeys(value)
       assertSerializable(value)
       // `assertSerializable` just proved this value can survive a serializing
-      // Store — it does not prove the Store keeps a copy. An in-process Store
+      // Store - it does not prove the Store keeps a copy. An in-process Store
       // keeps the live reference by default, so storing `value` itself would
       // let the caller mutate what the mock serves after the call returns, or
       // inject something that never passed the door above. One copy, made
@@ -211,7 +221,7 @@ export function createMock(
     async clearOverrides(target) {
       // No enumeration on `Store`, so a clear-all deletes the key for every
       // operation the document declares. The operation list is finite and is
-      // already the authority for what a target can resolve to — this avoids
+      // already the authority for what a target can resolve to - this avoids
       // both an index entry to keep consistent and `store.clear()`, which
       // would also discard idempotency keys and chaos state. Design 3.1.
       const keys = target === undefined
@@ -264,7 +274,11 @@ export function createMock(
     unregister: (webhook, scope) => handler.unregister(webhook, scope),
     settled: () => handler.settled(),
 
-    async bake() {
+    fixtures: () => fixtureStore.records(),
+
+    async bake(bakeOptions = {}) {
+      // Checked before the scope filter, so a regeneration with no source
+      // configured says THAT rather than reporting a filter miss.
       if (!resolvedLlm?.source) {
         throw new Error(
           'mockingham: bake() requires an llm source. Set llm.mode to something ' +
@@ -280,6 +294,7 @@ export function createMock(
         persona: resolvedLlm.persona,
         scope: resolvedLlm.scope,
         budget: resolvedLlm.budget,
+        only: bakeOptions.only,
         now: options.now ?? (() => Date.now()),
         onWarn: options.onWarn,
         onError: (error) => options.onError?.(error)
@@ -298,7 +313,7 @@ export function createMock(
 
       // Design §3.5: close() unmounts an http server as well as closing any
       // attached transport. The unmount lives here because the mount slot does
-      // — mcp/server.ts knows nothing about the dispatcher.
+      // - mcp/server.ts knows nothing about the dispatcher.
       //
       // Guarded on identity: a later mcp({ transport: 'http' }) call replaces
       // the slot, and closing the older handle must not unmount the newer one.
@@ -345,11 +360,11 @@ export type { RuntimeOverride } from './runtime/overrides.ts'
 // `seedTime` arrives through HandlerOptions; the default it falls back to is
 // exported so a caller can offset from it rather than guess at it.
 export { DEFAULT_SEED_TIME } from './generate/clock.ts'
-export type { BakeSummary } from './fixtures/bake.ts'
+export type { BakeSummary, BakeScope } from './fixtures/bake.ts'
 
 // The bake-commit-serve loop needs these at the package root. Exporting only
 // the types, as this file used to, left no way to construct a store or a
-// source without importing internal paths — which happened to work solely
+// source without importing internal paths - which happened to work solely
 // because package.json declares no `exports` map.
 export { createMemoryFixtureStore } from './fixtures/store.ts'
 export type {

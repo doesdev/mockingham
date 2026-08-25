@@ -1,17 +1,17 @@
 /**
  * JSON Schema keywords no structured-output provider this project talks to
- * accepts on a request schema — sending one of these is not "ignored", it is
+ * accepts on a request schema - sending one of these is not "ignored", it is
  * a hard rejection (Anthropic: 400 on `output_config.format.schema`; OpenAI
  * strict mode: 400 on `response_format.json_schema.schema`). Stripping them
  * is therefore a correctness requirement, not an optional cleanup, and this
- * is the single canonical list both sources strip from — duplicating it per
+ * is the single canonical list both sources strip from - duplicating it per
  * source would let one drift out of sync with what the API actually rejects.
  *
  * `format` is deliberately NOT in this shared set: Anthropic's structured
  * outputs document `format` as a supported keyword (date-time, email, uuid,
  * etc.), so stripping it there would be a needless loss of generation
  * guidance. OpenAI strips it anyway, for its own, already-documented reason
- * (which formats are accepted is model/version-specific) — that is provider
+ * (which formats are accepted is model/version-specific) - that is provider
  * policy, not a correctness-relevant keyword every provider rejects, so it
  * is passed as `extraKeywords` at the OpenAI call site rather than folded
  * into this shared set.
@@ -33,7 +33,7 @@ export interface StripOptions {
   /**
    * Fold each stripped keyword into the node's `description` as prose,
    * rather than discarding it outright, so a model that can no longer see
-   * the constraint structurally still sees it as generation guidance — the
+   * the constraint structurally still sees it as generation guidance - the
    * same thing the real `@anthropic-ai/sdk` `zodOutputFormat` helper does.
    * Defaults to true.
    */
@@ -43,8 +43,8 @@ export interface StripOptions {
 /**
  * One line of deterministic prose describing a stripped keyword+value, so
  * the same input always folds into the same description text. `value` comes
- * straight from parsed JSON — a plain scalar in every case the keywords
- * above ever carry — so `String(value)` is a stable, sufficient rendering;
+ * straight from parsed JSON - a plain scalar in every case the keywords
+ * above ever carry - so `String(value)` is a stable, sufficient rendering;
  * this is not a general-purpose formatter for arbitrary JSON.
  */
 function describeConstraint(keyword: string, value: unknown): string {
@@ -75,18 +75,18 @@ function describeConstraint(keyword: string, value: unknown): string {
 // The three keyword shapes that hold nested schemas, and nothing else does.
 // A key not in one of these sets (`type`, `required`, `enum`, `const`,
 // `default`, `examples`, an existing `description`, ...) is copied through
-// verbatim rather than walked — it is data, not a schema position, and
+// verbatim rather than walked - it is data, not a schema position, and
 // walking it would apply strip/describe logic to values that only coincide
 // in shape with a schema node.
 //
-// - MAP: `properties`, `patternProperties`, `$defs` — a map from a NAME
-//   (a property name, a regex, a def id — author-chosen, never a keyword)
+// - MAP: `properties`, `patternProperties`, `$defs` - a map from a NAME
+//   (a property name, a regex, a def id - author-chosen, never a keyword)
 //   to a schema. Only the VALUES are schema nodes; the keys are copied
 //   through untouched and never checked against the strip set.
-// - VALUE: `items`, `additionalProperties`, `not` — a single nested schema
+// - VALUE: `items`, `additionalProperties`, `not` - a single nested schema
 //   (`additionalProperties` may also be a plain boolean, which the walk
 //   below passes through unchanged).
-// - LIST: `allOf`, `anyOf`, `oneOf`, `prefixItems` — an array whose
+// - LIST: `allOf`, `anyOf`, `oneOf`, `prefixItems` - an array whose
 //   elements are schemas.
 const SCHEMA_MAP_KEYWORDS = new Set(['properties', 'patternProperties', '$defs'])
 const SCHEMA_VALUE_KEYWORDS = new Set(['items', 'additionalProperties', 'not'])
@@ -96,7 +96,7 @@ const SCHEMA_LIST_KEYWORDS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
  * Strips keywords a structured-output API rejects. The walk is structurally
  * aware of JSON Schema's shape rather than generic: earlier this recursed
  * into every nested value as if it were itself a schema node, which is wrong
- * in one specific, damaging way — a `properties` map's KEYS are user-chosen
+ * in one specific, damaging way - a `properties` map's KEYS are user-chosen
  * property names, not schema keywords, so a document with a property
  * literally named `format`, `pattern`, or `minimum` had that property
  * deleted outright (and, for the object it lived on, a phantom `description`
@@ -110,15 +110,15 @@ const SCHEMA_LIST_KEYWORDS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
  * schema map (not just for the rebuilt object's own key order, but as the
  * source of iteration for which constraints get folded into `description`),
  * so the same input schema always produces byte-identical output across
- * processes — required because the rendered request must be byte-identical
+ * processes - required because the rendered request must be byte-identical
  * for prompt caching and reproducible bake runs.
  *
  * The three keyword sets above are scoped to what this project's own
- * `schema/compile.ts` plus `z.toJSONSchema` can actually emit — not to JSON
+ * `schema/compile.ts` plus `z.toJSONSchema` can actually emit - not to JSON
  * Schema in general. Nothing in this codebase produces `if`/`then`/`else`,
  * `contains`, `propertyNames`, `dependentSchemas`, `definitions` (the
  * draft-07 name for `$defs`), or the tuple form `items: [schema, ...]`, so
- * none of those are walked, and today that is not a defect — there is no
+ * none of those are walked, and today that is not a defect - there is no
  * caller that could hand this a schema shaped that way. It becomes one the
  * moment `stripUnsupportedKeywords` is exported for use against a
  * hand-written or externally-sourced schema: a future caller passing a
@@ -132,7 +132,7 @@ export function stripUnsupportedKeywords(node: unknown, options: StripOptions = 
   }
   const describeStripped = options.describeStripped ?? true
 
-  // A schema NODE — the shape strip/describe applies to directly.
+  // A schema NODE - the shape strip/describe applies to directly.
   const walkSchema = (value: unknown): unknown => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
     const input = value as Record<string, unknown>
@@ -161,7 +161,7 @@ export function stripUnsupportedKeywords(node: unknown, options: StripOptions = 
   }
 
   // A MAP OF SCHEMAS (`properties`, `patternProperties`, `$defs`): the map
-  // object itself is never treated as a schema node — only its values are.
+  // object itself is never treated as a schema node - only its values are.
   const walkMap = (value: unknown): unknown => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
     const input = value as Record<string, unknown>

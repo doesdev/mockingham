@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `Mock.override()` real — a runtime override, settable in-process
+**Goal:** Make `Mock.override()` real - a runtime override, settable in-process
 or over MCP, that layers on top of config overrides without introducing a second
 precedence mechanism.
 
@@ -11,7 +11,7 @@ precedence mechanism.
 sequence, which is what makes `override > fixture > example > generated` work
 today. A runtime override takes one more slot in that array. State lives in the
 Store, keyed per resolved operation, exactly as `failNext` and `outage` already
-do — so a typo throws at call time, a wildcard arms every match, and `reset()`
+do - so a typo throws at call time, a wildcard arms every match, and `reset()`
 clears overrides for free because it calls `store.clear()`.
 
 **Tech Stack:** TypeScript run directly by Node 24's native type stripping,
@@ -34,7 +34,7 @@ they disagree.
   `generate/rng.ts`; time comes from the injected clock.
 - **One schema interpretation.** Do not add a second traversal. A runtime
   override reuses `applyOverrides` through the existing layer array.
-- **US English spelling** everywhere — `honor`, `behavior`, `serialize`,
+- **US English spelling** everywhere - `honor`, `behavior`, `serialize`,
   `normalize`, `canceled`.
 - **One plain command per Bash call, with literal arguments.** No `&&`, `||`,
   `;`, pipes, `$(...)`, `VAR=value` prefixes, heredocs, `>` redirects, or `cd`.
@@ -133,7 +133,7 @@ const operation = {
 
 test('the key is namespaced and built from the operation target key', () => {
   // The writing side and the reading side must never spell this
-  // independently — the reason failure.ts exports its key builders.
+  // independently - the reason failure.ts exports its key builders.
   assert.equal(overrideKey(targetKey(operation)), 'override|getPayment')
 })
 
@@ -144,7 +144,7 @@ test('a function anywhere in the value is rejected, naming its path', () => {
   )
 })
 
-test('a non-plain object is rejected — it would change type through a store', () => {
+test('a non-plain object is rejected - it would change type through a store', () => {
   assert.throws(
     () => assertSerializable({ 200: { body: { at: new Date(0) } } }),
     /value\.200\.body\.at/
@@ -201,7 +201,7 @@ test('readOverride reads back what was written under the namespaced key', async 
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/runtime/overrides.test.ts`
-Expected: FAIL — cannot resolve `../../src/runtime/overrides.ts`.
+Expected: FAIL - cannot resolve `../../src/runtime/overrides.ts`.
 
 - [ ] **Step 3: Implement the module**
 
@@ -224,7 +224,7 @@ export type RuntimeOverride = { status?: number } & { [status: number]: StatusCo
 
 /**
  * Exported because `index.ts` WRITES the key this module READS. Two independent
- * spellings of one convention drift silently, with both test suites green — the
+ * spellings of one convention drift silently, with both test suites green - the
  * same reasoning `failure.ts` records for its own key builders.
  */
 export function overrideKey(key: string): string {
@@ -250,7 +250,7 @@ export function assertSerializable(
   if (type === 'function' || type === 'symbol' || type === 'bigint') {
     throw new Error(
       `mockingham: override ${path} is a ${type}, which cannot survive a Store ` +
-        'that serializes. Runtime overrides must be JSON data — use the ' +
+        'that serializes. Runtime overrides must be JSON data - use the ' +
         '`operations` config for anything that needs a function.'
     )
   }
@@ -297,7 +297,7 @@ export interface ResolvedOverride {
 
 /**
  * Shared, and compared by IDENTITY in the handler to decide whether an override
- * contributed to the response — which is what the `x-mock-override` debug
+ * contributed to the response - which is what the `x-mock-override` debug
  * header reports. A fresh empty object per request would work for composition
  * and break that check.
  */
@@ -380,7 +380,7 @@ git commit -m 'feat: the runtime override module, key convention and read'
 - [ ] **Step 1: Write the failing tests**
 
 Append to `test/server/overrides.test.ts`. These write to the Store directly,
-because `mock.override()` does not exist until Task 3 — which keeps this task
+because `mock.override()` does not exist until Task 3 - which keeps this task
 independently testable:
 
 ```ts
@@ -389,7 +389,7 @@ import { overrideKey } from '../../src/runtime/overrides.ts'
 
 test('a runtime override layers on top of a config override', async () => {
   // All five layers present at once. A test with fewer proves nothing about
-  // ordering — it passes with the whole composition removed.
+  // ordering - it passes with the whole composition removed.
   const store = createMemoryStore()
   const handler = createHandler(api, {
     store,
@@ -475,12 +475,12 @@ test('a configured respond beats a runtime override', async () => {
 })
 ```
 
-**The existing file's fixtures, verified — reuse them, declare nothing new.**
+**The existing file's fixtures, verified - reuse them, declare nothing new.**
 `test/server/overrides.test.ts` already imports `createHandler` from
 `src/server/handler.ts`, `loadApi` from `src/spec/load.ts`, and `petstore` from
 `test/fixtures/petstore.ts`, with `const api = loadApi(petstore)` at the top.
 
-The operation these tests drive is `showPetById` — `GET /pets/{petId}`, whose
+The operation these tests drive is `showPetById` - `GET /pets/{petId}`, whose
 `petId` is an integer, so `/pets/7` is a valid request. Its `200` returns the
 `Pet` schema, which declares `id`, `name`, `email`, and `tag`; the layering test
 uses `name` and `tag` because both are real properties of that schema. A `404`
@@ -488,13 +488,13 @@ is also declared on that operation, which is what makes the forced-status test
 meaningful rather than a request for a status the document does not have.
 
 The override key is `overrideKey(targetKey(operation))`, which is the
-`operationId` when one exists and `` `${method} ${path}` `` otherwise — so
+`operationId` when one exists and `` `${method} ${path}` `` otherwise - so
 `overrideKey('showPetById')` here.
 
 - [ ] **Step 2: Run and watch them fail**
 
 Run: `node --test test/server/overrides.test.ts`
-Expected: FAIL — the runtime layer is not read yet, so bodies come from config
+Expected: FAIL - the runtime layer is not read yet, so bodies come from config
 or generation and `x-mock-override` is absent.
 
 - [ ] **Step 3: Read the override once, early**
@@ -581,14 +581,14 @@ Expected: PASS, including every pre-existing config-override test unchanged.
 
 Run: `npm test`
 Expected: all pass. **If a pre-existing test now fails, stop and report it
-rather than editing it** — a behavior change outside this task's scope is a
+rather than editing it** - a behavior change outside this task's scope is a
 finding, not a fixup.
 
 - [ ] **Step 8: Prove the precedence test can fail**
 
 Remove the runtime spread from `bodyOverrides`, run, confirm the layering test
 fails, restore. Then reverse the spread order so runtime comes first, run, and
-confirm the layering test fails again — this is the mutation that matters,
+confirm the layering test fails again - this is the mutation that matters,
 because a test that passes with the layers in either order is not testing
 precedence at all. Record both messages.
 
@@ -619,7 +619,7 @@ git commit -m 'feat: runtime overrides layer over config overrides in the pipeli
 - Consumes: `overrideKey`, `assertSerializable`, `RuntimeOverride` from
   `src/runtime/overrides.ts`; the existing `keysFor(target)` helper in
   `index.ts`, which maps a target to every `targetKey` it resolves to.
-- Produces: on `Mock` —
+- Produces: on `Mock` -
   - `override(target: string, value: RuntimeOverride): Promise<void>`
   - `clearOverrides(target?: string): Promise<void>`
 
@@ -709,7 +709,7 @@ test('the second override for one target replaces the first', async () => {
 test('an off-contract override body is served, not rejected', async () => {
   // Design section 5.2: an override body is NOT validated against the
   // response schema. That is already true of config overrides, and a runtime
-  // override that behaved differently would be a second validation path — the
+  // override that behaved differently would be a second validation path - the
   // divergence invariant 1 exists to prevent. `name` is declared a string and
   // required; this replaces it with a number and the mock serves it.
   const mock = createMock(petstore, { seed: 'runtime' })
@@ -739,7 +739,7 @@ is not a real operation in it, drop that path rather than inventing one.
 - [ ] **Step 2: Run and watch them fail**
 
 Run: `node --test test/server/overrides.test.ts`
-Expected: FAIL — `mock.override is not a function`.
+Expected: FAIL - `mock.override is not a function`.
 
 - [ ] **Step 3: Add the two methods to the `Mock` interface**
 
@@ -748,7 +748,7 @@ In `src/index.ts`, add to `interface Mock`, beside `failNext` and `outage`:
 ```ts
   /**
    * Layers a runtime override over any configured one for every operation the
-   * target resolves to. JSON data only — see `assertSerializable`.
+   * target resolves to. JSON data only - see `assertSerializable`.
    */
   override(target: string, value: RuntimeOverride): Promise<void>
   /** No target clears every operation in the document. */
@@ -786,7 +786,7 @@ In the `mockRef` object literal, after `outage`:
     async clearOverrides(target) {
       // No enumeration on `Store`, so a clear-all deletes the key for every
       // operation the document declares. The operation list is finite and is
-      // already the authority for what a target can resolve to — this avoids
+      // already the authority for what a target can resolve to - this avoids
       // both an index entry to keep consistent and `store.clear()`, which
       // would also discard idempotency keys and chaos state. Design 3.1.
       const keys = target === undefined
@@ -798,7 +798,7 @@ In the `mockRef` object literal, after `outage`:
     },
 ```
 
-`targetKey` is already imported in `index.ts` — line 8 imports
+`targetKey` is already imported in `index.ts` - line 8 imports
 `{ targetKey, failNextKey, outageKey }` from `./runtime/failure.ts` for the
 control-plane keys. No new import is needed for it.
 
@@ -815,7 +815,7 @@ Expected: all pass.
 - [ ] **Step 7: Prove the ordering claim in `override()`**
 
 Move `assertSerializable(value)` to after the write loop, run, and confirm the
-non-serializable test now leaves a partially-applied override behind — write a
+non-serializable test now leaves a partially-applied override behind - write a
 throwaway assertion locally if the existing tests do not show it, then restore
 the original order and delete the throwaway. Record what you observed. The
 point is that "checked before any write" is a real property, not a comment.
@@ -917,7 +917,7 @@ five to all seven, so the gate assertions actually cover the new tools.
 - [ ] **Step 2: Run and watch them fail**
 
 Run: `node --test test/mcp/override-tools.test.ts`
-Expected: FAIL — no tool named `set_override`.
+Expected: FAIL - no tool named `set_override`.
 
 - [ ] **Step 3: Add the context members**
 
@@ -941,7 +941,7 @@ and wire them through in `createMcpContext`, beside the existing delegations:
     clearOverrides: (target) => source.clearOverrides(target),
 ```
 
-Update the doc comment above `McpContextSource` — it says "the eight members"
+Update the doc comment above `McpContextSource` - it says "the eight members"
 and there will be ten.
 
 - [ ] **Step 4: Add the two tools**
@@ -1013,7 +1013,7 @@ Expected: PASS with the widened name arrays.
 - [ ] **Step 6: Confirm the refusal message reaches the new names**
 
 Add a test asserting that with the gate CLOSED, calling `set_override` through
-the server produces the refusal naming `--write` — modelled on the existing
+the server produces the refusal naming `--write` - modelled on the existing
 gate-closed test in `test/mcp/write.test.ts`. This is the behavior
 `server.ts`'s comment promises; assert it rather than trusting the comment.
 
@@ -1051,7 +1051,7 @@ git commit -m 'feat: set_override and clear_overrides MCP tools'
 
 - [ ] **Step 1: Add the inventory check that was assumed to exist**
 
-The docs harness does NOT currently catch a stale tool list — `docs/mcp.md`'s
+The docs harness does NOT currently catch a stale tool list - `docs/mcp.md`'s
 runnable block filters `tools/list` for `fail_next` and prints only that, so
 adding tools changes none of its expected output. Its "The twelve tools"
 heading is unverified prose. Close that gap first, so the rest of this task
@@ -1076,7 +1076,7 @@ test('every shipped tool is named in docs/mcp.md, and none is stale', async () =
   for (const name of notShipped) {
     assert.ok(
       !shipped.includes(name),
-      `${name} is listed as deferred but now ships — update the guide and this list`
+      `${name} is listed as deferred but now ships - update the guide and this list`
     )
   }
 })
@@ -1095,14 +1095,14 @@ Its `--write` line names the five write tools:
 ```
 
 Name all seven. Keep the wrapping consistent with the surrounding usage text,
-and check whether `test/server/cli-mcp.test.ts` asserts on this string — if it
+and check whether `test/server/cli-mcp.test.ts` asserts on this string - if it
 does, update that assertion in the same commit.
 
 - [ ] **Step 3: Update `docs/mcp.md`**
 
 Three changes, and remember the whole document is executed:
 
-1. The "The twelve tools" heading and its list — fourteen now, with
+1. The "The twelve tools" heading and its list - fourteen now, with
    `set_override` and `clear_overrides` described in the same one-line style.
 2. The write-gate section: five write tools becomes seven, everywhere it says
    five.
@@ -1112,7 +1112,7 @@ Three changes, and remember the whole document is executed:
    and keep the pointer for the one that remains.
 
 If you change any ```ts fence, its ```console fence must be reconciled by
-running the suite — never by pasting output you have not reasoned about.
+running the suite - never by pasting output you have not reasoned about.
 
 - [ ] **Step 4: Update `README.md`**
 
@@ -1126,14 +1126,14 @@ correct anything that describes runtime overrides as unavailable. Search for
 `docs/superpowers/specs/2026-08-11-mockingham-design.md` §1 carries:
 
 ```ts
-  // NOT IMPLEMENTED — deferred to the runtime-override cycle. See the phase 10
+  // NOT IMPLEMENTED - deferred to the runtime-override cycle. See the phase 10
   // MCP delta section 1 and the phase 12 docs delta section 5.2.
   override(target: string, value: Override): void
 ```
 
 The method now exists. Remove the marker and correct the signature to the
-shipped one — `override(target: string, value: RuntimeOverride): Promise<void>`
-— noting the async return the way amendment 2.1 explains. Leave §1's other
+shipped one - `override(target: string, value: RuntimeOverride): Promise<void>`,
+noting the async return the way amendment 2.1 explains. Leave §1's other
 entries alone.
 
 - [ ] **Step 6: Close the deferred entries**
@@ -1141,13 +1141,13 @@ entries alone.
 In `docs/superpowers/deferred-items.md`, the entries covering
 `Mock.override()` and the deferred override tools are now resolved. Follow the
 file's existing convention for a closed item (read how earlier resolved entries
-are marked — do not invent a new format) and note the commit range. Leave the
+are marked - do not invent a new format) and note the commit range. Leave the
 `regenerate_fixture` portion open.
 
 - [ ] **Step 7: Run everything**
 
 Run: `npm test`
-Expected: all pass, including the docs suite — every document still matches its
+Expected: all pass, including the docs suite - every document still matches its
 ```console fences.
 
 Run: `npx tsc --noEmit`
@@ -1174,10 +1174,10 @@ git commit -m 'docs: document the override tools and pin the tool inventory'
 
 The plan is done when all of these hold:
 
-1. `npm test` passes — 952 before this plan, plus roughly 25 new tests.
+1. `npm test` passes - 952 before this plan, plus roughly 25 new tests.
 2. `npx tsc --noEmit` produces no output.
 3. Precedence is asserted end to end through the public surface with a config
-   layer, a runtime layer, and a generated body all present at once — and the
+   layer, a runtime layer, and a generated body all present at once - and the
    assertion has been shown to fail when the two layers are swapped.
 4. `reset()` clearing runtime overrides is asserted, not inferred.
 5. A non-serializable override is refused before any key is written.

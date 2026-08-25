@@ -33,7 +33,7 @@ function build(responses: ResponseSpec[], prefer?: string) {
 test('selection is memoized', () => {
   // selectResponse builds a fresh { spec, source } each call, so identity across
   // two calls is proof the second one did not recompute. Laziness itself is
-  // proven behaviorally by test/server/stage-order.test.ts — an unauthenticated
+  // proven behaviorally by test/server/stage-order.test.ts - an unauthenticated
   // request to a response-less operation gets 401 rather than the 501 that only
   // an eager selection could produce.
   const responders = build([spec(200)])
@@ -141,21 +141,21 @@ test('generate honors a falsy-but-defined fixture value rather than treating it 
 
 test('generate consults the fixture before the media-type lookup', () => {
   // status 999 is not declared on the operation at all, so mediaFor(999)
-  // would find nothing — proof the fixture answers even where the media
+  // would find nothing - proof the fixture answers even where the media
   // lookup could not have.
   //
   // This deliberately does NOT use a body-less (204-style) status anymore:
   // resolve() itself now skips fixture resolution entirely for a status with
   // no JSON content (design: "Responses with no body ... skip fixture
-  // resolution entirely"), so a real caller's `fixture` hook — wired to
-  // resolve()/peek() — never hands back a value for one. This test only
+  // resolution entirely"), so a real caller's `fixture` hook - wired to
+  // resolve()/peek() - never hands back a value for one. This test only
   // pins createResponders' OWN call ordering (fixture before mediaFor),
   // independent of what resolve() chooses to serve; an explicit status
   // argument bypasses selectResponse entirely, so `999` never needs to be a
   // status the operation could plausibly select on its own.
   //
   // Read plainly: after the body-less-response fix, no real caller can ever
-  // produce the shape this test exercises — a wired-up `fixture` hook never
+  // produce the shape this test exercises - a wired-up `fixture` hook never
   // returns a value for a status `mediaFor` also can't find, since both now
   // agree on "no JSON content means no fixture". The ordering this pins is
   // therefore a short-circuit optimization inside `generate()`, not a

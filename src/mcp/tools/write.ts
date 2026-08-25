@@ -44,7 +44,7 @@ const outage: McpTool = {
 const emitWebhook: McpTool = {
   name: 'emit_webhook',
   description:
-    'Fire a declared webhook now, optionally at a URL you choose — so you can ' +
+    'Fire a declared webhook now, optionally at a URL you choose - so you can ' +
     'test your receiver without provoking the flow that would trigger it. ' +
     'Returns the delivery, including outcome "unresolved" when nothing ' +
     'supplied a destination.',
@@ -78,7 +78,7 @@ const emitWebhook: McpTool = {
 const setSeed: McpTool = {
   name: 'set_seed',
   description:
-    'Reshuffle every generated value. The mock stays deterministic — the same ' +
+    'Reshuffle every generated value. The mock stays deterministic - the same ' +
     'seed always produces the same content.',
   inputSchema: { seed: z.string() },
   async handler(ctx: McpContext, args: Record<string, unknown>) {
@@ -107,7 +107,7 @@ const setOverride: McpTool = {
     'replaces it. Target is a control-plane string: "POST /orders", an ' +
     'operationId, or "* /**" for every operation. JSON data only. An ' +
     'object-shaped body against an operation that returns an array is a ' +
-    'silent no-op — use { "*": { ... } } to reach every element, or a ' +
+    'silent no-op - use { "*": { ... } } to reach every element, or a ' +
     'literal JSON array.',
   inputSchema: {
     target: z.string(),
@@ -246,6 +246,36 @@ const unregisterWebhookDestination: McpTool = {
   }
 }
 
+const regenerateFixture: McpTool = {
+  name: 'regenerate_fixture',
+  description:
+    'Re-run the configured content source for one operation, replacing its ' +
+    'stored fixtures. Use it after the document changes under a fixture - ' +
+    'call list_fixtures to see which are stale. Identify the operation by ' +
+    'operationId, or by method and path; add status to regenerate just one. ' +
+    'Requires an llm source. Returns the bake summary, not a bare ok: an ' +
+    'operation with no JSON body is reported as skipped rather than failed.',
+  inputSchema: {
+    operationId: z.string().optional(),
+    method: z.string().optional(),
+    path: z.string().optional().describe('Templated form, e.g. /orders/{orderId}'),
+    status: z.number().int().optional().describe('Omit for every declared status')
+  },
+  async handler(ctx: McpContext, args: Record<string, unknown>) {
+    // Passed straight through. There is deliberately no budget argument: a
+    // tool that can raise its own spending limit can spend without asking,
+    // so the mock's configured llm.budget is the only one that applies.
+    return ctx.bake({
+      only: {
+        operationId: args.operationId as string | undefined,
+        method: args.method as string | undefined,
+        path: args.path as string | undefined,
+        status: args.status as number | undefined
+      }
+    })
+  }
+}
+
 export const WRITE_TOOLS: McpTool[] = [
   failNext,
   outage,
@@ -258,5 +288,6 @@ export const WRITE_TOOLS: McpTool[] = [
   clearVariants,
   redeliverWebhook,
   registerWebhookDestination,
-  unregisterWebhookDestination
+  unregisterWebhookDestination,
+  regenerateFixture
 ]

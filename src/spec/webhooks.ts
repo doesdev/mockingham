@@ -6,7 +6,7 @@ import type { CallbackSpec, HttpMethod, WebhookSpec } from './types.ts'
  * 3.1's top-level `webhooks`: a map of name to path item. Each entry is ONE
  * outbound request. A path item declaring several methods is unusual; the
  * first in `HTTP_METHODS` order wins, so the choice is stable rather than
- * dependent on key order in the source document — invariant 2 forbids letting
+ * dependent on key order in the source document - invariant 2 forbids letting
  * an unordered iteration decide anything observable.
  */
 export function toWebhooks(raw: unknown): Record<string, WebhookSpec> {

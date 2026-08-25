@@ -55,7 +55,7 @@ const DEFAULT_CODE = 'MOCK_FAILURE_INJECTED'
 /**
  * The store-key convention, exported because the control plane in `index.ts`
  * WRITES the keys this module READS. Two independent spellings of the same
- * convention would drift silently — the control plane arming keys nothing reads,
+ * convention would drift silently - the control plane arming keys nothing reads,
  * with both test suites still green in isolation.
  */
 export function targetKey(operation: Operation): string {
@@ -81,7 +81,7 @@ function failure(
 /**
  * A fixed window from the first failure: arm the TTL on the first increment and
  * leave it alone afterward. `Store.incr` preserves an existing deadline and
- * cannot arm one, which is exactly right here — re-arming on every failure would
+ * cannot arm one, which is exactly right here - re-arming on every failure would
  * give a sliding window that never expires under sustained load.
  */
 async function bumpCircuit(store: Store, key: string, within: number): Promise<number> {
@@ -152,7 +152,7 @@ export async function checkFailure(input: FailureInput): Promise<FailureOutcome>
     const openKey = `circuit-open|${entry.id}|${key}`
     const countKey = `circuit-count|${entry.id}|${key}`
 
-    // 4. Circuit state, before rolling — an open circuit answers immediately.
+    // 4. Circuit state, before rolling - an open circuit answers immediately.
     if (policy.circuit) {
       const open = await input.store.get(openKey)
       if (open !== undefined) {

@@ -13,7 +13,7 @@ const operation: Operation = {
 
 /**
  * Compiles policies the way the handler does, but WITHOUT compilePolicies'
- * construction-time check that every target matches something — one test needs a
+ * construction-time check that every target matches something - one test needs a
  * policy that deliberately matches nothing, and compilePolicies throws on those.
  */
 function compile(policies: FailurePolicy[]) {
@@ -226,7 +226,7 @@ test('within defaults to openFor', async () => {
 test('two policies matching one operation keep separate circuits', async () => {
   const store = createMemoryStore()
   // NOTE the second target's spelling. A bare '*' has no space in it, so
-  // `compileTarget` reads it as an operationId and it matches NOTHING — which
+  // `compileTarget` reads it as an operationId and it matches NOTHING - which
   // would make the second assertion below pass for entirely the wrong reason.
   // '* /x' is the match-any-method form. See src/resolve/target.ts.
   const policies: FailurePolicy[] = [
@@ -237,7 +237,7 @@ test('two policies matching one operation keep separate circuits', async () => {
   await checkFailure(input({ policies, store, counter: () => 1 }).args)
 
   // Both policies match this operation, but the first one fired and returned,
-  // so only its counter moved — and it moved under its OWN key. Sharing one key
+  // so only its counter moved - and it moved under its OWN key. Sharing one key
   // per operation is the bug: the second policy's failures would land on the
   // first policy's counter and open a circuit neither policy asked for.
   assert.equal(await store.get('circuit-count|0|x'), 1)
@@ -260,7 +260,7 @@ test('one wildcard policy keeps separate circuits per operation', async () => {
   await checkFailure(input({ policies, store, operation: opB, counter: () => 2 }).args)
 
   // A single wildcard-target policy matches both operations, but each keeps its
-  // OWN counter — not one counter incremented twice. Sharing one counter per
+  // OWN counter - not one counter incremented twice. Sharing one counter per
   // policy (ignoring the operation) is the regression this test guards: it
   // would make ten unrelated endpoints trip one shared circuit together.
   assert.equal(await store.get('circuit-count|0|a'), 1)

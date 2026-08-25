@@ -79,3 +79,49 @@ test('responseForStatus falls back to default, restamped with the status', () =>
 test('responseForStatus returns undefined when neither exists', () => {
   assert.equal(responseForStatus(op([res(200)]), 401), undefined)
 })
+
+/** A range response - `status` is the bucket's lower bound, per load.ts. */
+function range(bound: number): ResponseSpec {
+  return { status: bound, range: true, headers: {}, content: {} }
+}
+
+test('an exact declared status beats a range containing it', () => {
+  const operation = op([res(400), range(400)])
+  const exact = responseForStatus(operation, 400)
+  assert.equal(exact?.range, undefined)
+  // ...and the range still serves the rest of its own bucket.
+  assert.equal(responseForStatus(operation, 401)?.range, true)
+})
+
+test('a range beats default, and default still serves outside every range', () => {
+  const operation = op([range(400)], res(0))
+  assert.equal(responseForStatus(operation, 404)?.range, true)
+  // 503 is outside the 4XX bucket, so `default` takes it, restamped.
+  const fallback = responseForStatus(operation, 503)
+  assert.equal(fallback?.range, undefined)
+  assert.equal(fallback?.status, 503)
+})
+
+test('a range serves the requested status, not its bound', () => {
+  // A 422 served from a 4XX contract is a 422 on the wire.
+  assert.equal(responseForStatus(op([range(400)]), 422)?.status, 422)
+})
+
+test('a range is never selected carrying its bound as a wire status', () => {
+  // Shipped behavior was status 4, which new Response rejects outright.
+  assert.equal(selectResponse(op([range(400)]), req(), undefined)?.spec.status, 400)
+  assert.equal(selectResponse(op([range(500)]), req(), undefined)?.spec.status, 500)
+})
+
+test('a 2XX range is a success declaration and is stamped 200', () => {
+  assert.equal(selectResponse(op([range(200)]), req(), undefined)?.spec.status, 200)
+})
+
+test('a 1XX range is never selected, because no status below 200 is servable', () => {
+  // Degrades to nothing selectable rather than throwing at `new Response`.
+  assert.equal(selectResponse(op([range(100)]), req(), undefined), undefined)
+})
+
+test('a 1XX range does not shadow a servable response', () => {
+  assert.equal(selectResponse(op([range(100), res(200)]), req(), undefined)?.spec.status, 200)
+})

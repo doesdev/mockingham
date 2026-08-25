@@ -22,7 +22,7 @@ export interface RenderInput {
   /**
    * A scoped fixture, applied BENEATH the user's layers. This is what makes
    * `override > fixture > example > generated` fall out of the existing
-   * override machinery instead of a bespoke merge — design section 3.
+   * override machinery instead of a bespoke merge - design section 3.
    */
   fixtureLayer?: OverrideNode
   headerOverrides: Record<string, OverrideNode>
@@ -72,7 +72,7 @@ export async function renderResponse(input: RenderInput): Promise<Response> {
   if (input.exampleName !== undefined) {
     body = input.example(chosen.status, input.exampleName)
   }
-  // The same call ctx.generate(status) makes, not a second copy — a response
+  // The same call ctx.generate(status) makes, not a second copy - a response
   // callback and the pipeline must never produce different bodies.
   if (body === undefined) body = input.generate(chosen.status)
 

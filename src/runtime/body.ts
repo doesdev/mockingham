@@ -20,7 +20,7 @@ export function baseMediaType(header: string | null): string | undefined {
  * Finds the media entry a request's content type should be validated against.
  *
  * `body.ts` parses any `+json` suffix type as JSON, so validation has to match
- * the same way — otherwise a parsed `application/vnd.api+json` body is silently
+ * the same way - otherwise a parsed `application/vnd.api+json` body is silently
  * never validated. An exact match always wins; a `+json` type falls back to the
  * plain JSON entry.
  */

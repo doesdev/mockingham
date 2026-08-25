@@ -108,6 +108,34 @@ test('incr preserves the deadline of a live entry', async () => {
   assert.equal(await store.get('n'), undefined)
 })
 
+test('setIfAbsent creates once and reports which call won', async () => {
+  const store = createMemoryStore(() => 0)
+  assert.equal(await store.setIfAbsent('k', 'first'), true)
+  assert.equal(await store.setIfAbsent('k', 'second'), false)
+  // The loser must not overwrite: a compare-and-set that clobbers is not one.
+  assert.equal(await store.get('k'), 'first')
+})
+
+test('setIfAbsent treats an expired entry as absent', async () => {
+  // Expiry is lazy, so this must go through the same liveness check `get`
+  // uses rather than a bare `has` - otherwise a dead entry blocks the claim
+  // forever and idempotency wedges permanently instead of for the TTL.
+  const time = clock()
+  const store = createMemoryStore(time.now)
+  assert.equal(await store.setIfAbsent('k', 'first', 1000), true)
+  time.advance(1001)
+  assert.equal(await store.setIfAbsent('k', 'second'), true)
+  assert.equal(await store.get('k'), 'second')
+})
+
+test('setIfAbsent honors a ttl on the entry it creates', async () => {
+  const time = clock()
+  const store = createMemoryStore(time.now)
+  await store.setIfAbsent('k', 'v', 1000)
+  time.advance(1001)
+  assert.equal(await store.get('k'), undefined)
+})
+
 test('incr on an expired entry produces one with no deadline', async () => {
   const time = clock()
   const store = createMemoryStore(time.now)

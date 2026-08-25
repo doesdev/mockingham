@@ -12,12 +12,12 @@ import type { Compiler } from './compile.ts'
  *
  * The `undefined` branch covers exactly one thing: `z.toJSONSchema` refusing a
  * compiled zod schema it cannot express, which callers treat as "nothing to
- * say" rather than fabricating a shape. Recursion is NOT such a case — zod
+ * say" rather than fabricating a shape. Recursion is NOT such a case - zod
  * emits `{"$ref":"#"}` and this returns it.
  *
  * `compile` is called OUTSIDE the try deliberately. A compiler throw means the
  * document itself is broken, not that a shape resists JSON Schema, and it must
- * propagate rather than be laundered into "nothing to say" — which is how this
+ * propagate rather than be laundered into "nothing to say" - which is how this
  * behaved at its original site in `fixtures/source.ts`.
  */
 export function toJsonSchema(
@@ -31,7 +31,7 @@ export function toJsonSchema(
 /**
  * The same conversion for a caller that already holds the compiled zod schema,
  * so `buildRequest` does not compile the same schema twice to get both halves.
- * Still one derivation — `toJsonSchema` is this function plus a compile.
+ * Still one derivation - `toJsonSchema` is this function plus a compile.
  */
 export function fromZod(compiled: ZodType): Record<string, unknown> | undefined {
   try {

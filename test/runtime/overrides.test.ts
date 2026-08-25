@@ -25,7 +25,7 @@ const operation = {
 
 test('the key is namespaced and built from the operation target key', () => {
   // The writing side and the reading side must never spell this
-  // independently — the reason failure.ts exports its key builders.
+  // independently - the reason failure.ts exports its key builders.
   assert.equal(overrideKey(targetKey(operation)), 'override|getPayment')
 })
 
@@ -36,7 +36,7 @@ test('a function anywhere in the value is rejected, naming its path', () => {
   )
 })
 
-test('a non-plain object is rejected — it would change type through a store', () => {
+test('a non-plain object is rejected - it would change type through a store', () => {
   assert.throws(
     () => assertSerializable({ 200: { body: { at: new Date(0) } } }),
     /value\.200\.body\.at/
@@ -85,7 +85,7 @@ test('"status" and a numeric status key are both accepted', () => {
 
 test('a misspelled key inside a status entry is rejected, naming it', () => {
   // overrideAsResolved only ever reads `.body` and `.headers` off a status
-  // entry — anything else can never be read back and would silently do
+  // entry - anything else can never be read back and would silently do
   // nothing.
   assert.throws(
     () => assertValidOverrideKeys(
@@ -144,7 +144,7 @@ test('readOverride reads back what was written under the namespaced key', async 
 })
 
 test('readOverride treats a non-object stored value as no override rather than crashing', async () => {
-  // Unreachable through `override()` — the door checks above already refuse
+  // Unreachable through `override()` - the door checks above already refuse
   // this. Reachable through a shared external Store, which the design
   // explicitly advertises as a feature: another process, or an older
   // version, writing a different shape.

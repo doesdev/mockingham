@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded run on the same ref has nothing left to tell anyone.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      # One Node version failing should not hide the result on the other.
+      fail-fast: false
+      matrix:
+        # 24.x is the floor `engines` declares. `lts/*` tracks whatever the
+        # current LTS becomes, so this starts covering the next line the day
+        # it ships rather than the day someone remembers to add it.
+        node-version: ['24.x', 'lts/*']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # `ci` rather than `install`: it fails when the lockfile disagrees with
+      # package.json instead of quietly rewriting it, which is the whole point
+      # of running this on a clean machine.
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+  package:
+    name: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          cache: npm
+
+      - run: npm ci
+
+      # The `exports` map and `files` field are easy to get right once and
+      # break silently later - a stray include ships someone's scratch file,
+      # and a wrong `exports` breaks every consumer's import while every test
+      # here keeps passing on relative paths.
+      - name: Published tarball carries src and nothing else
+        run: npm run check:package
+
+  # Not required to pass. Native type stripping is a Node feature this package
+  # is built directly on, so a break in an unreleased line is worth seeing
+  # early - and is not a reason to block a pull request that did nothing wrong.
+  future-node:
+    name: node current (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'current'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test

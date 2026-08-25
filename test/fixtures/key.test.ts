@@ -10,7 +10,7 @@ test('the key is eight lowercase hex characters', () => {
 })
 
 test('the key is a pure function of its input', () => {
-  // The key input has no seed field at all — this is the amendment in design
+  // The key input has no seed field at all - this is the amendment in design
   // section 2.1. A varied run must still read baked fixtures.
   assert.equal(fixtureKey(base), fixtureKey({ ...base }))
 })

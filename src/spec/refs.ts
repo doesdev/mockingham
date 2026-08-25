@@ -51,13 +51,13 @@ export function resolveDocument(
     if (typeof ref === 'string') {
       const target = lookup(ref)
       // A target already in byNode is a real schema, mid-construction. Return
-      // its live object so the cycle forms — however many alias hops away it is.
+      // its live object so the cycle forms - however many alias hops away it is.
       // This check must precede the `resolving` guard, or an alias chain like
       // `A -> B` where B recurses back through A is rejected as circular.
       if (byNode.has(target)) return byNode.get(target)
       if (resolving.has(ref)) {
         throw new Error(
-          `mockingham: circular $ref chain at "${ref}" — a reference resolves ` +
+          `mockingham: circular $ref chain at "${ref}" - a reference resolves ` +
             'only to further references, with no schema between them.'
         )
       }

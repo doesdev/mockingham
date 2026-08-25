@@ -1,4 +1,4 @@
-# mockingham — MCP server (phase 10) design delta
+# mockingham - MCP server (phase 10) design delta
 
 **Status:** approved 2026-08-13
 **Amends:** `2026-08-11-mockingham-design.md` §15 (MCP server), §17 (testing),
@@ -7,7 +7,7 @@
 
 This is a delta. The master spec is the contract; where this document
 contradicts it, this document wins for phase 10 and the reason is stated. Read
-master §15 first — it is short, and everything here argues against it.
+master §15 first - it is short, and everything here argues against it.
 
 ---
 
@@ -15,9 +15,9 @@ master §15 first — it is short, and everything here argues against it.
 
 Twelve of §15's fourteen tools, both transports.
 
-**In:** all seven read tools — `list_operations`, `describe_operation`,
+**In:** all seven read tools - `list_operations`, `describe_operation`,
 `search_operations`, `sample_response`, `get_auth_requirements`,
-`list_webhooks`, `list_deliveries` — and five write tools: `fail_next`,
+`list_webhooks`, `list_deliveries` - and five write tools: `fail_next`,
 `outage`, `emit_webhook`, `set_seed`, `reset`.
 
 **Out, deferred to a plan of its own:** `set_override`, `clear_overrides`,
@@ -29,8 +29,8 @@ already exists and is already tested. The three deferred ones require new core
 behavior:
 
 - **`set_override` / `clear_overrides`.** Overrides are compiled once at
-  construction — `compileConfigs(options.operations, api.operations)` in
-  `server/handler.ts` — and there is no runtime mutation path. Master §1's
+  construction - `compileConfigs(options.operations, api.operations)` in
+  `server/handler.ts` - and there is no runtime mutation path. Master §1's
   instance surface lists an `override(target, value)` method that has never
   existed at any point in the project. Adding it lands a precedence question
   (runtime override vs. config override vs. fixture vs. spec example) in
@@ -46,8 +46,8 @@ inside work that has none. They get their own delta.
 **Amendment 1.1.** Master §15 presents all fourteen tools as one deliverable.
 Phase 10 ships twelve. `set_override`, `clear_overrides`, and
 `regenerate_fixture` move to a later phase alongside the runtime-override
-machinery they need. Master §18 already anticipates a split — "read tools
-depend only on phases 1–3 … write tools need phases 6 and 8" — this draws the
+machinery they need. Master §18 already anticipates a split - "read tools
+depend only on phases 1–3 … write tools need phases 6 and 8" - this draws the
 line one notch differently, at *what exists* rather than at read-vs-write.
 
 ---
@@ -74,7 +74,7 @@ explains why it no longer exists: the SDK supplies a `Request`-in/`Response`-out
 transport, and what remains is a few lines inside `server.ts`.
 
 `server.ts` is the only file that touches the SDK, and it imports it lazily
-inside the function that starts a server — the same pattern
+inside the function that starts a server - the same pattern
 `fixtures/config.ts` uses for `@anthropic-ai/sdk`. It is Node-adjacent and is
 never imported by `server/handler.ts`.
 
@@ -100,7 +100,7 @@ export interface McpContext {
   deliveries(): Delivery[]
   /**
    * Which operations are configured to emit which webhook. Derived at
-   * construction from the compiled operation configs — see §3.6.
+   * construction from the compiled operation configs - see §3.6.
    */
   emitters: Map<string, string[]>
   /** Origin for the synthetic Requests `sample_response` builds. */
@@ -175,14 +175,14 @@ Two consequences, both wanted:
   itself. This also keeps fixture keys stable across reseeds, since
   `fixtureKey` includes params.
 
-`status` is requested by setting `Prefer: status=N` on the synthetic request —
+`status` is requested by setting `Prefer: status=N` on the synthetic request -
 the mechanism master §2 already gives real clients. No new status-selection
 path is introduced.
 
 ### 3.3 The no-drift guarantee becomes structural (Amendment 3.3)
 
 Master §17 says `sample_response` "is asserted to equal what `mock.fetch()`
-returns for the same operation — the two must never drift," framing it as a
+returns for the same operation - the two must never drift," framing it as a
 test obligation.
 
 **Amendment.** `sample_response` *is* `mock.fetch()`. It builds a `Request`
@@ -190,8 +190,8 @@ from its arguments, calls `context.fetch(request)`, and reports the status,
 headers, and body it got back. There is no second generation path to drift
 from the first.
 
-The §17 test still gets written — it is the test that proves the tool builds
-the request it claims to build — but it now guards argument marshalling rather
+The §17 test still gets written - it is the test that proves the tool builds
+the request it claims to build - but it now guards argument marshalling rather
 than guarding against two implementations diverging. That is the difference
 between a test that catches a bug and a test that would have caught a whole
 bug class we chose not to create. Invariant 1's reasoning, applied to a second
@@ -224,7 +224,7 @@ handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response>
 
 That is exactly our surface. Writing our own transport would have been forty
 lines of owned code duplicating a supported one, and would have skipped
-protocol-version validation, session termination, and SSE — the parts hardest
+protocol-version validation, session termination, and SSE - the parts hardest
 to get right and least interesting to own.
 
 **Amendment.** Use the SDK transport, in **stateless mode with a fresh
@@ -240,8 +240,8 @@ return transport.handleRequest(request)
 ```
 
 Per-request construction is not a workaround; the SDK requires it. In stateless
-mode `handleRequest` throws on a second call — *"Stateless transport cannot be
-reused across requests"* — because reuse causes message-id collisions between
+mode `handleRequest` throws on a second call - *"Stateless transport cannot be
+reused across requests"* - because reuse causes message-id collisions between
 clients. The alternative is stateful mode with a `sessionIdGenerator`, which
 buys shared state we have no use for and costs every client an
 `Mcp-Session-Id` round trip.
@@ -257,7 +257,7 @@ Two behaviors were verified empirically against SDK 1.30.0 rather than assumed:
   **without a prior `initialize`**, returning `200` and
   `content-type: application/json`. An agent can therefore call a tool with one
   `curl` and no handshake, which for this audience is the whole point.
-- A handled request leaves **no dangling timers** — the keep-alive interval is
+- A handled request leaves **no dangling timers** - the keep-alive interval is
   armed for SSE streams only, and `enableJsonResponse` takes a different path.
   This matters more than it looks: a per-request timer would hang `node --test`
   at the end of every run.
@@ -293,11 +293,11 @@ const fetchWithMcp = async (request: Request): Promise<Response> => {
 
 ```ts
 interface McpOptions {
-  /** Default: 'inline' — a server with no transport attached. */
+  /** Default: 'inline' - a server with no transport attached. */
   transport?: 'http' | 'stdio' | 'inline'
   /** http only. Default: '/mcp'. */
   path?: string
-  /** Expose the five write tools. Default: false — see §3.7. */
+  /** Expose the five write tools. Default: false - see §3.7. */
   write?: boolean
 }
 
@@ -323,7 +323,7 @@ Order stops mattering, `mock.fetch()` serves `/mcp` in-process, and the
 transport is testable without binding a port.
 
 `Mock` gains `mcp(opts?: McpOptions): McpServer`, which master §1 already
-declares. Unlike `bake()`, it is synchronous — the lazy SDK import happens
+declares. Unlike `bake()`, it is synchronous - the lazy SDK import happens
 inside it and is awaited by `connectStdio()` and by the first HTTP request, so
 constructing a handle never blocks.
 
@@ -334,7 +334,7 @@ payload schemas and which operations emit them."
 
 Half of that is derivable and half is not. A **callback** is declared inside an
 operation, so `api.operations[].callbacks` gives the mapping directly. A
-top-level **webhook** (`Api.webhooks`) carries no declared emitter at all — in
+top-level **webhook** (`Api.webhooks`) carries no declared emitter at all - in
 OpenAPI 3.1 it is a standalone outbound description. What actually links it to
 an operation is mockingham's own `operations['POST /orders'].emits` config,
 which `createHandler` compiles and does not expose.
@@ -355,7 +355,7 @@ each operation against the compiled configs and collecting
 }
 ```
 
-`emittedBy: []` is an honest and useful answer — it means the document declares
+`emittedBy: []` is an honest and useful answer - it means the document declares
 the webhook but nothing is configured to fire it, which is exactly the
 misconfiguration an agent testing its receiver needs to know about.
 
@@ -364,7 +364,7 @@ misconfiguration an agent testing its receiver needs to know about.
 Master §15 presents the write tools as unconditionally available.
 
 Over HTTP they are mounted on the same port as the mock, so anything that can
-reach the mock can also drive its failure modes, reseed it, or reset it — in a
+reach the mock can also drive its failure modes, reseed it, or reset it - in a
 shared development environment, that includes people who did not know the
 control plane was there. Over stdio the risk argument is weaker, but a uniform
 rule is one rule to remember instead of two, and the flag is one word.
@@ -382,7 +382,7 @@ mockingham mcp ./openapi.json --write
 `write` defaults to `false`. With it off, `mcpTools()` omits the five write
 tools **and** `tools/call` on one of them returns a tool error naming the flag
 that would enable it. Both halves matter: a gate that only hides the tools is
-not a gate — an agent can still call one by name, and a bare "tool not found"
+not a gate - an agent can still call one by name, and a bare "tool not found"
 reads like the feature does not exist.
 
 **Correction, made during implementation.** An earlier draft of this section
@@ -391,8 +391,8 @@ is achievable, but not together with a refusal that **names the flag**, and the
 implementation is right where the draft was wrong. `registerTool` sets
 `enabled: true` and `tools/list` filters on that flag, so a listed tool is a
 registered, enabled one. Calling `.disable()` would hide a tool and still
-refuse a call on it — the SDK's `server/mcp.js` distinguishes "Tool X not
-found" from "Tool X disabled" — but that refusal is the SDK's own text and
+refuse a call on it - the SDK's `server/mcp.js` distinguishes "Tool X not
+found" from "Tool X disabled" - but that refusal is the SDK's own text and
 cannot say `--write`. So the choice is between hiding the tool and telling the
 caller how to turn it on. The implementation takes the second: over the wire
 the five names **do** appear when the gate is closed, each carrying a
@@ -408,7 +408,7 @@ plane is public knowledge anyway.
 
 Nothing prevents an OpenAPI document from declaring `/mcp`.
 
-**Amendment.** The mount wins — the dispatcher checks it before
+**Amendment.** The mount wins - the dispatcher checks it before
 `handler.fetch`. When `mcp()` mounts a path that an operation in the document
 also matches, a warning naming both goes to `onWarn` at mount time. Silent
 shadowing is the failure mode that costs an afternoon of debugging a 404 that
@@ -421,15 +421,15 @@ Master §1 shows `deliveries(filter?: DeliveryFilter)`; the implemented
 defined.
 
 **Amendment.** `list_deliveries` filters in the tool layer over the array
-`deliveries()` returns — by `webhook` name and by `outcome`, both optional.
+`deliveries()` returns - by `webhook` name and by `outcome`, both optional.
 The core surface is not widened. Defining `DeliveryFilter` on `Mock` is a
 change to a shipped API for one caller's benefit, and the filtering is four
 lines wherever it lives.
 
 ### 3.10 Neither optional peer dependency is declared (Amendment 3.10)
 
-`package.json` has no `peerDependencies` block. `@anthropic-ai/sdk` — which
-plan 7 shipped as an optional peer dependency per master §14 — is declared
+`package.json` has no `peerDependencies` block. `@anthropic-ai/sdk` - which
+plan 7 shipped as an optional peer dependency per master §14 - is declared
 nowhere, and `@modelcontextprotocol/sdk` would have joined it.
 
 **Amendment.** Add both:
@@ -466,7 +466,7 @@ the version every empirical claim in §3.4 was verified against.
 
 Since §3.4 stopped owning a transport, this is no longer really a choice.
 The mount *calls* the SDK, so without it installed there is no HTTP transport
-to test at all — not a weaker test, none. The only remaining question is the
+to test at all - not a weaker test, none. The only remaining question is the
 stdio round trip, and the same answer applies: plan 7 could stub the Anthropic
 source because what was under test was our prompt construction and our response
 parsing, both of which a stub exercises fully. Here what is under test is
@@ -489,12 +489,12 @@ did for `zod`.
 | `search_operations` | `query`, `limit?` | matches over path, summary, description, tags, ranked |
 | `sample_response` | see §3.2 | see §3.3 |
 | `get_auth_requirements` | `operationId?` | security schemes; per-operation requirements when an operation is named, the whole document's otherwise |
-| `list_webhooks` | — | see §3.6 |
+| `list_webhooks` | - | see §3.6 |
 | `list_deliveries` | `webhook?`, `outcome?` | see §3.9 |
 
 Schemas are emitted as JSON Schema through the same conversion
 `fixtures/source.ts` uses (`buildRequest`'s JSON Schema path), not as raw
-resolved `Schema` objects — those contain cycles and would not serialize.
+resolved `Schema` objects - those contain cycles and would not serialize.
 Reusing that converter rather than writing a second one is invariant 1's
 reasoning applied here: two schema-to-JSON-Schema paths would diverge.
 
@@ -510,16 +510,16 @@ omitted, so an agent is told the shape exists and why it is not shown.
 | `outage` | `target`, `forMs?`, `status?` | `mock.outage` |
 | `emit_webhook` | `webhook`, `to?`, `body?` | `mock.emit`; returns the `Delivery` |
 | `set_seed` | `seed` | `mock.setSeed` |
-| `reset` | — | `mock.reset` |
+| `reset` | - | `mock.reset` |
 
-`target` strings are the existing control-plane targets from master §4 —
+`target` strings are the existing control-plane targets from master §4 -
 `"POST /orders"`, `"*"`, an `operationId`. `resolveTarget` already throws on a
 typo, and that throw becomes a tool error rather than a crash: an agent typing
 a target wrong must be told, not disconnected.
 
 `emit_webhook` returns the `Delivery` including `outcome: 'unresolved'` when
 nothing resolved a destination. Per invariant 6 that is not an error, and the
-tool must not turn it into one — an agent that gets a tool error for an
+tool must not turn it into one - an agent that gets a tool error for an
 unresolved emit will conclude its receiver is broken when the mock simply had
 no URL to send to.
 
@@ -536,7 +536,7 @@ same shape: a `MCP_USAGE` string, a `parseMcpArgs`, and a `startMcp(argv, deps)`
 that returns a handle for testing.
 
 `startMcp` builds a `Mock` via `createMock`, not a bare `Handler` the way
-`startCli` does — the write tools need `failNext`, `outage`, and `emit`, which
+`startCli` does - the write tools need `failNext`, `outage`, and `emit`, which
 are `Mock`-level. It then calls `mcp({ write }).connectStdio()`.
 
 Nothing is logged to stdout: stdout is the JSON-RPC channel over stdio, and a
@@ -553,15 +553,15 @@ Per master §17, plus what plan 7 taught.
 - **Per-tool unit tests** calling handlers directly against a real
   `createMock`-backed `McpContext`. No SDK involved. This is the bulk.
 - **`sample_response` equals `mock.fetch()`** for the same operation, asserted
-  byte-for-byte on the body — §17's requirement, now guarding argument
+  byte-for-byte on the body - §17's requirement, now guarding argument
   marshalling (§3.3).
 - **The mount driven through `mock.fetch()`** with real JSON-RPC frames:
   `tools/list` and `tools/call` as separate `Request`s against the same mount,
-  each asserted to succeed **without a preceding `initialize`** — that is the
+  each asserted to succeed **without a preceding `initialize`** - that is the
   stateless property §3.4 depends on, and the one that would break silently if
   someone later switched the transport to stateful mode. Plus one `initialize`
   frame asserted to return a protocol version, since a client that does
-  handshake must still work. **This test gets built early, not last** — see
+  handshake must still work. **This test gets built early, not last** - see
   below.
 - **No dangling handles.** The suite itself is the assertion: if a per-request
   transport ever armed a timer, `node --test` would stop exiting. Worth naming
@@ -577,9 +577,9 @@ Per master §17, plus what plan 7 taught.
   bytes, and synthesized path parameters are unchanged by `set_seed` while the
   response body changes.
 
-**The end-to-end test is scheduled early.** Plan 7's two worst defects — bake
+**The end-to-end test is scheduled early.** Plan 7's two worst defects - bake
 keying fixtures with empty path params while requests keyed with resolved ones,
-and a staleness check comparing against a hash bake never wrote — were both
+and a staleness check comparing against a hash bake never wrote - were both
 seams where each side was individually correct and disagreed with the other.
 Nine tasks of per-task unit review saw neither. Both surfaced the moment an
 implementer built a test through the public surface. Phase 10 has exactly that
@@ -596,8 +596,8 @@ lands as soon as one read tool and the transport exist.
   needs the transport extended.
 - **No MCP sessions over HTTP.** The transport runs stateless (§3.4), so
   `Mcp-Session-Id` is neither issued nor honored and nothing carries between
-  requests at the protocol layer. The *mock's* runtime state is still shared —
-  two agents pointed at one mock both see the effect of a `set_seed` — which is
+  requests at the protocol layer. The *mock's* runtime state is still shared -
+  two agents pointed at one mock both see the effect of a `set_seed` - which is
   the point of a shared mock, but is worth stating because "stateless" describes
   the transport, not the thing it controls.
 - **Resumability and `Last-Event-ID` are unavailable.** They require an
@@ -605,7 +605,7 @@ lands as soon as one read tool and the transport exist.
 - **`sample_response` does not bypass auth, and will 401 without credentials.**
   Because the tool *is* `mock.fetch` (§3.3), a request to an operation the
   document protects returns 401 unless the caller passes credentials in
-  `headers` — auth is pipeline stage 3, ahead of everything interesting. This is
+  `headers` - auth is pipeline stage 3, ahead of everything interesting. This is
   honest, since it is exactly what the agent's own client will get, and
   `get_auth_requirements` says what is needed. An auth shortcut inside the tool
   would reintroduce the second code path §3.3 exists to prevent, so it will not
@@ -615,7 +615,7 @@ lands as soon as one read tool and the transport exist.
   binary bodies, no cookie parameters. JSON, form-encoded, and text bodies
   only, matching what master §2's body parsing supports.
 - **The synthesized path parameter may not exist.** `GET /pets/42` returns a
-  generated pet whether or not anything "created" 42 — the mock has no
+  generated pet whether or not anything "created" 42 - the mock has no
   identity model. This is inherent to the mock, not to the tool, but an agent
   reading a sample response should not infer that the resource is persistent.
 - **`describe_operation` shows declared examples, not fixtures.** A fixture

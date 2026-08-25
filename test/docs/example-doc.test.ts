@@ -42,7 +42,7 @@ test('a top-level webhook is declared for the failure path', () => {
   // api.webhooks too (a top-level entry wins on name collision), "so emit()
   // has one place to look rather than two" (see load.ts around the webhooks
   // merge loop). So api.webhooks holds both the top-level paymentFailed
-  // webhook and the paymentSucceeded callback contributed by createPayment —
+  // webhook and the paymentSucceeded callback contributed by createPayment -
   // it is not top-level-only.
   assert.deepEqual(Object.keys(api.webhooks).sort(), [
     'paymentFailed',

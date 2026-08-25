@@ -16,7 +16,7 @@ adapter and everything else to the existing handler.
 `node:test`, `zod` 4, `@modelcontextprotocol/sdk` 1.30.0 (optional peer
 dependency, dev dependency for tests).
 
-**Spec:** `docs/superpowers/specs/2026-08-13-mockingham-mcp-design.md` — read
+**Spec:** `docs/superpowers/specs/2026-08-13-mockingham-mcp-design.md` - read
 it. It is the authority; this plan argues from it. Where a task and the spec
 disagree, the spec wins and the disagreement is a defect in this plan.
 
@@ -31,7 +31,7 @@ Every task's requirements implicitly include all of these.
    `src/server/handler.ts` must not import anything from `src/mcp/`.
    Verify with: `grep -rn "node:\|modelcontextprotocol" src/mcp/context.ts src/mcp/tools/`
 3. **`zod` is the only hard runtime dependency.** The SDK is imported lazily,
-   with `await import(...)`, inside the function that needs it — never at module
+   with `await import(...)`, inside the function that needs it - never at module
    top level.
 4. **Determinism.** No `Math.random()`, no `Date.now()`, no iteration over an
    unordered `Set` or object in anything that reaches output. Randomness comes
@@ -39,7 +39,7 @@ Every task's requirements implicitly include all of these.
 5. **A fixture or LLM miss is never an error** (invariant 4). **Errors stay
    on-contract** (invariant 5). **Emission never affects the response**
    (invariant 6). Nothing in this plan may weaken these.
-6. **US English spelling** everywhere — identifiers, test names, comments,
+6. **US English spelling** everywhere - identifiers, test names, comments,
    docs. `honor`, `behavior`, `serialize`, `normalize`, `canceled`.
 7. **Tests live in `test/` mirroring `src/`**, written in TypeScript, run by
    `node:test`. Write the test first, watch it fail, then implement.
@@ -56,7 +56,7 @@ This project's recurring defect is a test that cannot fail. Every task below
 names a **mutation**: a specific edit to production code that must break the
 test you just wrote.
 
-**The prescribed mutation may itself be wrong or stale — validate it.** Apply
+**The prescribed mutation may itself be wrong or stale - validate it.** Apply
 it, run the test, and confirm it fails for the reason stated. If the test still
 passes, the test is vacuous: fix the test, not the mutation. Then revert the
 mutation and confirm green. On the last plan this caught eight vacuous or
@@ -78,12 +78,12 @@ npx tsc --noEmit              # typecheck
 
 | File | Responsibility |
 |---|---|
-| `src/mcp/context.ts` | `McpContext`, `McpTool`, `computeEmitters` — the pure contract tools are written against |
+| `src/mcp/context.ts` | `McpContext`, `McpTool`, `computeEmitters` - the pure contract tools are written against |
 | `src/mcp/tools/read.ts` | the seven read tools |
 | `src/mcp/tools/write.ts` | the five write tools |
 | `src/mcp/tools/index.ts` | assembles the tool list, applies the write gate |
 | `src/mcp/server.ts` | lazy SDK import, tool registration, per-request transport, stdio |
-| `src/schema/json-schema.ts` | `toJsonSchema(schema, compiler)` — the single Schema→JSON Schema derivation |
+| `src/schema/json-schema.ts` | `toJsonSchema(schema, compiler)` - the single Schema→JSON Schema derivation |
 | `test/mcp/doc.ts` | the test document: tags, security, a callback, a webhook |
 | `test/mcp/*.test.ts` | one file per task |
 
@@ -93,7 +93,7 @@ npx tsc --noEmit              # typecheck
 ### Task order, and why task 3 is where it is
 
 Task 3 mounts the server and gets one tool answering a real JSON-RPC request
-through `mock.fetch()` — before nine of the twelve tools exist. That is
+through `mock.fetch()` - before nine of the twelve tools exist. That is
 deliberate. Plan 7's two worst defects were seams where each side was
 individually correct and disagreed with the other, and nine tasks of per-task
 review saw neither; both surfaced the moment someone tested through the public
@@ -113,7 +113,7 @@ one.
 - Test: `test/spec/load.test.ts` (append)
 
 **Interfaces:**
-- Produces: `Operation.tags: string[]` — always present, `[]` when the document
+- Produces: `Operation.tags: string[]` - always present, `[]` when the document
   declares none. Every later task reads it.
 
 - [ ] **Step 1: Write the failing test**
@@ -153,7 +153,7 @@ test('drops non-string tags rather than coercing them', () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/spec/load.test.ts`
-Expected: FAIL — `tags` is `undefined`, so `deepEqual` reports
+Expected: FAIL - `tags` is `undefined`, so `deepEqual` reports
 `undefined !== ['pets','admin']`.
 
 - [ ] **Step 3: Add the field to the type**
@@ -171,7 +171,7 @@ In `src/spec/load.ts`, inside the `operations.push({...})` object literal, after
 the `description` line:
 
 ```ts
-        // Non-strings are dropped rather than coerced — same treatment every
+        // Non-strings are dropped rather than coerced - same treatment every
         // other array in this loader gives a malformed entry. A tag is a
         // filter key; a coerced "7" would match nothing and look like a bug.
         tags: Array.isArray(op['tags'])
@@ -186,9 +186,9 @@ Expected: PASS.
 
 - [ ] **Step 6: Verify the mutation**
 
-Change the `tags:` line to `tags: [],` unconditionally. Re-run — the first test
+Change the `tags:` line to `tags: [],` unconditionally. Re-run - the first test
 must fail on `['pets','admin']`. Then change it to the `Array.isArray(...)`
-form without the `.filter(...)` — the second test must fail with `7` present.
+form without the `.filter(...)` - the second test must fail with `7` present.
 Revert both.
 
 - [ ] **Step 7: Typecheck and run the whole suite**
@@ -196,7 +196,7 @@ Revert both.
 Run: `npx tsc --noEmit`
 Run: `npm test`
 Expected: both clean. `tags` is required, so any other place constructing an
-`Operation` literal will fail to typecheck — fix those by adding `tags: []`.
+`Operation` literal will fail to typecheck - fix those by adding `tags: []`.
 
 - [ ] **Step 8: Commit**
 
@@ -406,7 +406,7 @@ import { mcpDoc } from './doc.ts'
 
 /**
  * Builds the same McpContext `createMock` builds, from an existing Mock.
- * These two constructions MUST stay in step — see self-review note 1 at the
+ * These two constructions MUST stay in step - see self-review note 1 at the
  * end of the plan. If you were able to have createMock export the context it
  * builds, delete this body and call that instead.
  */
@@ -445,7 +445,7 @@ export function toolNamed(name: string, options: McpToolOptions = {}): McpTool {
 `contextForMock` takes the same `options` the `Mock` was built with, because
 `emitters` is derived from `options.operations` and there is no way to recover
 it from a constructed `Mock`. Callers that pass `operations` config must pass
-it here too — Task 6's configured-emitters test depends on that.
+it here too - Task 6's configured-emitters test depends on that.
 
 - [ ] **Step 3: Write the failing test**
 
@@ -499,7 +499,7 @@ test('list_operations applies tag and prefix together', async () => {
 - [ ] **Step 4: Run it and watch it fail**
 
 Run: `node --test test/mcp/tools-read.test.ts`
-Expected: FAIL — `Cannot find module '../../src/mcp/tools/index.ts'`.
+Expected: FAIL - `Cannot find module '../../src/mcp/tools/index.ts'`.
 
 - [ ] **Step 5: Write `src/mcp/context.ts`**
 
@@ -524,7 +524,7 @@ export interface McpOutageOptions {
  * What a tool is allowed to reach. Deliberately narrower than `Mock`: a tool
  * that can reach `close()` is a tool that can be made to close the mock, and a
  * narrow interface is one a test can build by hand. Options types are declared
- * here rather than imported from `../index.ts` — that module imports this one.
+ * here rather than imported from `../index.ts` - that module imports this one.
  */
 export interface McpContext {
   api: Api
@@ -548,14 +548,14 @@ export interface McpContext {
 export interface McpTool {
   name: string
   description: string
-  /** A zod raw shape — the SDK's `registerTool` takes exactly this. */
+  /** A zod raw shape - the SDK's `registerTool` takes exactly this. */
   inputSchema: Record<string, ZodType>
   handler(ctx: McpContext, args: Record<string, unknown>): Promise<unknown> | unknown
 }
 
 /**
  * Which operations are configured to emit which webhook (design §3.6). A
- * top-level `webhooks` entry carries no declared emitter — the linkage lives
+ * top-level `webhooks` entry carries no declared emitter - the linkage lives
  * in mockingham's own operation config, which is why this is computed from the
  * compiled configs rather than from the document.
  */
@@ -623,13 +623,13 @@ import type { McpTool } from '../context.ts'
 import { READ_TOOLS } from './read.ts'
 
 export interface McpToolOptions {
-  /** Expose the write tools. Default false — design §3.7. */
+  /** Expose the write tools. Default false - design §3.7. */
   write?: boolean
 }
 
 /**
  * The tool list for one server. The write gate lives here so that both halves
- * of it — what `tools/list` advertises and what `tools/call` will accept — come
+ * of it - what `tools/list` advertises and what `tools/call` will accept - come
  * from one decision. A gate that only hid the tools from the listing would not
  * be a gate.
  */
@@ -646,9 +646,9 @@ Expected: PASS, 4 tests.
 
 - [ ] **Step 9: Verify the mutation**
 
-In `read.ts`, delete the `pathPrefix` filter line. Re-run — the prefix test and
+In `read.ts`, delete the `pathPrefix` filter line. Re-run - the prefix test and
 the combined test must both fail. Then restore it and change
-`operation.tags.includes(tag)` to `true` — the tag test and combined test must
+`operation.tags.includes(tag)` to `true` - the tag test and combined test must
 fail. Revert both.
 
 - [ ] **Step 10: Verify purity**
@@ -668,7 +668,7 @@ git commit -m 'feat: MCP tool contract and list_operations' -m 'The pure half: M
 
 ---
 
-## Task 3: Mount it — `server.ts`, `Mock.mcp()`, and the end-to-end test
+## Task 3: Mount it - `server.ts`, `Mock.mcp()`, and the end-to-end test
 
 The seam task. After this, a real JSON-RPC request reaches a real tool through
 `mock.fetch()`.
@@ -685,7 +685,7 @@ The seam task. After this, a real JSON-RPC request reaches a real tool through
   `Mock.mcp(options): McpServerHandle`. Task 7 passes `write` through; Task 8
   calls `connectStdio()`.
 
-**Facts verified against SDK 1.30.0 — do not re-litigate these, but do re-run
+**Facts verified against SDK 1.30.0 - do not re-litigate these, but do re-run
 the probe if you suspect a version difference:**
 
 - `WebStandardStreamableHTTPServerTransport.handleRequest(req: Request): Promise<Response>`
@@ -700,7 +700,7 @@ the probe if you suspect a version difference:**
   not truncate it.
 - A tool callback that throws is already converted by the SDK into
   `{ isError: true, content: [{ type: 'text', text: <message> }] }`. **Do not
-  add your own try/catch around the handler** — it would duplicate this and
+  add your own try/catch around the handler** - it would duplicate this and
   swallow the distinction.
 
 - [ ] **Step 1: Add the dependencies to `package.json`**
@@ -719,7 +719,7 @@ Add, as siblings of `dependencies`:
 ```
 
 `@modelcontextprotocol/sdk` is already in `devDependencies` at `^1.30.0`. Do
-not remove it — the tests need it (design §4). This also closes plan 7's gap:
+not remove it - the tests need it (design §4). This also closes plan 7's gap:
 `@anthropic-ai/sdk` was documented as an optional peer dependency and declared
 nowhere.
 
@@ -780,7 +780,7 @@ test('tools/call runs the real tool against the real document', async () => {
   assert.deepEqual(operations.map((entry) => entry.operationId), ['health'])
 })
 
-test('each request is independent — a second call succeeds', async () => {
+test('each request is independent - a second call succeeds', async () => {
   // The stateless transport throws if reused, so this fails loudly the moment
   // someone caches the server or transport across requests. Design §3.4.
   const mock = createMock(mcpDoc)
@@ -867,7 +867,7 @@ test('a document operation at the mount path is shadowed, with a warning', async
 - [ ] **Step 3: Run it and watch it fail**
 
 Run: `node --test test/mcp/mount.test.ts`
-Expected: FAIL — `mock.mcp is not a function`.
+Expected: FAIL - `mock.mcp is not a function`.
 
 - [ ] **Step 4: Write `src/mcp/server.ts`**
 
@@ -883,7 +883,7 @@ export interface McpOptions {
   transport?: 'http' | 'stdio' | 'inline'
   /** http only. Default `/mcp`. */
   path?: string
-  /** Expose the five write tools. Default false — design §3.7. */
+  /** Expose the five write tools. Default false - design §3.7. */
   write?: boolean
 }
 
@@ -893,7 +893,7 @@ export interface McpServerHandle {
   /** Serves over stdio. Node-only. */
   connectStdio(): Promise<void>
   close(): Promise<void>
-  /** Handles one HTTP request. Fresh server and transport per call — see below. */
+  /** Handles one HTTP request. Fresh server and transport per call - see below. */
   handleRequest(request: Request): Promise<Response>
 }
 
@@ -904,7 +904,7 @@ const MISSING_SDK =
 
 /**
  * Lazily imported so the package keeps zod as its only hard runtime
- * dependency. Only a genuinely absent module becomes the friendly message — an
+ * dependency. Only a genuinely absent module becomes the friendly message - an
  * error thrown from inside the SDK propagates as itself, because reporting a
  * broken install as a missing one sends the reader to the wrong problem.
  */
@@ -980,7 +980,7 @@ export function createMcpServer(
       // A fresh server and transport per request. This is required, not
       // defensive: a stateless transport throws on its second handleRequest,
       // because reuse collides message ids between clients. Our tools hold no
-      // state — everything they touch lives on the Mock — so there is nothing
+      // state - everything they touch lives on the Mock - so there is nothing
       // a session would remember. Registering twelve tools costs microseconds.
       const transport = new sdk.WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
@@ -1115,7 +1115,7 @@ duplicating their key logic:
 `mcp` is defined inside the same literal and refers to `mockRef` only when
 called, never during construction, so the self-reference is safe.
 
-`context.fetch` is `fetchWithMcp`, not `handler.fetch` — `sample_response` must
+`context.fetch` is `fetchWithMcp`, not `handler.fetch` - `sample_response` must
 see the mock exactly as a client does.
 
 - [ ] **Step 6: Export the new types**
@@ -1147,7 +1147,7 @@ Three separate mutations, each targeting a different test:
    Revert.
 
 If mutation 2 does not produce that error, the SDK version has changed
-behavior — stop and re-run `.superpowers/probe/probe-mcp.ts` before continuing.
+behavior - stop and re-run `.superpowers/probe/probe-mcp.ts` before continuing.
 
 - [ ] **Step 9: Confirm the suite still exits**
 
@@ -1155,7 +1155,7 @@ Run: `npm test`
 Expected: clean, **and the process exits on its own**. If `node --test` hangs
 at the end, a per-request transport has started leaving a timer behind and the
 stateless/JSON assumption in design §3.4 no longer holds. That is a blocker,
-not a nuisance — report it.
+not a nuisance - report it.
 
 - [ ] **Step 10: Typecheck and commit**
 
@@ -1220,7 +1220,7 @@ test('converts a self-referential schema without throwing', () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/schema/json-schema.test.ts`
-Expected: FAIL — module not found.
+Expected: FAIL - module not found.
 
 - [ ] **Step 3: Write `src/schema/json-schema.ts`**
 
@@ -1238,7 +1238,7 @@ import type { Compiler } from './compile.ts'
  *
  * Returns `undefined` for a schema zod cannot express as JSON Schema, which
  * callers treat as "nothing to say" rather than fabricating a shape. Recursion
- * is NOT such a case — zod emits `{"$ref":"#"}` and this returns it.
+ * is NOT such a case - zod emits `{"$ref":"#"}` and this returns it.
  */
 export function toJsonSchema(
   schema: Schema,
@@ -1270,7 +1270,7 @@ export function schemaHash(schema: Schema, compiler: Compiler): string | undefin
 and inside `buildRequest`, replace its local `try { jsonSchema = z.toJSONSchema(zodSchema) ... }`
 block with a `toJsonSchema` call, returning `undefined` where the catch did.
 Add `import { toJsonSchema } from '../schema/json-schema.ts'`. Keep every
-surrounding behavior — the structural-keys check in `buildRequest` stays
+surrounding behavior - the structural-keys check in `buildRequest` stays
 exactly as it is.
 
 Run: `npm test`
@@ -1352,7 +1352,7 @@ test('get_auth_requirements describes the whole document when unscoped', async (
 - [ ] **Step 6: Run it and watch it fail**
 
 Run: `node --test test/mcp/describe.test.ts`
-Expected: FAIL — `no tool named describe_operation`.
+Expected: FAIL - `no tool named describe_operation`.
 
 - [ ] **Step 7: Implement both tools**
 
@@ -1472,7 +1472,7 @@ const describeOperation: McpTool = {
 const getAuthRequirements: McpTool = {
   name: 'get_auth_requirements',
   description:
-    'Security schemes this API declares, and the requirements that apply — ' +
+    'Security schemes this API declares, and the requirements that apply - ' +
     'for one operation when operationId is given, for the document otherwise. ' +
     'An empty requirements array means the operation needs no auth.',
   inputSchema: { operationId: z.string().optional() },
@@ -1505,7 +1505,7 @@ Expected: PASS, 6 tests.
 In `describeOperation`, change the responses `.sort(...)` to no sort and
 reverse the array instead. The status-order assertion must fail. Revert. Then
 in `getAuthRequirements`, change `requirements: scoped?.security` to
-`requirements: ctx.api.operations[0]?.security` — the `health` test must fail.
+`requirements: ctx.api.operations[0]?.security` - the `health` test must fail.
 Revert.
 
 - [ ] **Step 10: Typecheck, full suite, commit**
@@ -1626,7 +1626,7 @@ test('sample_response passes query parameters through', async () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/mcp/sample-response.test.ts`
-Expected: FAIL — `no tool named sample_response`.
+Expected: FAIL - `no tool named sample_response`.
 
 - [ ] **Step 3: Implement it**
 
@@ -1640,7 +1640,7 @@ import { generateValue } from '../../generate/generate.ts'
  * A path parameter the caller did not supply. Seeded on the operation and
  * parameter name and NOT on the mock's root seed: a synthesized parameter is
  * an address, not content. `set_seed` must change what `/orders/abc` returns
- * without turning it into `/orders/xyz` — otherwise every sample an agent
+ * without turning it into `/orders/xyz` - otherwise every sample an agent
  * recorded stops resolving the moment anything reseeds. It also keeps fixture
  * keys stable, since fixtureKey includes params.
  *
@@ -1656,7 +1656,7 @@ function synthesizeParam(operation: Operation, parameter: Parameter): string {
 const sampleResponse: McpTool = {
   name: 'sample_response',
   description:
-    'A live response for an operation, produced by the real request pipeline — ' +
+    'A live response for an operation, produced by the real request pipeline - ' +
     'the exact bytes your code will receive, not a schema you have to guess ' +
     'from. Path parameters you omit are filled with schema-valid values. Use ' +
     '`status` to ask for a specific declared response.',
@@ -1738,13 +1738,13 @@ Expected: PASS, 7 tests.
 - [ ] **Step 5: Verify the mutations**
 
 1. Change `synthesizeParam` to seed on
-   `` `${ctx.seed}|${operation.operationId}|${parameter.name}` `` — you will
+   `` `${ctx.seed}|${operation.operationId}|${parameter.name}` `` - you will
    have to thread a seed in to do it, which is the point. The
    "stable across seeds" test must fail. Revert.
 2. Change the `prefer` header name to `x-prefer`. The requested-status test
    must fail with 201 instead of 400. Revert.
 3. Delete the query `.sort()`. This one probably still passes with a single
-   query key — that is expected, and it means the sort is defense rather than
+   query key - that is expected, and it means the sort is defense rather than
    a tested behavior. Note it in your report rather than adding a contrived
    two-key test.
 
@@ -1823,7 +1823,7 @@ test('list_webhooks reports an empty emittedBy for a webhook nothing fires', asy
   }>
 
   // Honest and useful: the document declares it, but no operation config emits
-  // it — which is exactly the misconfiguration worth telling an agent about.
+  // it - which is exactly the misconfiguration worth telling an agent about.
   assert.deepEqual(result.find((entry) => entry.name === 'orderCreated')?.emittedBy, [])
 })
 
@@ -1874,12 +1874,12 @@ Note the second argument in the configured-emitters test:
 `operations` config and cannot be recovered from a constructed `Mock`, so the
 helper needs the same config the mock was built with. Passing the mock alone
 would silently produce an empty emitters map and the test would fail on
-`['POST /orders']` — which is the correct failure, not a helper bug.
+`['POST /orders']` - which is the correct failure, not a helper bug.
 
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/mcp/search-webhooks.test.ts`
-Expected: FAIL — tools not found.
+Expected: FAIL - tools not found.
 
 - [ ] **Step 3: Implement the three tools**
 
@@ -1938,8 +1938,8 @@ const searchOperations: McpTool = {
 const listWebhooks: McpTool = {
   name: 'list_webhooks',
   description:
-    'Outbound requests this API can make — top-level webhooks and per-operation ' +
-    'callbacks — with payload schemas and which operations are configured to ' +
+    'Outbound requests this API can make - top-level webhooks and per-operation ' +
+    'callbacks - with payload schemas and which operations are configured to ' +
     'emit them. An empty emittedBy means the document declares it but nothing ' +
     'fires it.',
   inputSchema: {},
@@ -1969,7 +1969,7 @@ const listWebhooks: McpTool = {
         payloadSchema: media ? toJsonSchema(media.schema, compiler) : undefined,
         // A callback's owning operation is declared in the document, so it is
         // reported whether or not anything is configured to emit it. A
-        // top-level webhook has no declared owner — only config can link it.
+        // top-level webhook has no declared owner - only config can link it.
         emittedBy: callback !== undefined && configured.length === 0
           ? [callback.owner]
           : configured,
@@ -1982,7 +1982,7 @@ const listWebhooks: McpTool = {
 const listDeliveries: McpTool = {
   name: 'list_deliveries',
   description:
-    'Webhook deliveries this mock has made so far, oldest first — the feedback ' +
+    'Webhook deliveries this mock has made so far, oldest first - the feedback ' +
     'loop for verifying your own receiver. Filter by webhook name or outcome.',
   inputSchema: {
     webhook: z.string().optional(),
@@ -1991,7 +1991,7 @@ const listDeliveries: McpTool = {
   handler(ctx: McpContext, args: Record<string, unknown>) {
     const webhook = args.webhook as string | undefined
     const outcome = args.outcome as string | undefined
-    // Filtered here rather than by widening Mock.deliveries() — design 3.9.
+    // Filtered here rather than by widening Mock.deliveries() - design 3.9.
     return ctx.deliveries()
       .filter((delivery) => webhook === undefined || delivery.webhook === webhook)
       .filter((delivery) => outcome === undefined || delivery.outcome === outcome)
@@ -2003,12 +2003,12 @@ Add all three to `READ_TOOLS`.
 
 - [ ] **Step 4: Run, verify the mutation, commit**
 
-Run: `node --test test/mcp/search-webhooks.test.ts` — expected PASS.
+Run: `node --test test/mcp/search-webhooks.test.ts` - expected PASS.
 
 Mutation: in `searchOperations`, drop `operation.tags.join(' ')` from
 `haystacks` (leave a `''` in its place so indices hold). The tag search must
 fail. Revert. Then in `listWebhooks`, change `emittedBy` to always be
-`configured` — the callback test must fail on `['POST /orders']`. Revert.
+`configured` - the callback test must fail on `['POST /orders']`. Revert.
 
 Run: `npx tsc --noEmit`
 Run: `npm test`
@@ -2048,7 +2048,7 @@ test('write tools appear when write is enabled', () => {
 
 test('tools/call refuses a write tool when the gate is closed', async () => {
   // The second half of the gate. A gate that only hides the tools from
-  // tools/list is not a gate — an agent can still call one by name.
+  // tools/list is not a gate - an agent can still call one by name.
   const mock = createMock(mcpDoc)
   mock.mcp({ transport: 'http', path: '/mcp' })
 
@@ -2126,13 +2126,13 @@ test('set_seed and reset take effect through the tools', async () => {
 })
 ```
 
-`toolNamed` needs a second argument now — update the helper to take
+`toolNamed` needs a second argument now - update the helper to take
 `McpToolOptions` and pass it to `mcpTools`.
 
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/mcp/write.test.ts`
-Expected: FAIL — module `write.ts` not found.
+Expected: FAIL - module `write.ts` not found.
 
 - [ ] **Step 3: Write `src/mcp/tools/write.ts`**
 
@@ -2182,7 +2182,7 @@ const outage: McpTool = {
 const emitWebhook: McpTool = {
   name: 'emit_webhook',
   description:
-    'Fire a declared webhook now, optionally at a URL you choose — so you can ' +
+    'Fire a declared webhook now, optionally at a URL you choose - so you can ' +
     'test your receiver without provoking the flow that would trigger it. ' +
     'Returns the delivery, including outcome "unresolved" when nothing ' +
     'supplied a destination.',
@@ -2204,7 +2204,7 @@ const emitWebhook: McpTool = {
 const setSeed: McpTool = {
   name: 'set_seed',
   description:
-    'Reshuffle every generated value. The mock stays deterministic — the same ' +
+    'Reshuffle every generated value. The mock stays deterministic - the same ' +
     'seed always produces the same content.',
   inputSchema: { seed: z.string() },
   async handler(ctx: McpContext, args: Record<string, unknown>) {
@@ -2247,7 +2247,7 @@ second half of the gate, but it does not name the flag. Add that to
 ```ts
   // With the gate closed, a caller who knows a write tool's name gets a
   // refusal that says how to enable it, rather than the SDK's bare "not
-  // found" — which reads like the feature does not exist.
+  // found" - which reads like the feature does not exist.
   //
   // The names come from WRITE_TOOLS rather than a literal list: a sixth write
   // tool added later must not silently lose its refusal message.
@@ -2276,13 +2276,13 @@ pure module importing into the impure one, which is the allowed direction.
 
 - [ ] **Step 5: Run, verify the mutation, commit**
 
-Run: `node --test test/mcp/write.test.ts` — expected PASS.
+Run: `node --test test/mcp/write.test.ts` - expected PASS.
 
 Mutation: in `tools/index.ts`, change the gate to
 `return [...READ_TOOLS, ...WRITE_TOOLS]` unconditionally. The first test and
 the `tools/call` refusal test must both fail. Revert. Then delete the
 `assert.equal(check.status, 200)` line's cause by making the disabled stub call
-`ctx.failNext` instead of throwing — the refusal test must fail on the status
+`ctx.failNext` instead of throwing - the refusal test must fail on the status
 check. Revert.
 
 Run: `npx tsc --noEmit`
@@ -2365,12 +2365,12 @@ test('a real MCP client can list and call tools over stdio', async () => {
 - [ ] **Step 2: Run it and watch it fail**
 
 Run: `node --test test/server/cli-mcp.test.ts`
-Expected: FAIL — `parseMcpArgs` is not exported.
+Expected: FAIL - `parseMcpArgs` is not exported.
 
 - [ ] **Step 3: Add the subcommand to `src/server/cli.ts`**
 
 ```ts
-export const MCP_USAGE = `mockingham mcp — serve the MCP tools over stdio
+export const MCP_USAGE = `mockingham mcp - serve the MCP tools over stdio
 
   mockingham mcp <document.json> [options]
 
@@ -2530,7 +2530,7 @@ every `log` call in the `mcp` path goes to `console.error`.
 
 Change `startMcp`'s default `log` from `console.error` to `console.log`. The
 round-trip test must fail or time out, because the readiness line corrupts the
-JSON-RPC stream. Revert. This is the mutation that matters most in this task —
+JSON-RPC stream. Revert. This is the mutation that matters most in this task -
 if the test still passes with `console.log`, it is not exercising the stream.
 
 - [ ] **Step 6: Typecheck, full suite, commit**
@@ -2548,7 +2548,7 @@ git commit -m 'feat: mockingham mcp subcommand over stdio' -m 'All logging on th
 
 ## Task 9: Pin the public surface
 
-There is no `README.md` in this repository — documentation is phase 12, a
+There is no `README.md` in this repository - documentation is phase 12, a
 later plan. This task is the export surface only.
 
 **Files:**
@@ -2594,7 +2594,7 @@ do not stop to ask.
    and 6 both build an `McpContext` by hand in test helpers, while `createMock`
    builds one in production. That is the exact seam shape that produced plan 7's
    two worst defects. If you can make `createMock` expose the context it builds
-   — even as an internal export the tests import — do that instead, and the
+   (even as an internal export the tests import), do that instead, and the
    helper becomes a thin wrapper. Prefer that. If you cannot without widening
    the public surface, keep the duplicate and add a test that asserts the two
    agree on `emitters` for the same config.

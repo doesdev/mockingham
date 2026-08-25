@@ -391,7 +391,10 @@ test('list_webhooks keeps a callback declaring operation in emittedBy alongside 
   const entry = (await webhooks(contextForMock(mock, options)))
     .find((candidate) => candidate.name === 'orderShipped')
 
-  assert.deepEqual(entry?.emittedBy, ['POST /events', 'POST /orders'])
+  // Declarer first, then configured emitters in document order - the ordering
+  // settled when this cycle merged with the regenerate/ledger branches, and
+  // pinned identically in search-webhooks.test.ts.
+  assert.deepEqual(entry?.emittedBy, ['POST /orders', 'POST /events'])
 })
 
 test('list_webhooks does not duplicate an operation that both declares and is configured to emit', async () => {

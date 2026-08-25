@@ -84,7 +84,7 @@ test('a present credential passes a presence-only check', async () => {
 })
 
 test('requirements are OR across the array', async () => {
-  // bearerAuth is absent, apiKey is present — one satisfied object is enough.
+  // bearerAuth is absent, apiKey is present - one satisfied object is enough.
   const outcome = await checkAuth({
     security: [{ bearerAuth: [] }, { apiKey: [] }],
     schemes,

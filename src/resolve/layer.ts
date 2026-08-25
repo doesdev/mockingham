@@ -7,7 +7,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * Pass one. Builds the result tree, calling override functions as it goes and
- * leaving whatever they return — including promises — in place.
+ * leaving whatever they return - including promises - in place.
  *
  * Containers are always freshly built, never mutated, so a spec `example`
  * object reachable from the generated tree is never written through.
@@ -45,7 +45,7 @@ function overlay(base: unknown, node: OverrideNode, ctx: unknown): unknown {
       out[key] = chosen === undefined ? value : overlay(value, chosen, ctx)
     }
     // Keys the override adds are appended in declaration order, so the result
-    // is deterministic. '*' is never one of them — it selects existing keys and
+    // is deterministic. '*' is never one of them - it selects existing keys and
     // must never surface as a literal property.
     for (const [key, value] of Object.entries(node)) {
       if (key === '*') continue
@@ -70,19 +70,19 @@ interface Slot {
  * The loop repeats because a promise may resolve to a value containing further
  * promises. Each nesting level costs one additional batch, not one per leaf.
  *
- * `scan` mutates in place whatever container it is handed — including
+ * `scan` mutates in place whatever container it is handed - including
  * containers `overlay` did not build itself (an untouched subtree is `base`
  * returned by reference, per `node === undefined` above). That is safe today
  * only because a live value can never reach a `Schema.example`: `src/generate/
  * generate.ts` returns `current.example` BY REFERENCE into the generated
  * tree, but `resolveDocument`'s `walk()` in `src/spec/refs.ts` rebuilds every
  * object node via `Object.entries()` when loading the document, and a
- * `Promise` has no own enumerable properties — so nothing a resolver or
+ * `Promise` has no own enumerable properties - so nothing a resolver or
  * override writes can ever end up embedded in a schema's `example` by the
  * time it reaches this function. If `refs.ts` ever stops rebuilding every
  * node on load (e.g. an optimization that passes `example` through
  * unchanged), this mutation would start corrupting the loaded document in
- * place, and the corruption would be silent — it would only show up on the
+ * place, and the corruption would be silent - it would only show up on the
  * SECOND request that reuses the same schema.
  */
 async function settle(root: unknown): Promise<unknown> {

@@ -100,15 +100,21 @@ test('a real delivery arrives signed and verifiable', async () => {
     assert.equal(hook.received.length, 1)
     assert.equal(hook.received[0]!.body, delivery.body)
 
-    // The signature the receiver got verifies against the body it got — the
+    // The signature the receiver got verifies against the body it got - the
     // security-critical path a consumer will implement.
     const header = hook.received[0]!.signature
     assert.ok(header, 'no signature header arrived')
     assert.equal(await verify('topsecret', header, hook.received[0]!.body), true)
     assert.equal(await verify('wrong', header, hook.received[0]!.body), false)
   } finally {
-    await mock.close()
-    await hook.close()
+    // Nested, so a throw from mock.close() cannot skip hook.close() and leak
+    // the throwaway receiver's listening socket - which surfaces as a hung
+    // test run rather than as a failure. Deferred item 23.
+    try {
+      await mock.close()
+    } finally {
+      await hook.close()
+    }
   }
 })
 
@@ -129,13 +135,19 @@ test('a real delivery retries a 500 and succeeds on the second attempt', async (
     assert.equal(hook.received.length, 2)
     // Pins the value, not only the count: `backoffFor({ seed: 'loopback',
     // webhook: 'onOrderShipped', attempt: 0, retry: resolveRetry({ attempts: 3
-    // }) })` — 250ms base, jittered into [50%, 100%] by the seeded PRNG. A
+    // }) })` - 250ms base, jittered into [50%, 100%] by the seeded PRNG. A
     // change to the seed, the jitter formula, or the PRNG algorithm would
     // legitimately change this number; a regression in the backoff math would
     // not.
     assert.deepEqual(slept, [236])
   } finally {
-    await mock.close()
-    await hook.close()
+    // Nested, so a throw from mock.close() cannot skip hook.close() and leak
+    // the throwaway receiver's listening socket - which surfaces as a hung
+    // test run rather than as a failure. Deferred item 23.
+    try {
+      await mock.close()
+    } finally {
+      await hook.close()
+    }
   }
 })

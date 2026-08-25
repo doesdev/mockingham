@@ -14,7 +14,7 @@ export type RuntimeOverride = { status?: number } & { [status: number]: StatusCo
 
 /**
  * Exported because `index.ts` WRITES the key this module READS. Two independent
- * spellings of one convention drift silently, with both test suites green — the
+ * spellings of one convention drift silently, with both test suites green - the
  * same reasoning `failure.ts` records for its own key builders.
  */
 export function overrideKey(key: string): string {
@@ -40,7 +40,7 @@ export function assertSerializable(
   if (type === 'function' || type === 'symbol' || type === 'bigint') {
     throw new Error(
       `mockingham: override ${path} is a ${type}, which cannot survive a Store ` +
-        'that serializes. Runtime overrides must be JSON data — use the ' +
+        'that serializes. Runtime overrides must be JSON data - use the ' +
         '`operations` config for anything that needs a function.'
     )
   }
@@ -100,7 +100,7 @@ function typeName(value: unknown): string {
 
 /**
  * `overrideAsResolved` only ever reads `value.status` and `value[forStatus]`
- * for a numeric `forStatus` — an own key that is neither `"status"` nor a run
+ * for a numeric `forStatus` - an own key that is neither `"status"` nor a run
  * of digits can never be read back, so accepting it would silently do
  * nothing. `resolveTarget` already treats a target matching no operation as a
  * configuration error rather than an empty result; a status key that can
@@ -135,7 +135,7 @@ export function assertValidOverrideKeys(value: RuntimeOverride): void {
     if (!STATUS_KEY.test(key)) {
       throw new Error(
         `mockingham: override key "${key}" is not a status. An override key ` +
-          'must be "status" or a numeric status code such as 200 — anything ' +
+          'must be "status" or a numeric status code such as 200 - anything ' +
           'else can never be read back and would silently do nothing.'
       )
     }
@@ -172,7 +172,7 @@ export interface ResolvedOverride {
 
 /**
  * Shared, and compared by IDENTITY in the handler to decide whether an override
- * contributed to the response — which is what the `x-mock-override` debug
+ * contributed to the response - which is what the `x-mock-override` debug
  * header reports. A fresh empty object per request would work for composition
  * and break that check.
  */
@@ -201,7 +201,7 @@ export async function readOverride(
 ): Promise<ResolvedOverride> {
   const raw = await store.get(overrideKey(targetKey(operation)))
   // `override()` only ever writes a plain object here, but the Store is
-  // advertised as shareable across processes — an older version, or another
+  // advertised as shareable across processes - an older version, or another
   // process writing a different shape entirely, is a real possibility this
   // read must survive rather than crash on. Anything that is not a non-null,
   // non-array object reads as no override.

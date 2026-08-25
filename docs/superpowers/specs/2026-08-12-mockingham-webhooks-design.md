@@ -1,4 +1,4 @@
-# mockingham Phase 8 Design — Webhooks and Callbacks
+# mockingham Phase 8 Design - Webhooks and Callbacks
 
 **Status:** approved; implemented by plan 6 (2026-08-12-mockingham-webhooks.md).
 **Covers:** §18 phase 8 of `2026-08-11-mockingham-design.md`, which remains the
@@ -16,8 +16,8 @@ spec left open and the places it must be amended. Writing it found six.
 
 ## 1. Scope
 
-**Plan 6 is webhooks alone.** The master spec's remaining phases — 8 (webhooks),
-10 (MCP), 11 (fixtures and the LLM path), and 12 (docs) — are independent
+**Plan 6 is webhooks alone.** The master spec's remaining phases - 8 (webhooks),
+10 (MCP), 11 (fixtures and the LLM path), and 12 (docs) - are independent
 subsystems with separate optional dependencies, and the spec itself states their
 order: webhooks change nothing in phases 1–7; MCP's *write* tools need phase 8;
 the docs describe all three. They get one plan each.
@@ -34,7 +34,7 @@ gains an emission trigger.
 
 §13 specifies HMAC-SHA256 "using `node:crypto`". Operation-linked emission fires
 from the request pipeline, so the signing code is reachable from
-`src/server/handler.ts` — and invariant 3 says the handler and everything it
+`src/server/handler.ts` - and invariant 3 says the handler and everything it
 imports must not touch Node APIs. Today `node:` appears in exactly two files,
 `server/node.ts` and `server/cli.ts`, and that is worth keeping true.
 
@@ -51,7 +51,7 @@ const mac = await crypto.subtle.sign('HMAC', key, encoder.encode(`${ts}.${raw}`)
 // x-mockingham-signature: t=<ts>,v1=<hex>
 ```
 
-The header format, the signed string, and the algorithm are unchanged from §13 —
+The header format, the signed string, and the algorithm are unchanged from §13 -
 only the implementation moves.
 
 ### 2.2 Backoff jitter comes from the seeded PRNG
@@ -72,11 +72,11 @@ const delay = Math.round(base * (0.5 + rng.next() * 0.5))
 `baseMs` is the first retry's delay before jitter, defaulting to **250**. §13's
 `retry` block does not name it, which would leave the doubling sequence
 undefined; it is added to the config in §4. `backoff` accepts `'exponential'`
-only — §13 names no other strategy, and a one-value union documents that a second
+only - §13 names no other strategy, and a one-value union documents that a second
 one is a deliberate addition rather than an oversight.
 
 Keying by attempt rather than advancing one stream means a delivery's delay
-sequence does not depend on how many other deliveries preceded it — the property
+sequence does not depend on how many other deliveries preceded it - the property
 that makes a run replayable and a failing test reproducible. Tests assert the
 exact sequence through the already-injectable `sleep`.
 
@@ -100,7 +100,7 @@ await mock.settled()        // drains pending emissions
 assert.equal(mock.deliveries().length, 1)
 ```
 
-`close()` cancels pending timers and `reset()` clears them — both already
+`close()` cancels pending timers and `reset()` clears them - both already
 required by §13's "canceled by `close()` and cleared by `reset()`".
 
 ### 2.4 Emit callbacks receive an `EmitCtx`, not `Ctx`
@@ -108,7 +108,7 @@ required by §13's "canceled by `close()` and cleared by `reset()`".
 §13's operation-linked example is `body: { orderId: ctx => ctx.result.body.id }`,
 but `Ctx` has no `result` and cannot sensibly gain one: it is constructed before
 the response exists, so `result` would be `undefined` throughout every ordinary
-resolver, header override, and response callback — a field that is only sometimes
+resolver, header override, and response callback - a field that is only sometimes
 real is a field that will be read when it is not.
 
 **Emit override functions receive an `EmitCtx`**: the request `Ctx` plus the
@@ -132,7 +132,7 @@ ambiguous enough to be implemented two ways.
 
 **Retry on:** a network-level error, any 5xx, 408, and 429.
 **Do not retry on:** any other 4xx, or any 2xx.
-**3xx never reaches classification** — `fetch` follows redirects itself.
+**3xx never reaches classification** - `fetch` follows redirects itself.
 
 A non-retryable response ends the delivery immediately with its status recorded;
 it is not an error and never throws.
@@ -140,15 +140,15 @@ it is not an error and never throws.
 ### 2.6 Deliveries are captured and reported, not folded into `LogRecord`
 
 §13 says webhook outcomes "record their outcome through §12 logging". But
-`LogRecord` is request-shaped — `method`, `route`, `path`, `params`, `query`,
-`decisions` — and §12 documents it as mapping directly onto Datadog/OTel-style
+`LogRecord` is request-shaped - `method`, `route`, `path`, `params`, `query`,
+`decisions` - and §12 documents it as mapping directly onto Datadog/OTel-style
 sinks. A delivery has none of those fields and has several of its own. Widening
 the record with a discriminant would change a type every existing sink already
 maps, to carry a shape that does not fit it.
 
 **Every delivery is recorded in `deliveries()` regardless of mode, and a failure
-reaches `onError`.** That satisfies what §13 wants — outcomes are observable
-through the configured surfaces — without distorting §12's contract.
+reaches `onError`.** That satisfies what §13 wants - outcomes are observable
+through the configured surfaces - without distorting §12's contract.
 
 The capture log is **bounded at 1000 entries**, oldest dropped first, cleared by
 `clearDeliveries()` and by `reset()`. A mock running for days must not leak, and
@@ -175,7 +175,7 @@ payloads come from §3 generation, are shaped by §4 override layers, and carry
 §5-layered headers. The genuinely new code is delivery, expression resolution,
 and signing.
 
-**The hook point is the single exit in `handle()`** — the seam plan 5 built.
+**The hook point is the single exit in `handle()`** - the seam plan 5 built.
 Emissions register *inside* the exit's existing guard, so a throw anywhere in
 emit, sign, or deliver reaches `reportError` and can never reach the response.
 That guard exists because plan 5's whole-branch review found the store write had
@@ -215,7 +215,7 @@ New instance surface, with the shapes stated so two readings are not possible:
 ```ts
 interface Delivery {
   webhook: string
-  /** Absent when nothing resolved — see §5 tier 4. */
+  /** Absent when nothing resolved - see §5 tier 4. */
   url?: string
   body: string                 // the serialized payload, as sent and as signed
   headers: Record<string, string>
@@ -232,11 +232,11 @@ mock.settled(): Promise<void>        // §2.3
 ```
 
 `emit()` resolves with the `Delivery` rather than rejecting, in every case
-including `unresolved` and an exhausted retry — §5's "an emit never hard-fails"
+including `unresolved` and an exhausted retry - §5's "an emit never hard-fails"
 is a property of the return type, not merely of the implementation.
 
 **`captureOnly` in light of §2.6.** Because deliveries are now always recorded,
-`captureOnly` no longer controls *whether* capture happens — it controls whether
+`captureOnly` no longer controls *whether* capture happens - it controls whether
 the delivery is **sent**. With `captureOnly: true` nothing leaves the process and
 the outcome is `'captured'`; with `false` the delivery is attempted and the
 outcome is `'delivered'` or `'failed'`. §13's "instead of, or alongside, sending
@@ -265,7 +265,7 @@ expression resolves against that live request and the URL is stored under
 `callback|onOrderShipped`. A later `emit('onOrderShipped')` finds it. This is
 what makes the common "client POSTs its own callback URL" flow work.
 
-Keyed by callback name alone, so **a second subscriber replaces the first** — see
+Keyed by callback name alone, so **a second subscriber replaces the first** - see
 known limitations.
 
 ---
@@ -279,7 +279,7 @@ is a test that passes against a broken implementation.
   with no receiver; exactly one real loopback delivery to a throwaway
   `node:http` receiver exercises signing and retry for real. Unit tests inject
   `fetch` and `sleep`.
-- **Signing must use a known-answer vector** — fixed secret, fixed timestamp,
+- **Signing must use a known-answer vector** - fixed secret, fixed timestamp,
   fixed body, precomputed hex. A test asserting the header merely exists passes
   against any hash, including a wrong one.
 - **Retry must assert the attempt count AND the exact delay sequence.** A test
@@ -302,7 +302,7 @@ is a test that passes against a broken implementation.
    subscriber replaces the first. Fan-out needs a subscriber list and a delivery
    loop per subscriber; neither is in §13.
 2. **No recurring emitters, no chained webhooks, no retry state surviving a
-   restart.** Excluded by §13 on purpose — each needs a real scheduler, which is
+   restart.** Excluded by §13 on purpose - each needs a real scheduler, which is
    the one part of this feature that would reach into modules other than its own.
 3. **The capture log is per-process.** Retry attempt state lives in the `Store`
    as §13 specifies, so it is shared when the Store is, but `deliveries()` is an
@@ -316,7 +316,7 @@ is a test that passes against a broken implementation.
 6. **`unresolved` outranks `captured`.** `deliver()` (`src/webhooks/deliver.ts`)
    checks `url === undefined` before it checks `captureOnly`, so an emit with
    `captureOnly` set and no destination records `unresolved`, not `captured`.
-   The send mode must not mask a missing destination — otherwise a webhook
+   The send mode must not mask a missing destination - otherwise a webhook
    configured with nowhere to go would look healthy in every capture-mode test
    run and silently deliver nowhere in production.
 7. **Declared webhook header parameters are generated.** `emitWebhook`

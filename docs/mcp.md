@@ -1,12 +1,12 @@
 # The MCP server
 
-mockingham can expose itself to an MCP client — Claude, or anything else
-speaking the protocol — as a set of tools an agent calls directly instead of
+mockingham can expose itself to an MCP client - Claude, or anything else
+speaking the protocol - as a set of tools an agent calls directly instead of
 a human reading responses off a terminal. The important thing to understand
 before any of the tool descriptions below: **every tool is a thin adapter
 over a `Mock` method that already exists and is already tested elsewhere in
 this project.** `fail_next` calls `mock.failNext`. `emit_webhook` calls
-`mock.emit`. The MCP layer invents no new behavior of its own to get wrong —
+`mock.emit`. The MCP layer invents no new behavior of its own to get wrong -
 it exposes behavior this project already had, which is also why
 `sample_response`, covered below, turns out to be the least interesting tool
 here rather than the most.
@@ -15,21 +15,22 @@ here rather than the most.
 shape `@anthropic-ai/sdk` has for baking (`docs/fixtures.md`). It is a
 devDependency of this repo, so it resolves for every runnable example on this
 page; a consumer of the published package only needs to install it if they
-actually call `mcp()`. Without it, `mcp()` itself still returns a handle —
+actually call `mcp()`. Without it, `mcp()` itself still returns a handle -
 master §1 types it as synchronous, so a missing package cannot be reported
-from inside the call — but the first thing that touches the SDK,
-`connectStdio()` or the first HTTP request to the mount, throws:
+from inside the call - but the first thing that touches the SDK,
+`connectStdio()` or the first HTTP request to the mount, throws an error naming
+the package and the `npm install @modelcontextprotocol/sdk` command that fixes
+it (`src/mcp/server.ts`).
 
-```txt
-mockingham: the MCP server needs @modelcontextprotocol/sdk, which is an
-optional peer dependency. Install it with:
-
-  npm install @modelcontextprotocol/sdk
-```
+The exact wording is deliberately not reproduced here as a fenced block. No
+runnable example on this page provokes it, so the harness has no way to diff it
+against what the code actually prints - and a block that looks like verified
+output while being hand-copied is the failure mode worth avoiding more than the
+convenience is worth having.
 
 ## stdio
 
-The shape most MCP clients expect — a subprocess talking JSON-RPC over
+The shape most MCP clients expect - a subprocess talking JSON-RPC over
 stdin/stdout:
 
 ```sh
@@ -38,20 +39,20 @@ mockingham mcp ./openapi.json
 
 Nothing is written to stdout while this runs: stdout **is** the JSON-RPC
 channel, so a stray log line would corrupt every message after it. All of
-this subcommand's own logging — "MCP server ready for ...", warnings — goes
+this subcommand's own logging - "MCP server ready for ...", warnings - goes
 to stderr instead. It is the one place this project's usual logging
 convention bends, and it bends for a protocol requirement rather than a
 preference.
 
 Add `--seed <s>` to pin generation, `--fixtures <dir>` to serve a fixture
 store the way the plain server does, and `--write` to open the write gate
-(§ below).
+(see "The write gate" below).
 
 ## http
 
 `mcp()` mounts on the mock's **own** fetch surface rather than opening a
 second port. That surface is `mock.fetch()` whether or not `listen()` has
-ever been called, so the mount works before or after it — the dispatcher
+ever been called, so the mount works before or after it - the dispatcher
 reads a mutable mount slot on every request rather than deciding at
 construction time:
 
@@ -71,70 +72,88 @@ await server.close()
 mounted at /mcp
 ```
 
-`transport` defaults to `'inline'` — a server with no transport attached at
+`transport` defaults to `'inline'` - a server with no transport attached at
 all, which is what a unit test wants and what the two tool-call examples
 below build for themselves. `'stdio'` does not connect by itself: `mcp()`
 only branches on `'http'` (`src/index.ts`), so a `'stdio'` handle still needs
-an explicit `await handle.connectStdio()` before it talks JSON-RPC — which is
+an explicit `await handle.connectStdio()` before it talks JSON-RPC - which is
 exactly what the `mockingham mcp` subcommand does on your behalf
 (`src/server/cli.ts`). Only `'http'` writes anything into the mount slot.
 
-## The twenty tools
+## The twenty-two tools
 
-Eight read tools, always available:
+Nine read tools, always available:
 
-- `list_operations` — method, path, `operationId`, summary, and tags for
+- `list_operations` - method, path, `operationId`, summary, and tags for
   every operation; filter with `tag` or `pathPrefix`.
-- `describe_operation` — the full contract for one operation: parameters,
+- `describe_operation` - the full contract for one operation: parameters,
   request body schema, every declared response schema, security
   requirements, declared examples.
-- `search_operations` — free-text search over path, summary, description,
+- `search_operations` - free-text search over path, summary, description,
   and tags, ranked by where the match landed.
-- `sample_response` — a live response from the real request pipeline. See
+- `sample_response` - a live response from the real request pipeline. See
   the third item below.
-- `get_auth_requirements` — the document's security schemes, plus one
+- `get_auth_requirements` - the document's security schemes, plus one
   operation's own requirements when `operationId` is given.
-- `list_webhooks` — declared webhooks and callbacks, with payload schemas
+- `list_webhooks` - declared webhooks and callbacks, with payload schemas
   and which operations are configured to emit them.
-- `list_deliveries` — webhook deliveries recorded so far, oldest first,
+- `list_deliveries` - webhook deliveries recorded so far, oldest first,
   filterable by webhook name and outcome.
-- `list_registrations` — the webhook destinations registered right now, URLs
+- `list_registrations` - the webhook destinations registered right now, URLs
   included, filterable by webhook name.
+- `list_fixtures` - what is in the fixture store: which operations and
+  statuses have a stored response, when it was generated, and whether it has
+  gone `stale` because the document changed underneath it. Values are omitted
+  unless you pass `includeValues`.
 
-Twelve write tools, gated behind `--write` (see below):
+Thirteen write tools, gated behind `--write` (see below):
 
-- `fail_next` — make the next request(s) to a target fail.
-- `outage` — fail every request to a target for a window of time.
-- `emit_webhook` — fire a declared webhook now, optionally at a chosen URL.
-- `set_seed` — reshuffle every generated value, deterministically.
-- `reset` — restore the configured baseline: armed failures, idempotency
+- `fail_next` - make the next request(s) to a target fail.
+- `outage` - fail every request to a target for a window of time.
+- `emit_webhook` - fire a declared webhook now, optionally at a chosen URL.
+- `set_seed` - reshuffle every generated value, deterministically.
+- `reset` - restore the configured baseline: armed failures, idempotency
   keys, counters, captured deliveries. Also clears runtime overrides.
-- `set_override` — pin what an operation returns at runtime, without editing
+- `set_override` - pin what an operation returns at runtime, without editing
   config. Layers over any configured override the same way `mock.override()`
   does. Target is a control-plane string: `"POST /orders"`, an operationId,
   or `"* /**"` for every operation.
-- `clear_overrides` — remove runtime overrides set by `set_override`. With no
+- `clear_overrides` - remove runtime overrides set by `set_override`. With no
   target, clears every operation. Never touches the overrides in your config
   file.
-- `set_variant` — pin which branch of a union an operation generates. A
+- `set_variant` - pin which branch of a union an operation generates. A
   `Prefer: variant=` header on a request outranks it; a name matching no
   branch falls through to the seeded pick.
-- `clear_variants` — remove variant preferences set by `set_variant`. With no
+- `clear_variants` - remove variant preferences set by `set_variant`. With no
   target, clears every operation.
-- `redeliver_webhook` — send a recorded delivery again byte for byte, under
+- `redeliver_webhook` - send a recorded delivery again byte for byte, under
   the same delivery id. An unknown or aged-out id is an error; a delivery that
   fails is a returned outcome, not an error.
-- `register_webhook_destination` — point a declared webhook at a URL, as a
+- `register_webhook_destination` - point a declared webhook at a URL, as a
   subscription operation would. Optionally scoped.
-- `unregister_webhook_destination` — remove one scope's registration.
+- `unregister_webhook_destination` - remove one scope's registration.
+- `regenerate_fixture` - re-run the configured content source for one
+  operation, replacing its stored fixtures. Requires an llm source. Identify
+  the operation by `operationId`, or by `method` and `path`; add `status` to
+  regenerate just one. Returns the bake summary, so an operation with no JSON
+  body reads as `skipped` rather than as success.
 
 `describe_operation`, `sample_response`, and `get_auth_requirements` all
 identify an operation by `operationId`, or by `method` and `path` together.
-Worth knowing before you rely on it: when `operationId` is supplied, it wins
-outright — `method` and `path` are silently ignored rather than checked for
-agreement with it, so passing an `operationId` alongside a mismatched
-`method`/`path` pair does not raise anything (`src/mcp/tools/read.ts`,
-`findOperation`).
+**Every field you supply is checked**, so passing an `operationId` alongside a
+`method`/`path` pair that names a different operation raises rather than
+quietly answering about one of them. Supply one form or the other, or make them
+agree.
+
+`regenerate_fixture` behaves the same way, and additionally raises when the
+operation or status does not exist rather than reporting a summary of zeroes -
+an agent handed `{"generated": 0}` for a typo has been told it succeeded at
+doing nothing.
+
+**`regenerate_fixture` can write to disk.** With a disk-backed fixture store
+(`--fixtures <dir>`, or `createDiskFixtureStore`), storing a fixture writes it
+to that directory, exactly as `bake()` does. The `--write` gate is what stands
+between an agent and that directory.
 
 ## The ready-to-paste client config
 
@@ -153,7 +172,7 @@ agreement with it, so passing an `operationId` alongside a mismatched
 
 The rest of this guide runs one demonstration mount and drives it with real
 JSON-RPC frames, the same way `mock.fetch()` is driven anywhere else in this
-project — no client library involved, because the mount is just another
+project - no client library involved, because the mount is just another
 route on the mock:
 
 ```ts
@@ -172,18 +191,20 @@ const demoMock = createMock(doc, { seed: 'docs' })
 const demo = demoMock.mcp({ transport: 'http', path: '/mcp' })
 ```
 
-**First: `--write` gates all twelve write tools because they change the mock's
-runtime state.** Every one of them mutates something a second caller would
+**First: `--write` gates all thirteen write tools because they change the
+mock's state.** Every one of them mutates something a second caller would
 observe — an armed failure, a reseeded generator, a cleared store, a runtime
 override, a pinned union variant, a registered webhook destination, a second
-copy of a delivery in the log. Read tools never do, so only the twelve are
-behind the flag, and the flag is off by default.
+copy of a delivery in the log, a replaced fixture. Read tools never do, so only
+the thirteen are behind the flag, and the flag is off by default.
+`regenerate_fixture` is the one that can reach past runtime state to disk,
+which is part of what the gate is protecting.
 
-**Second: closing the gate does not hide the tools — it disables them, and
+**Second: closing the gate does not hide the tools - it disables them, and
 says so.** An agent that already knows a write tool's name still sees it in
 `tools/list`; hiding the name and naming the flag that would enable it
 cannot both happen, and the flag is the more useful half of that choice
-(design §3.7):
+(the MCP design delta §3.7):
 
 ```ts
 const listResponse = await demoMock.fetch(
@@ -202,7 +223,7 @@ fail_next still listed: true
 Disabled. fail_next changes the mock's runtime state, so it is off by default. Enable the write tools with mcp({ write: true }) or the --write flag.
 ```
 
-Calling it anyway — `tools/call` on the disabled name — refuses, and the
+Calling it anyway - `tools/call` on the disabled name - refuses, and the
 refusal names the same flag rather than reading like the tool never existed:
 
 ```ts
@@ -225,7 +246,7 @@ mockingham: fail_next is a write tool and write tools are disabled. Enable them 
 **Third: `sample_response` *is* `mock.fetch()`, so it 401s on a
 credential-protected operation exactly like a real client would.** The
 no-drift guarantee master §17 originally framed as a test obligation is
-structural instead (design §3.3): the tool builds a `Request` and hands it to
+structural instead (the MCP design delta §3.3): the tool builds a `Request` and hands it to
 the same `fetch()` every other caller uses, rather than running a second
 generation path that could quietly disagree with the first. `getPayment`
 requires `bearerAuth`, and the call below supplies no credentials:
@@ -252,17 +273,17 @@ sample_response without credentials: 401
 ```
 
 An auth shortcut inside the tool would have re-created exactly the second
-code path the no-drift design exists to prevent — `sample_response` would
+code path the no-drift design exists to prevent - `sample_response` would
 then no longer show you what your real client is going to get.
 
 ## `list_webhooks` merges callbacks, and one of its fields needs care
 
-`api.webhooks` — what `list_webhooks` reads from — is not only the
+`api.webhooks` - what `list_webhooks` reads from - is not only the
 document's top-level `webhooks` object. `loadApi` folds every operation's
 `callbacks` into the same map under their own names (`src/spec/load.ts`,
 lines 147–161, and see `docs/webhooks.md`), so against `docs/example.json`
 `list_webhooks` reports both `paymentFailed` (a top-level webhook) and
-`paymentSucceeded` (`createPayment`'s callback) — not only the top-level one:
+`paymentSucceeded` (`createPayment`'s callback) - not only the top-level one:
 
 ```ts
 const webhooksResponse = await demoMock.fetch(rpc({
@@ -310,24 +331,19 @@ await demoMock.close()
 ```
 
 `paymentSucceeded`'s `emittedBy` names `POST /payments` because that is where
-the callback is declared and nothing here is configured to emit it, so
-`list_webhooks` falls back to the declaring operation (design §3.6). That
-fallback only applies when nothing is configured: if some *other* operation's
-`emits` config names a callback's webhook while its own declaring operation
-has none, `emittedBy` reports only the configured operation and quietly drops
-the declaring one — worth knowing if you configure `emits` yourself, though
-nothing in this document does, so it does not show up above.
+the callback is declared (the MCP design delta §3.6). **`emittedBy` is the union of the
+declaring operation and every configured emitter**, deduplicated, with the
+declaring operation first. Configuring some other operation's `emits` to fire a
+callback's webhook adds that operation to the list rather than replacing the
+one that declares it - which it did until the ledger-clearing cycle, quietly
+dropping the declaring operation the moment any config named the webhook.
 
-`payloadSchema` has a related sharp edge. Every other schema this server
-emits — in `describe_operation`, for instance — falls back to
-`{ "$comment": "not expressible as JSON Schema; this operation is generated
-only" }` when the converter can't turn a schema into JSON Schema (a recursive
-one, mainly). `list_webhooks`'s `payloadSchema` calls the converter directly
-rather than through that fallback, so a recursive webhook payload comes back
-as `payloadSchema: undefined` instead of the `$comment` placeholder
-(`src/mcp/tools/read.ts`). Neither webhook in `docs/example.json` is
-recursive, so it never appears above — it is worth knowing before you build
-tooling against a document that has one.
+`payloadSchema` routes through the same fallback every other schema on this
+server does: `{ "$comment": "not expressible as JSON Schema; this operation is
+generated only" }` when the converter cannot turn a schema into JSON Schema.
+In practice that placeholder is hard to provoke - **recursion is not such a
+case**, contrary to what an earlier revision of this guide said. A recursive
+payload is expressed with `$defs` and `$ref` and comes back in full.
 
 ## Telling a round-tripping operation from a generating one
 
@@ -474,8 +490,16 @@ choice rather than an accident:
   a scope with nothing registered is `outcome: 'unresolved'` — a recorded
   delivery with no URL, not a thrown error and not a silent drop.
 
-## What isn't here yet
+## Every declared tool now ships
 
-`regenerate_fixture` — a tool to save a live-generated response as a
-committed fixture — is not part of this server. Nothing here is a
-commitment to when it lands.
+Master §15 and the refinements and regenerate deltas name twenty-two tools
+between them, and this server exposes all twenty-two. Earlier revisions of this
+guide carried a "what isn't here yet" section; there is nothing left to put in
+it.
+
+That section also described `regenerate_fixture` as "a tool to save a
+live-generated response as a committed fixture", which was never what the
+specification said and is not what shipped. It re-runs the configured content
+source - the LLM - for one operation. Saving whatever the mock generated a
+moment ago, with no source involved, is a different and genuinely useful tool
+that does not exist.

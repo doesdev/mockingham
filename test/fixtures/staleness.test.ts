@@ -47,7 +47,7 @@ test('a matching schemaHash does not warn', () => {
 
 // The three tests above never put more than one stale record in a store, so
 // none of them can distinguish "warns once per stale fixture" from "warns
-// once per store" or "warns once per operation" — a mutant that returns
+// once per store" or "warns once per operation" - a mutant that returns
 // after the first warning, or that dedupes by operationId, would pass all
 // three. This exercises two stale fixtures at once: two different statuses
 // under the SAME operation, plus one fresh and one hand-written record mixed
@@ -75,8 +75,8 @@ test('warnOnStaleFixtures warns once per stale fixture, not once per store or on
 // brief warns produces tests that cannot fail: `bake` currently writes no
 // `schemaHash` at all unless this file's `bake.ts` change actually wires it
 // up. This test bakes a REAL fixture through `bake()`, then re-derives the
-// current hash the same way production wiring (`src/index.ts`) does — via
-// `schemaHash` and the document's own operations — and checks the two paths
+// current hash the same way production wiring (`src/index.ts`) does - via
+// `schemaHash` and the document's own operations - and checks the two paths
 // agree on the unchanged document and disagree once the schema changes.
 const baseDoc = {
   openapi: '3.1.0',
@@ -100,7 +100,7 @@ const baseDoc = {
   }
 }
 
-// Same operation, but the 200 schema has grown a property — a document that
+// Same operation, but the 200 schema has grown a property - a document that
 // moved under the fixture.
 const changedDoc = {
   openapi: '3.1.0',
@@ -148,7 +148,7 @@ test('bake writes a schemaHash that the startup check reads back unchanged, and 
     now: () => 0
   })
 
-  // bake must have actually written a schemaHash — if it did not, the rest
+  // bake must have actually written a schemaHash - if it did not, the rest
   // of this test would pass vacuously (no stored hash means
   // warnOnStaleFixtures always skips it, "no warning" either way).
   const baked = store.get('getUser', 200, store.records()[0]?.key ?? '')
@@ -175,7 +175,7 @@ test('bake writes a schemaHash that the startup check reads back unchanged, and 
   assert.equal(changedWarnings.length, 1)
   assert.match(changedWarnings[0] as string, /getUser/)
 
-  // The fixture is still there after the warning — same guarantee as the
+  // The fixture is still there after the warning - same guarantee as the
   // single-fixture test above, re-proven on the real bake path.
   assert.deepEqual(store.get('getUser', 200, store.records()[0]?.key ?? '')?.value, { id: 1 })
 })

@@ -6,7 +6,7 @@ import { mcpDoc } from './doc.ts'
 
 // getOrder and listOrders inherit the document's top-level `bearerAuth`
 // requirement (doc.ts); createOrder overrides to `apiKeyAuth`. sample_response
-// has no auth shortcut — it IS mock.fetch — so an unauthenticated request to
+// has no auth shortcut - it IS mock.fetch - so an unauthenticated request to
 // either genuinely 401s, same as a real client would get. These constants
 // supply the credential a real caller would send, so the tests below exercise
 // generation behavior rather than the auth stage.

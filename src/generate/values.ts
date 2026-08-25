@@ -3,6 +3,23 @@ import type { Rng } from './rng.ts'
 import { applyMultipleOf, numberBounds, stringLength } from './constraints.ts'
 import { DEFAULT_SEED_TIME } from './clock.ts'
 import type { Ticker } from './clock.ts'
+import { generateFromPattern } from './pattern.ts'
+
+export interface StringOptions {
+  /**
+   * Called with a `pattern` the generator's subset cannot express. Reported
+   * every time here - deduplication is the caller's job, because "once" is a
+   * property of a mock's lifetime rather than of one value.
+   */
+  onUnsupportedPattern?: (pattern: string) => void
+  /**
+   * This request's reserved block of UUIDv7 timestamps. Absent for a call site
+   * outside a mock, which still generates a well-formed v7 - every value just
+   * carries the same constant timestamp, so it loses an ordering there is
+   * nothing to order.
+   */
+  clock?: Ticker
+}
 
 const WORDS = [
   'alder', 'basalt', 'cedar', 'dune', 'ember', 'fjord', 'gale', 'harbor',
@@ -92,9 +109,30 @@ function generateUuid7(rng: Rng, clock?: Ticker): string {
 export function generateString(
   schema: Schema,
   rng: Rng,
-  clock?: Ticker
+  options: StringOptions = {}
 ): string {
-  if (wantsUuid7(schema)) return generateUuid7(rng, clock)
+  // Before `format`, because `pattern` is what request validation enforces
+  // (`schema/compile.ts`) - a format-shaped value that fails the declared
+  // pattern is a body the mock emits and would then reject.
+  //
+  // This is also why it precedes the `uuid7` check below rather than following
+  // it: master §3 says a `pattern` outranks a conflicting `format`, and
+  // `uuid7` is selected by `format`/`x-mock-format` like any other. A schema
+  // declaring both gets the pattern-conforming value.
+  if (schema.pattern !== undefined) {
+    const value = generateFromPattern(schema.pattern, rng)
+    // Returned directly, never through `fitLength`: appending to reach
+    // `minLength` or slicing to `maxLength` breaks the match, which would
+    // trade one silently wrong value for another.
+    if (value !== undefined) return value
+    options.onUnsupportedPattern?.(schema.pattern)
+    // Falls through. `example` and `default` were already consulted by
+    // `generateValue` before this was ever called, so what follows is the
+    // placeholder that master §3 names as the last step of the chain.
+  }
+
+  if (wantsUuid7(schema)) return generateUuid7(rng, options.clock)
+
   switch (schema.format) {
     case 'email':
       return `${rng.pick(GIVEN)}.${rng.pick(FAMILY)}@${word(rng)}.${rng.pick(TLDS)}`
@@ -135,7 +173,7 @@ export function generateInteger(schema: Schema, rng: Rng): number {
   const { min, max } = numberBounds(schema)
   const low = Math.ceil(min)
   const high = Math.floor(max)
-  // No integer exists in [min, max] — e.g. minimum 1.2 with maximum 1.8. The
+  // No integer exists in [min, max] - e.g. minimum 1.2 with maximum 1.8. The
   // schema is unsatisfiable for an integer, so any value violates something.
   // Return the nearest integer to the range rather than one derived from an
   // inverted rng.int call, which would land above the maximum.

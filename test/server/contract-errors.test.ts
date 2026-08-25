@@ -115,3 +115,103 @@ test('a custom errorBody function wins over both modes', async () => {
   const response = await handle(badType('/on-contract'))
   assert.deepEqual(await response.json(), { custom: 'MOCK_UNSUPPORTED_MEDIA_TYPE' })
 })
+
+// A document declaring its errors as an OpenAPI range key rather than one
+// status at a time. Both cases below shipped broken: `4XX` loaded as status 4,
+// so the contract was unreachable and, when it was all the operation declared,
+// `new Response` rejected status 4 outright.
+const rangeDoc = {
+  openapi: '3.1.0',
+  paths: {
+    '/ranged': {
+      post: {
+        operationId: 'ranged',
+        requestBody: {
+          content: { 'application/json': { schema: { type: 'object' } } }
+        },
+        responses: {
+          '200': { description: 'ok' },
+          '4XX': {
+            description: 'any client error',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['declaredErrorContract'],
+                  properties: { declaredErrorContract: { type: 'string' } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/only-ranged': {
+      get: {
+        operationId: 'onlyRanged',
+        responses: {
+          '4XX': {
+            description: 'any client error',
+            content: {
+              'application/json': { schema: { type: 'object' } }
+            }
+          }
+        }
+      }
+    },
+    '/only-informational': {
+      get: {
+        operationId: 'onlyInformational',
+        responses: {
+          '1XX': {
+            description: 'informational only',
+            content: {
+              'application/json': { schema: { type: 'object' } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+const rangeApi = loadApi(rangeDoc)
+
+test('a declared 4XX contract serves an error inside its bucket', async () => {
+  const handle = createHandler(rangeApi, { seed: 'contract' }).fetch
+  const response = await handle(badType('/ranged'))
+  const body = (await response.json()) as Record<string, unknown>
+  assert.equal(response.status, 415)
+  // The built-in envelope has `error.code` and no `declaredErrorContract`, so
+  // this distinguishes the contract from the fallback rather than asserting
+  // two error shapes are merely equal.
+  assert.equal(Object.hasOwn(body, 'declaredErrorContract'), true)
+  assert.equal(Object.hasOwn(body, 'error'), false)
+})
+
+test('an operation whose only response is a range still serves', async () => {
+  // Shipped as a hard 500: MOCK_INTERNAL, "init[\"status\"] must be in the
+  // range of 200 to 599", blaming mockingham for the document's valid OpenAPI.
+  //
+  // What actually closes this is the LOADER giving the range a status of 400
+  // instead of 4, not the servable() guard in select.ts - that guard exists
+  // only for `1XX`, whose bound of 100 is still below the 200 floor. Verified
+  // by mutation: neutering servable() leaves this test passing.
+  const handle = createHandler(rangeApi, { seed: 'contract' }).fetch
+  const response = await handle(new Request('http://mock/only-ranged'))
+  assert.equal(response.status, 400)
+})
+
+test('a 1XX-only operation degrades instead of throwing', async () => {
+  // `new Response` rejects any status below 200, so a `1XX` bound of 100 has
+  // no servable form. Selection skips it, which lands on the ordinary
+  // no-response path - a 501 the mock chooses, not a RangeError escaping as
+  // MOCK_INTERNAL. The message says "declares no responses", which is loose
+  // for a document that declares a 1XX; it is the pre-existing wording for
+  // "nothing selectable" and is left alone rather than special-cased.
+  const handle = createHandler(rangeApi, { seed: 'contract' }).fetch
+  const response = await handle(new Request('http://mock/only-informational'))
+  const body = (await response.json()) as { error?: { code?: string } }
+  assert.equal(response.status, 501)
+  assert.equal(body.error?.code, 'MOCK_NO_RESPONSE')
+})

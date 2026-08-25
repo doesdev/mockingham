@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build phase 11 — a content-addressed fixture store that serves reviewed
+**Goal:** Build phase 11 - a content-addressed fixture store that serves reviewed
 mock data ahead of seeded generation, plus the bake driver and three content
 sources that populate it.
 
@@ -30,7 +30,7 @@ disagree, the phase 11 design wins.
 - **One schema interpretation.** Any schema walking goes through `classify()` /
   `mergeAllOf()` / `isNullable()` in `src/schema/walk.ts`. Never write a second
   reading of a schema. This applies to `fixtures/scope.ts` and
-  `fixtures/source.ts` in particular — both walk schemas and both must use
+  `fixtures/source.ts` in particular - both walk schemas and both must use
   `classify()`.
 - **Determinism.** No `Math.random()`, no `Date.now()`, no iteration over an
   unordered `Set`/object in any generation path. Time comes from the injected
@@ -45,7 +45,7 @@ disagree, the phase 11 design wins.
   generation. Nothing in this plan may make the mock stop serving.
 - **Errors stay on-contract.** Nothing here changes error bodies.
 - **Emission never affects the response.** Nothing here changes emission.
-- **US English spelling** in identifiers, test names, comments, and docs —
+- **US English spelling** in identifiers, test names, comments, and docs -
   `honor`, `behavior`, `serialize`, `normalize`, `canceled`.
 - **Tests** live in `test/` mirroring `src/`, run with `npm test`
   (`node --test`). Typecheck with `npx tsc --noEmit`.
@@ -74,11 +74,11 @@ disagree, the phase 11 design wins.
 | `src/fixtures/sources/openai.ts` | Default source. `fetch` + JSON, zero dependencies. |
 | `src/fixtures/sources/anthropic.ts` | Optional peer dependency, lazily imported, batch path. |
 | `src/fixtures/sources/recorded.ts` | Answers from supplied upstream responses. |
-| `src/runtime/pipeline.ts` | **Modify** — `generate()` consults a whole-body fixture first. |
-| `src/runtime/render.ts` | **Modify** — accepts one fixture layer beneath the user's. |
-| `src/server/handler.ts` | **Modify** — resolves a fixture after status selection, wires options. |
-| `src/index.ts` | **Modify** — `createMock` validates `llm`, resolves the provider, exposes `bake()`. |
-| `src/server/cli.ts` | **Modify** — `bake` subcommand, environment defaults. |
+| `src/runtime/pipeline.ts` | **Modify** - `generate()` consults a whole-body fixture first. |
+| `src/runtime/render.ts` | **Modify** - accepts one fixture layer beneath the user's. |
+| `src/server/handler.ts` | **Modify** - resolves a fixture after status selection, wires options. |
+| `src/index.ts` | **Modify** - `createMock` validates `llm`, resolves the provider, exposes `bake()`. |
+| `src/server/cli.ts` | **Modify** - `bake` subcommand, environment defaults. |
 
 ---
 
@@ -111,7 +111,7 @@ test('the key is eight lowercase hex characters', () => {
 })
 
 test('the key does not vary with the root seed', () => {
-  // The key input has no seed field at all — this is the amendment in design
+  // The key input has no seed field at all - this is the amendment in design
   // section 2.1. A varied run must still read baked fixtures.
   assert.equal(fixtureKey(base), fixtureKey({ ...base }))
 })
@@ -148,7 +148,7 @@ test('operationSlug falls back to a filesystem-safe method and path', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/key.ts`.
+Expected: FAIL - cannot find module `src/fixtures/key.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -188,7 +188,7 @@ function ordered(values: Record<string, string>): string {
 }
 
 /**
- * The fixture key is the request identity WITHOUT the root seed — design
+ * The fixture key is the request identity WITHOUT the root seed - design
  * section 2.1. Including the seed would mean a run started with a different
  * `seed` misses every fixture on disk, which turns varying the seed into
  * silently abandoning reviewed data.
@@ -215,7 +215,7 @@ Expected: PASS, 8 new tests.
 
 - [ ] **Step 5: Verify by mutation**
 
-Add `input.method` a second time to the `canonical` array — the ordering tests
+Add `input.method` a second time to the `canonical` array - the ordering tests
 still pass but nothing fails, which tells you those tests do not pin ordering.
 Then change `.sort()` to a no-op and confirm `param order does not affect the
 key` fails. Restore.
@@ -272,7 +272,7 @@ test('a miss returns undefined rather than throwing', () => {
   assert.equal(store.get('nope', 200, 'deadbeef'), undefined)
 })
 
-test('an entry without meta is accepted — hand-written fixtures have none', () => {
+test('an entry without meta is accepted - hand-written fixtures have none', () => {
   const store = createMemoryFixtureStore()
   store.set('getUser', 200, 'a3f19c2e', { value: 1 })
   assert.equal(store.get('getUser', 200, 'a3f19c2e')?.meta, undefined)
@@ -302,7 +302,7 @@ test('clear empties the store', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/store.ts`.
+Expected: FAIL - cannot find module `src/fixtures/store.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -323,7 +323,7 @@ export interface FixtureEntry {
   value: unknown
   /**
    * Absent on a hand-written fixture, which is why it is optional. A fixture
-   * with no meta is never reported stale — design section 2.13.
+   * with no meta is never reported stale - design section 2.13.
    */
   meta?: FixtureMeta
 }
@@ -360,7 +360,7 @@ export function createMemoryFixtureStore(): FixtureStore {
 
     // Sorted rather than insertion-ordered. Insertion order depends on the order
     // requests arrived, which would make the file on disk differ between two
-    // runs that produced identical content — against the determinism invariant
+    // runs that produced identical content - against the determinism invariant
     // in the one place it reaches a committed artifact.
     records: () =>
       [...entries.values()].sort((a, b) =>
@@ -518,7 +518,7 @@ test('an operation slug that escapes the directory is rejected', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/persist.ts`.
+Expected: FAIL - cannot find module `src/fixtures/persist.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -654,7 +654,7 @@ Remove the `.sort()` from the `files.entries()` loop and confirm the
 byte-identical test still passes (it compares one file), then remove the
 `Object.keys(...).sort()` inside `writeFixtures`' bucket construction and
 confirm it fails. Replace `rename` with a direct `writeFile` and confirm the
-temp-file test still passes — it does, which means that test only pins cleanup,
+temp-file test still passes - it does, which means that test only pins cleanup,
 not atomicity. Note that limitation in the commit body. Restore.
 
 - [ ] **Step 6: Commit**
@@ -756,7 +756,7 @@ test('nothing in scope narrows to undefined rather than an empty object', () => 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/scope.ts`.
+Expected: FAIL - cannot find module `src/fixtures/scope.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -779,7 +779,7 @@ export function isScoped(config?: ScopeConfig): boolean {
  * Reduces a full value to only the parts the scope config claims, so a scoped
  * fixture stores prose and nothing else and the rest stays seeded and fast.
  *
- * Walks THROUGH `classify()` — the same reading generation and compilation use.
+ * Walks THROUGH `classify()` - the same reading generation and compilation use.
  * A second interpretation of a schema here is the worst bug class in this
  * project, and "what we asked the model for" diverging from "what we generate"
  * is exactly that bug wearing a different hat.
@@ -851,7 +851,7 @@ export function narrow(
 
 **Note for the implementer:** `classify()` returns a discriminated union. Read
 `src/schema/walk.ts` for the exact member names of the `array` and `object`
-variants before writing this — if they differ from `kind.items` and
+variants before writing this - if they differ from `kind.items` and
 `kind.properties`, use the real ones and keep everything else identical.
 
 - [ ] **Step 4: Run the tests to verify they pass**
@@ -942,7 +942,7 @@ read the top of that file first and match its existing style exactly.
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test /opt/claude-projects/mockingham/test/runtime/pipeline.test.ts`
-Expected: FAIL — the first test returns a generated array, not the fixture.
+Expected: FAIL - the first test returns a generated array, not the fixture.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -952,7 +952,7 @@ In `src/runtime/pipeline.ts`, add to `RespondersInput`:
   /**
    * Consulted before generating. Returns a whole-body fixture, or undefined to
    * fall through. Synchronous by design: a store hit is a Map read, and a lazy
-   * fetch is awaited earlier in `produce()` — design section 2.12. A full
+   * fetch is awaited earlier in `produce()` - design section 2.12. A full
    * response callback therefore sees baked fixtures but never triggers a fetch.
    */
   fixture?: (status: number) => unknown
@@ -1062,7 +1062,7 @@ already has, matching its style.
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test /opt/claude-projects/mockingham/test/runtime/render.test.ts`
-Expected: FAIL — `bio` is still `generated`.
+Expected: FAIL - `bio` is still `generated`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1072,7 +1072,7 @@ In `src/runtime/render.ts`, add to `RenderInput`:
   /**
    * A scoped fixture, applied BENEATH the user's layers. This is what makes
    * `override > fixture > example > generated` fall out of the existing
-   * override machinery instead of a bespoke merge — design section 3.
+   * override machinery instead of a bespoke merge - design section 3.
    */
   fixtureLayer?: OverrideNode
 ```
@@ -1169,7 +1169,7 @@ test('a request carries both schema representations', () => {
     schemaNames: new Map()
   })
   assert.ok(request)
-  // The plain JSON Schema is what makes a non-Anthropic source writable —
+  // The plain JSON Schema is what makes a non-Anthropic source writable -
   // design section 2.3.
   assert.equal((request.jsonSchema as { type?: string }).type, 'object')
   assert.equal(request.zodSchema.safeParse({ bio: 'hi' }).success, true)
@@ -1198,7 +1198,7 @@ test('a recursive schema builds no request', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/source.ts`.
+Expected: FAIL - cannot find module `src/fixtures/source.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1223,7 +1223,7 @@ export interface FixtureRequest {
   /**
    * The response body as plain JSON Schema. This is the field that makes the
    * interface genuinely provider-neutral: a source for another provider needs
-   * this and nothing else from us — design section 2.3.
+   * this and nothing else from us - design section 2.3.
    */
   jsonSchema: Record<string, unknown>
   /** The same schema compiled, for client-side validation by any source. */
@@ -1241,7 +1241,7 @@ export interface FixtureResult {
 
 /**
  * A provider. Results are positionally aligned with `reqs`; `null` is a miss,
- * never an error. Implementations need not be defensive — the driver wraps
+ * never an error. Implementations need not be defensive - the driver wraps
  * them and treats a throw as all-nulls.
  */
 export interface ContentSource {
@@ -1318,7 +1318,7 @@ Expected: PASS, 5 new tests.
 - [ ] **Step 5: Verify by mutation**
 
 Delete the `seen.has(node)` early return in `isRecursive` and confirm the two
-recursion tests hang or fail — if they hang, that is itself the signal. Remove
+recursion tests hang or fail - if they hang, that is itself the signal. Remove
 the `jsonSchema` field and confirm the both-representations test fails. Restore.
 
 - [ ] **Step 6: Commit**
@@ -1558,7 +1558,7 @@ test('a trailing slash on the base url does not double the separator', async () 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/sources/openai.ts`.
+Expected: FAIL - cannot find module `src/fixtures/sources/openai.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -1574,7 +1574,7 @@ export interface OpenAiSourceOptions {
   apiKey?: string
   /**
    * What the server supports, declared rather than probed. A probe costs a
-   * round trip on every cold start and its result is not deterministic —
+   * round trip on every cold start and its result is not deterministic -
    * design section 4.
    */
   structuredOutput?: 'json_schema' | 'json_object' | 'none'
@@ -1802,7 +1802,7 @@ test('bake fills the store for every declared status', async () => {
   assert.equal(store.records().length, 2)
 })
 
-test('error statuses are baked too — they have declared schemas', async () => {
+test('error statuses are baked too - they have declared schemas', async () => {
   const store = createMemoryFixtureStore()
   await bake({
     api: loadApi(doc),
@@ -1894,7 +1894,7 @@ test('a scoped config stores only the scoped paths', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/bake.ts`.
+Expected: FAIL - cannot find module `src/fixtures/bake.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2250,7 +2250,7 @@ test('live mode calls the source on every request', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test /opt/claude-projects/mockingham/test/server/fixtures.test.ts`
-Expected: FAIL — `fixtures` is not a valid `HandlerOptions` key and no fixture is served.
+Expected: FAIL - `fixtures` is not a valid `HandlerOptions` key and no fixture is served.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2298,7 +2298,7 @@ export interface FixtureResolver {
     status: number,
     params: Record<string, string>
   ): Promise<ResolvedFixture | undefined>
-  /** Synchronous lookup for use inside a response callback — never fetches. */
+  /** Synchronous lookup for use inside a response callback - never fetches. */
   peek(
     operation: Operation,
     status: number,
@@ -2411,7 +2411,7 @@ In `src/server/handler.ts`:
 ```ts
   fixtures?: { store?: FixtureStore }
   /**
-   * Already resolved — `createMock` validates the user-facing `LlmConfig` and
+   * Already resolved - `createMock` validates the user-facing `LlmConfig` and
    * constructs the source. The handler only ever sees a `ContentSource`, which
    * keeps provider modules out of the pure core.
    */
@@ -2446,7 +2446,7 @@ callback can read baked fixtures:
 
 ```ts
     // After selection, because the fixture key is per status. Awaited here so
-    // the generate seam below stays synchronous — design section 2.12.
+    // the generate seam below stays synchronous - design section 2.12.
     const fixture = await fixtureResolver.resolve(operation, chosen.status, params)
 ```
 
@@ -2462,7 +2462,7 @@ hook closes over.
 
 ```ts
     // Declared above `responders`; assigned after resolution, read by the hook
-    // at generation time — the same deferral the `ctx` getter already uses.
+    // at generation time - the same deferral the `ctx` getter already uses.
     let resolvedWhole: unknown
 ```
 
@@ -2588,7 +2588,7 @@ test('budget defaults are filled in', () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/config.ts`.
+Expected: FAIL - cannot find module `src/fixtures/config.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2693,7 +2693,7 @@ export function resolveLlm(
 ```
 
 In `src/index.ts`: add `llm?: LlmConfig` and `fixtures?: { store?: FixtureStore }`
-to `MockOptions` (which currently aliases `HandlerOptions` — change it to an
+to `MockOptions` (which currently aliases `HandlerOptions` - change it to an
 interface extending `Omit<HandlerOptions, 'llm'>`), call `resolveLlm` before
 `createHandler`, pass the result through, and add `bake()` to the `Mock` surface
 delegating to the `bake` driver with the same store, source, and compiler.
@@ -2733,7 +2733,7 @@ git commit -m 'feat: validate llm configuration and resolve the provider' -m 'Pe
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `test/server/cli.test.ts` — match the existing style for invoking the
+Append to `test/server/cli.test.ts` - match the existing style for invoking the
 CLI in that file:
 
 ```ts
@@ -2760,7 +2760,7 @@ test('bake resolves the base url from the environment with an ollama default', (
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test /opt/claude-projects/mockingham/test/server/cli.test.ts`
-Expected: FAIL — `resolveBakeTarget` is not exported.
+Expected: FAIL - `resolveBakeTarget` is not exported.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2768,7 +2768,7 @@ In `src/server/cli.ts`, export the resolution helper and add the subcommand:
 
 ```ts
 /**
- * Environment reads live here and nowhere else — the pure core takes an
+ * Environment reads live here and nowhere else - the pure core takes an
  * explicit baseUrl. The Ollama default is what makes `mockingham bake doc.json`
  * work with no configuration at all.
  */
@@ -2924,7 +2924,7 @@ test('the single-call path sends fallbacks and the effort setting', async () => 
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/sources/anthropic.ts`.
+Expected: FAIL - cannot find module `src/fixtures/sources/anthropic.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -2936,7 +2936,7 @@ Key points the implementation must honor:
 
 - `model` defaults to `'claude-opus-5'`.
 - `output_config: { format: zodOutputFormat(request.zodSchema), effort: 'low' }`
-  — `format` and `effort` are siblings (design 2.8).
+  (`format` and `effort` are siblings; design 2.8).
 - `thinking` is left at its default (adaptive) and `max_tokens` is set to
   `16000`, sized for thinking plus body (design 2.7).
 - The system block carries `cache_control: { type: 'ephemeral' }` and combines
@@ -2986,7 +2986,7 @@ Append to `test/fixtures/sources/anthropic.test.ts`:
 
 ```ts
 test('above the threshold the batch path runs and results realign by custom_id', async () => {
-  // Deliberately returned in reverse order — the API makes no ordering promise,
+  // Deliberately returned in reverse order - the API makes no ordering promise,
   // and getting this wrong attaches the wrong body to the wrong request with no
   // error at all. Design section 2.6.
   const source = createAnthropicSource({
@@ -3073,7 +3073,7 @@ test('the batch path does not send fallbacks', async () => {
   })
   await source.generate([request('k1'), request('k2')])
   const requests = sent.requests as Array<{ params: Record<string, unknown> }>
-  // fallbacks is rejected on the Batches API — design section 2.5.
+  // fallbacks is rejected on the Batches API - design section 2.5.
   assert.equal('fallbacks' in (requests[0]?.params ?? {}), false)
 })
 ```
@@ -3081,7 +3081,7 @@ test('the batch path does not send fallbacks', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `node --test /opt/claude-projects/mockingham/test/fixtures/sources/anthropic.test.ts`
-Expected: FAIL — the batch path does not exist; `parse` is called and throws.
+Expected: FAIL - the batch path does not exist; `parse` is called and throws.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -3182,7 +3182,7 @@ test('a recorded value failing the schema is a miss', async () => {
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — cannot find module `src/fixtures/sources/recorded.ts`.
+Expected: FAIL - cannot find module `src/fixtures/sources/recorded.ts`.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -3200,7 +3200,7 @@ export interface RecordedEntry {
 }
 
 /**
- * Answers from responses recorded upstream. No network, no dependency — this
+ * Answers from responses recorded upstream. No network, no dependency - this
  * source only ever reads what it was handed.
  */
 export function createRecordedSource(entries: RecordedEntry[]): ContentSource {
@@ -3270,7 +3270,7 @@ import { loadApi } from '../../src/spec/load.ts'
 
 // A source written the way a third-party author would write one: it reads
 // FixtureRequest and returns FixtureResult, importing nothing from mockingham
-// and nothing from zod. Design section 2.3 — if this stops compiling or stops
+// and nothing from zod. Design section 2.3 - if this stops compiling or stops
 // working, the interface has become neutral in name only.
 const foreignSource = {
   generate: async (reqs: Array<{ jsonSchema: Record<string, unknown>; status: number }>) =>
@@ -3395,7 +3395,7 @@ const doc = {
 }
 
 // off and post-bake serving are fully deterministic. `lazy` is deterministic
-// once warm. `live` is deliberately NOT deterministic — design section 2.11 —
+// once warm. `live` is deliberately NOT deterministic - design section 2.11 -
 // and is excluded here by design rather than by oversight.
 test('a baked store serves byte-identical bodies across handler instances', async () => {
   const build = (): ReturnType<typeof createHandler> => {
@@ -3414,7 +3414,7 @@ test('a baked store serves byte-identical bodies across handler instances', asyn
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `npm test --prefix /opt/claude-projects/mockingham`
-Expected: FAIL — `warnOnStaleFixtures` is not exported.
+Expected: FAIL - `warnOnStaleFixtures` is not exported.
 
 - [ ] **Step 3: Write the implementation**
 
@@ -3423,7 +3423,7 @@ Add to `src/fixtures/persist.ts`:
 ```ts
 /**
  * A schemaHash mismatch means the document moved under a generated fixture.
- * It warns and the fixture is STILL SERVED — design section 2.13. Rejecting it
+ * It warns and the fixture is STILL SERVED - design section 2.13. Rejecting it
  * would silently discard reviewed, committed, hand-edited data, which is the
  * opposite of what the store is for. `bake` is what regenerates it.
  *
@@ -3514,6 +3514,6 @@ adding during task 11 if it comes together cheaply; it is not worth blocking on.
 
 **Plan complete and saved to `docs/superpowers/plans/2026-08-13-mockingham-fixtures-llm.md`. Two execution options:**
 
-**1. Subagent-Driven (recommended)** — a fresh subagent per task, review between tasks, fast iteration.
+**1. Subagent-Driven (recommended)** - a fresh subagent per task, review between tasks, fast iteration.
 
-**2. Inline Execution** — execute tasks in this session using executing-plans, batch execution with checkpoints.
+**2. Inline Execution** - execute tasks in this session using executing-plans, batch execution with checkpoints.

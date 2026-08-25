@@ -46,7 +46,7 @@ test('multiple stripped constraints on one node compose in sorted-keyword order,
   const stripped = stripUnsupportedKeywords(schema) as { description: string }
   // 'maximum' sorts before 'minimum'.
   assert.equal(stripped.description, 'Maximum value: 100. Minimum value: 0.')
-  // Running it again produces byte-identical output — required for the
+  // Running it again produces byte-identical output - required for the
   // request to be byte-identical across processes (prompt caching, bake
   // reproducibility).
   const again = stripUnsupportedKeywords(schema) as { description: string }
@@ -88,7 +88,7 @@ test('the input is never mutated, at any nesting depth', () => {
   assert.deepEqual(city, { type: 'string', minLength: 1 })
 })
 
-test('format is not stripped by default — Anthropic documents it as a supported keyword', () => {
+test('format is not stripped by default - Anthropic documents it as a supported keyword', () => {
   const schema = { type: 'string', format: 'uuid' }
   const stripped = stripUnsupportedKeywords(schema) as Record<string, unknown>
   assert.equal(stripped.format, 'uuid')
@@ -125,7 +125,7 @@ test('a schema whose PROPERTY NAMES collide with stripped keywords keeps every o
 
 test('a real constraint nested under a property named after a keyword is still stripped', () => {
   // `minimum` is both a property NAME here and, on ITS OWN value, carries a
-  // real `minimum` KEYWORD — proving the fix does not overcorrect into never
+  // real `minimum` KEYWORD - proving the fix does not overcorrect into never
   // stripping anything under such a property.
   const schema = {
     type: 'object',
@@ -185,9 +185,9 @@ test('prefixItems is walked as a list of schemas, same as allOf/anyOf/oneOf', ()
   assert.equal(stripped.prefixItems[1]?.minimum, undefined)
 })
 
-test('data-only keys — const, default, examples, enum — are copied through untouched, never walked as schemas', () => {
+test('data-only keys - const, default, examples, enum - are copied through untouched, never walked as schemas', () => {
   // A `default`/`const`/`examples` value can itself contain an object whose
-  // keys happen to collide with stripped keywords or schema-map keywords —
+  // keys happen to collide with stripped keywords or schema-map keywords -
   // it must never be mistaken for a nested schema.
   const schema = {
     type: 'object',
