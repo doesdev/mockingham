@@ -1,7 +1,8 @@
 import type { Api, Operation } from '../spec/types.ts'
 import type { ZodType } from 'zod'
 import type { Delivery } from '../webhooks/deliver.ts'
-import type { EmitOptions } from '../server/handler.ts'
+import type { EmitOptions, Capabilities } from '../server/handler.ts'
+import type { Registration } from '../webhooks/registry.ts'
 import type { CompiledConfig } from '../runtime/config.ts'
 import type { RuntimeOverride } from '../runtime/overrides.ts'
 
@@ -28,10 +29,21 @@ export interface McpContext {
   outage(target: string, opts?: McpOutageOptions): Promise<void>
   override(target: string, value: RuntimeOverride): Promise<void>
   clearOverrides(target?: string): Promise<void>
+  /** Stored union-branch preference — design §5.5's `set_variant`. */
+  setVariant(target: string, name: string): Promise<void>
+  clearVariants(target?: string): Promise<void>
   setSeed(seed: string): Promise<void>
   reset(): Promise<void>
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  /** Re-sends one recorded delivery verbatim — design §7.3. */
+  redeliver(id: string): Promise<Delivery>
   deliveries(): Delivery[]
+  register(webhook: string, url: string, scope?: string): Promise<void>
+  unregister(webhook: string, scope?: string): Promise<void>
+  /** Registered webhook destinations, URLs included — design §9's `list_registrations`. */
+  registrations(webhook?: string): Promise<Registration[]>
+  /** Which operations recall, register, or carry an idempotency key — design §9. */
+  capabilities(): Capabilities
   /** Webhook name → the operation targets configured to emit it. See design §3.6. */
   emitters: Map<string, string[]>
   /**
@@ -43,7 +55,7 @@ export interface McpContext {
 }
 
 /**
- * The ten members of `McpContext` a `Mock` supplies directly. Typed
+ * The members of `McpContext` a `Mock` supplies directly. Typed
  * structurally rather than as `Mock` on purpose: `../index.ts` imports this
  * module, so naming its type here would close a cycle. It is also the whole
  * point of the narrowing — this is every part of a `Mock` a tool may reach.
@@ -55,10 +67,17 @@ export interface McpContextSource {
   outage(target: string, opts?: McpOutageOptions): Promise<void>
   override(target: string, value: RuntimeOverride): Promise<void>
   clearOverrides(target?: string): Promise<void>
+  setVariant(target: string, name: string): Promise<void>
+  clearVariants(target?: string): Promise<void>
   setSeed(seed: string): Promise<void>
   reset(): Promise<void>
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  redeliver(id: string): Promise<Delivery>
   deliveries(): Delivery[]
+  register(webhook: string, url: string, scope?: string): Promise<void>
+  unregister(webhook: string, scope?: string): Promise<void>
+  registrations(webhook?: string): Promise<Registration[]>
+  capabilities(): Capabilities
 }
 
 /**
@@ -79,10 +98,17 @@ export function createMcpContext(
     outage: (target, opts) => source.outage(target, opts),
     override: (target, value) => source.override(target, value),
     clearOverrides: (target) => source.clearOverrides(target),
+    setVariant: (target, name) => source.setVariant(target, name),
+    clearVariants: (target) => source.clearVariants(target),
     setSeed: (seed) => source.setSeed(seed),
     reset: () => source.reset(),
     emit: (name, opts) => source.emit(name, opts),
+    redeliver: (id) => source.redeliver(id),
     deliveries: () => source.deliveries(),
+    register: (webhook, url, scope) => source.register(webhook, url, scope),
+    unregister: (webhook, scope) => source.unregister(webhook, scope),
+    registrations: (webhook) => source.registrations(webhook),
+    capabilities: () => source.capabilities(),
     emitters: computeEmitters(source.api.operations, configs),
     origin
   }

@@ -22,13 +22,13 @@ import { createValidationStage } from '../runtime/validate.ts'
 import { createAuthStage } from '../runtime/auth.ts'
 import type { AuthConfig } from '../runtime/auth.ts'
 import { createResponders } from '../runtime/pipeline.ts'
-import { createFailureStage, compilePolicies } from '../runtime/failure.ts'
+import { createFailureStage, compilePolicies, targetKey } from '../runtime/failure.ts'
 import type { Directive, FailurePolicy } from '../runtime/failure.ts'
 import { createMemoryStore } from '../runtime/store.ts'
 import type { Store } from '../runtime/store.ts'
 import { requestIdFor, emitLog, reportError } from '../runtime/logging.ts'
 import type { LogSink, ErrorSink } from '../runtime/logging.ts'
-import { createIdempotencyStage, resolveIdempotency } from '../runtime/idempotency.ts'
+import { createIdempotencyStage, resolveIdempotency, isIdempotent } from '../runtime/idempotency.ts'
 import type { IdempotencyConfig } from '../runtime/idempotency.ts'
 import {
   emitWebhook, redeliverWebhook, resolveWebhook, createDeliveryLog
@@ -60,6 +60,45 @@ export interface EmitOptions {
   scope?: string
   /** Layered over the generated payload, exactly as a response body override is. */
   body?: OverrideNode
+}
+
+/**
+ * Where an operation's idempotency key comes from — refinements design §9. A
+ * discriminated pair rather than a bare string, because "Idempotency-Key" and
+ * "{$request.body#/meta/requestId}" are not the same kind of thing and a
+ * consumer that has to guess which it is holding will guess wrong.
+ */
+export interface IdempotencyKeySource {
+  source: 'header' | 'expression'
+  value: string
+}
+
+/** What one operation does beyond generating a response — design §9. */
+export interface OperationCapabilities {
+  /** The operation's control-plane target key. */
+  target: string
+  /** Indices of the link rules this operation RECORDS for. */
+  linksFrom: number[]
+  /** Indices of the link rules this operation RECALLS from. */
+  linksTo: number[]
+  registersWebhook: string[]
+  unregistersWebhook: string[]
+  idempotencyKey?: IdempotencyKeySource
+}
+
+/**
+ * The read-only capability picture design §9 exposes through the MCP read
+ * tools. Computed once at construction from the compiled link rules, the
+ * `registerVia` capture rules and the resolved idempotency config — all of
+ * which are handler internals, which is why it is surfaced from here rather
+ * than recomputed beside them. Every array is sorted or in rule-index order:
+ * invariant 2 forbids an unordered iteration deciding anything observable.
+ */
+export interface Capabilities {
+  /** Keyed by `targetKey(operation)`. */
+  operations: Map<string, OperationCapabilities>
+  /** Webhook names with a `registerVia` or `unregisterVia` configured, sorted. */
+  registryWebhooks: string[]
 }
 
 export interface Handler {
@@ -109,6 +148,11 @@ export interface Handler {
    * even when the Store is shared — design §13.1.
    */
   registrations(webhook?: string): Promise<Registration[]>
+  /**
+   * Which operations recall, register or carry an idempotency key — design §9.
+   * Read-only and computed at construction; nothing a request does changes it.
+   */
+  capabilities(): Capabilities
   /** The imperative equivalent of a `registerVia` operation. */
   register(webhook: string, url: string, scope?: string): Promise<void>
   unregister(webhook: string, scope?: string): Promise<void>
@@ -340,6 +384,46 @@ export function createHandler(
       addRule(config.unregisterVia.operationId, { kind: 'unregister', webhook: name, scope })
     }
   }
+
+  // Design §9. Every input is settled by now and none of it moves again, so
+  // this is computed once here rather than on each read-tool call.
+  const capabilities: Capabilities = (() => {
+    const registryWebhooks = new Set<string>()
+    const operations = new Map<string, OperationCapabilities>()
+    for (const operation of api.operations) {
+      const key = targetKey(operation)
+      const registers: string[] = []
+      const unregisters: string[] = []
+      for (const rule of registryRules.get(operation) ?? []) {
+        if (rule.kind === 'register') registers.push(rule.webhook)
+        else if (rule.kind === 'unregister') unregisters.push(rule.webhook)
+      }
+      const expression = idempotency.operations.get(key)
+      operations.set(key, {
+        target: key,
+        // Rule index order, which is the order the caller declared them in.
+        linksFrom: linkRules.filter((r) => r.from.includes(operation)).map((r) => r.index),
+        linksTo: linkRules.filter((r) => r.to.includes(operation)).map((r) => r.index),
+        registersWebhook: registers.sort(),
+        unregistersWebhook: unregisters.sort(),
+        // A configured expression is reported as itself; otherwise, if the
+        // operation is idempotent at all, the key comes from the header.
+        idempotencyKey: expression !== undefined
+          ? { source: 'expression', value: expression }
+          : isIdempotent(operation, idempotency)
+            ? { source: 'header', value: idempotency.header }
+            : undefined
+      })
+    }
+    for (const rules of registryRules.values()) {
+      for (const rule of rules) {
+        if (rule.kind === 'register' || rule.kind === 'unregister') {
+          registryWebhooks.add(rule.webhook)
+        }
+      }
+    }
+    return { operations, registryWebhooks: [...registryWebhooks].sort() }
+  })()
 
   const deliveryLog = createDeliveryLog()
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
@@ -1217,6 +1301,7 @@ export function createHandler(
     deliveries: () => deliveryLog.all(),
     clearDeliveries: () => deliveryLog.clear(),
     registrations: (webhook) => registry.all(webhook),
+    capabilities: () => capabilities,
     register: (webhook, url, scope) => registry.register(webhook, url, scope),
     unregister: (webhook, scope) => registry.unregister(webhook, scope),
     settled,

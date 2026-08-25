@@ -79,9 +79,9 @@ an explicit `await handle.connectStdio()` before it talks JSON-RPC — which is
 exactly what the `mockingham mcp` subcommand does on your behalf
 (`src/server/cli.ts`). Only `'http'` writes anything into the mount slot.
 
-## The fourteen tools
+## The twenty tools
 
-Seven read tools, always available:
+Eight read tools, always available:
 
 - `list_operations` — method, path, `operationId`, summary, and tags for
   every operation; filter with `tag` or `pathPrefix`.
@@ -98,8 +98,10 @@ Seven read tools, always available:
   and which operations are configured to emit them.
 - `list_deliveries` — webhook deliveries recorded so far, oldest first,
   filterable by webhook name and outcome.
+- `list_registrations` — the webhook destinations registered right now, URLs
+  included, filterable by webhook name.
 
-Seven write tools, gated behind `--write` (see below):
+Twelve write tools, gated behind `--write` (see below):
 
 - `fail_next` — make the next request(s) to a target fail.
 - `outage` — fail every request to a target for a window of time.
@@ -114,6 +116,17 @@ Seven write tools, gated behind `--write` (see below):
 - `clear_overrides` — remove runtime overrides set by `set_override`. With no
   target, clears every operation. Never touches the overrides in your config
   file.
+- `set_variant` — pin which branch of a union an operation generates. A
+  `Prefer: variant=` header on a request outranks it; a name matching no
+  branch falls through to the seeded pick.
+- `clear_variants` — remove variant preferences set by `set_variant`. With no
+  target, clears every operation.
+- `redeliver_webhook` — send a recorded delivery again byte for byte, under
+  the same delivery id. An unknown or aged-out id is an error; a delivery that
+  fails is a returned outcome, not an error.
+- `register_webhook_destination` — point a declared webhook at a URL, as a
+  subscription operation would. Optionally scoped.
+- `unregister_webhook_destination` — remove one scope's registration.
 
 `describe_operation`, `sample_response`, and `get_auth_requirements` all
 identify an operation by `operationId`, or by `method` and `path` together.

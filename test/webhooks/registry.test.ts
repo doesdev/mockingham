@@ -285,8 +285,13 @@ test('a registerVia url reading the RESPONSE body still registers', async () => 
   // undefined body and silently registered NOTHING — an emit then fell through
   // to `unresolved` forever, with no error anywhere. Found by the Task 3
   // implementer as the same defect on the link path.
-  const responseDoc = structuredClone(doc)
-  responseDoc.paths['/subscriptions/{name}'].put.responses = {
+  // Cast through `unknown` because `doc`'s inferred literal type narrows this
+  // response to `{ description: string }`. An OpenAPI document is data, not a
+  // typed API surface — `loadApi` validates it at runtime.
+  const responseDoc = structuredClone(doc) as unknown as {
+    paths: Record<string, Record<string, { responses: Record<string, unknown> }>>
+  }
+  responseDoc.paths['/subscriptions/{name}']!.put!.responses = {
     '200': {
       description: 'ok',
       content: {
@@ -301,7 +306,7 @@ test('a registerVia url reading the RESPONSE body still registers', async () => 
     }
   }
 
-  const mock = createMock(responseDoc, {
+  const mock = createMock(responseDoc as unknown as Record<string, unknown>, {
     captureOnly: true,
     webhooks: {
       orderStatusChanged: {

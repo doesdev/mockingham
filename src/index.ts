@@ -1,7 +1,7 @@
 import { loadApi } from './spec/load.ts'
 import type { Api } from './spec/types.ts'
 import { createHandler } from './server/handler.ts'
-import type { HandlerOptions, EmitOptions } from './server/handler.ts'
+import type { HandlerOptions, EmitOptions, Capabilities } from './server/handler.ts'
 import { createNodeServer } from './server/node.ts'
 import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
@@ -86,6 +86,13 @@ export interface Mock {
    * webhook then scope — refinements design §3.5.
    */
   registrations(webhook?: string): Promise<Registration[]>
+  /**
+   * Which operations recall, register or carry an idempotency key — refinements
+   * design §9. What the MCP read tools report; exposed here because a consumer
+   * embedding the mock has the same "will this round-trip?" question an agent
+   * does.
+   */
+  capabilities(): Capabilities
   /**
    * Registers a destination imperatively, as a `registerVia` operation would.
    * An absent scope is the unscoped registration.
@@ -252,6 +259,7 @@ export function createMock(
     deliveries: () => handler.deliveries(),
     clearDeliveries: () => handler.clearDeliveries(),
     registrations: (webhook) => handler.registrations(webhook),
+    capabilities: () => handler.capabilities(),
     register: (webhook, url, scope) => handler.register(webhook, url, scope),
     unregister: (webhook, scope) => handler.unregister(webhook, scope),
     settled: () => handler.settled(),
@@ -325,6 +333,9 @@ export function createMock(
 export { loadApi } from './spec/load.ts'
 export type { Api, Operation, Schema } from './spec/types.ts'
 export type { HandlerOptions } from './server/handler.ts'
+export type {
+  Capabilities, OperationCapabilities, IdempotencyKeySource
+} from './server/handler.ts'
 export type { Delivery } from './webhooks/deliver.ts'
 export type { WebhookConfig, RegisterVia, UnregisterVia } from './webhooks/emit.ts'
 export type { Registration } from './webhooks/registry.ts'
