@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, isNullable, mergeAllOf } from '../../src/schema/walk.ts'
+import {
+  classify, isNullable, mergeAllOf, variantName
+} from '../../src/schema/walk.ts'
 import type { Schema } from '../../src/spec/types.ts'
 
 test('a self-referential allOf merges instead of overflowing the stack', () => {
@@ -204,4 +206,27 @@ test('union mode distinguishes oneOf from anyOf', () => {
   const any = classify({ anyOf: [{ type: 'string' }] })
   assert.equal(any.kind, 'union')
   if (any.kind === 'union') assert.equal(any.mode, 'any')
+})
+
+test('variantName reads a formal discriminator property', () => {
+  const branch: Schema = {
+    type: 'object', properties: { outcome: { const: 'created' } }
+  }
+  assert.equal(variantName(branch, 'outcome'), 'created')
+})
+
+test('variantName falls back to any const-valued property', () => {
+  // No discriminator argument: the common shape, which carries no
+  // `discriminator` object at all.
+  const branch: Schema = {
+    type: 'object', properties: { outcome: { const: 'conflict' } }
+  }
+  assert.equal(variantName(branch, undefined), 'conflict')
+})
+
+test('variantName ignores a non-const property', () => {
+  const branch: Schema = {
+    type: 'object', properties: { id: { type: 'string' } }
+  }
+  assert.equal(variantName(branch, 'id'), undefined)
 })

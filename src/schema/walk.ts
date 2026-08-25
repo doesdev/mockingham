@@ -110,6 +110,45 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
   return result
 }
 
+/**
+ * The name a union branch answers to, for `Prefer: variant=`.
+ *
+ * Schema interpretation lives here, beside `classify`, and nowhere else
+ * (invariant 1) — generation calls this rather than reading `properties`
+ * itself.
+ *
+ * With a formal `discriminator`, that one property names the branch. Without
+ * one, the first const-valued property does, which covers the common
+ * `outcome: { const: 'conflict' }` shape that carries no `discriminator`
+ * object. Property order is declaration order, so the choice is deterministic
+ * (invariant 2). A branch with no const-valued property has no name and can
+ * never be selected — the caller falls through to the seeded pick.
+ */
+export function variantName(
+  branch: Schema,
+  discriminator?: string
+): string | undefined {
+  const merged = mergeAllOf(branch)
+  const properties = merged.properties
+  if (!properties) return undefined
+
+  const names =
+    discriminator === undefined ? Object.keys(properties) : [discriminator]
+
+  for (const name of names) {
+    const property = properties[name]
+    if (property === undefined) continue
+    const kind = classify(property)
+    if (kind.kind !== 'const') continue
+    if (typeof kind.value === 'string') return kind.value
+    if (typeof kind.value === 'number' || typeof kind.value === 'boolean') {
+      return String(kind.value)
+    }
+  }
+
+  return undefined
+}
+
 export function classify(input: Schema): SchemaKind {
   const schema = mergeAllOf(input)
 

@@ -130,3 +130,42 @@ test('a resolver may return a promise, left unsettled for the override pass', ()
   ) as Record<string, unknown>
   assert.ok(value['id'] instanceof Promise)
 })
+
+const variantUnion: Schema = {
+  oneOf: [
+    { type: 'object', properties: { outcome: { const: 'created' }, id: { type: 'string' } } },
+    { type: 'object', properties: { outcome: { const: 'conflict' } } }
+  ]
+}
+
+test('a requested variant selects its branch', () => {
+  // The plan asked for `conflict` under seed `s`, but that is exactly what the
+  // seeded pick already returns — the test passed before the feature existed
+  // and could not fail. Requesting the OTHER branch is what has teeth, and the
+  // baseline assertion below keeps it that way if the PRNG ever changes.
+  const seeded = generateValue(variantUnion, createRng('s'), {}) as Record<string, unknown>
+  assert.equal(seeded.outcome, 'conflict', 'the seeded pick must differ from the requested variant')
+
+  const value = generateValue(
+    variantUnion, createRng('s'), { variant: 'created' }
+  ) as Record<string, unknown>
+  assert.equal(value.outcome, 'created')
+  // Assert the branch, not just the discriminator: a branch chosen by luck
+  // would also carry the right outcome half the time.
+  assert.equal(typeof value.id, 'string')
+})
+
+test('an unmatched variant falls through to the seeded pick', () => {
+  const seeded = generateValue(variantUnion, createRng('s'), {})
+  const unmatched = generateValue(variantUnion, createRng('s'), { variant: 'nonexistent' })
+  assert.deepEqual(unmatched, seeded)
+})
+
+test('variant selection is deterministic', () => {
+  const first = generateValue(variantUnion, createRng('s'), { variant: 'created' })
+  const second = generateValue(variantUnion, createRng('s'), { variant: 'created' })
+  assert.deepEqual(first, second)
+  // Pin the branch too, or this passes on any two identical values — including
+  // the seeded pick that selection was supposed to override.
+  assert.equal((first as Record<string, unknown>).outcome, 'created')
+})

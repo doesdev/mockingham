@@ -1,5 +1,5 @@
 import type { Schema } from '../spec/types.ts'
-import { classify, mergeAllOf } from '../schema/walk.ts'
+import { classify, mergeAllOf, variantName } from '../schema/walk.ts'
 import { arrayLength } from './constraints.ts'
 import type { Rng } from './rng.ts'
 import type { ResolverLookup } from '../resolve/resolvers.ts'
@@ -14,6 +14,11 @@ export interface GenerateOptions {
   schemaNames?: Map<Schema, string>
   /** Passed through to resolver callbacks. Typed loosely to avoid a cycle. */
   ctx?: unknown
+  /**
+   * Selects a union branch by its discriminator value, at every union in the
+   * tree. A name matching no branch falls through to the seeded pick.
+   */
+  variant?: string
 }
 
 const DEFAULT_MAX_DEPTH = 3
@@ -67,8 +72,23 @@ export function generateValue(
         return generateBoolean(rng)
       case 'null':
         return null
-      case 'union':
-        return depth >= maxDepth ? null : walk(rng.pick(kind.variants), depth + 1)
+      case 'union': {
+        if (depth >= maxDepth) return null
+        // A requested variant selects its branch directly, which deliberately
+        // skips the `rng.pick` call — so a request with a variant produces a
+        // different byte stream than one without. The same variant always
+        // produces the same bytes, which is what invariant 2 requires.
+        const requested = options.variant
+        const chosen =
+          requested === undefined
+            ? undefined
+            : kind.variants.find(
+                (branch) => variantName(branch, kind.discriminator) === requested
+              )
+        // An unmatched name falls through to the seeded pick rather than
+        // failing, matching `Prefer: status` (src/runtime/select.ts).
+        return walk(chosen ?? rng.pick(kind.variants), depth + 1)
+      }
       case 'array': {
         if (depth >= maxDepth) return []
         const { min, max } = arrayLength(merged)
