@@ -38,7 +38,8 @@ test('resolveIdempotency fills the master spec defaults', () => {
     ttlMs: 86_400_000,
     inFlightTtlMs: 30_000,
     scope: ['key', 'route', 'bodyHash'],
-    conflictStatus: 409
+    conflictStatus: 409,
+    operations: new Map()
   })
 })
 
@@ -57,6 +58,32 @@ test('header matching is case-insensitive', () => {
 
 test('an operation with no such parameter is not enabled by default', () => {
   assert.equal(isIdempotent(find('patchCart'), resolveIdempotency()), false)
+})
+
+test('an operation with a configured body pointer is idempotent', () => {
+  // The document declares NO Idempotency-Key header on patchCart and config
+  // names no method, so the configured pointer is the only route to true.
+  const config = resolveIdempotency({
+    operations: { patchCart: { key: '{$request.body#/meta/requestId}' } }
+  })
+  assert.equal(isIdempotent(find('patchCart'), config), true)
+  // And it enables only what it names.
+  assert.equal(isIdempotent(find('listOrders'), config), false)
+})
+
+test('a configured body pointer resolves through a control-plane target', () => {
+  const config = resolveIdempotency(
+    { operations: { '* /carts': { key: '{$request.body#/id}' } } },
+    api.operations
+  )
+  assert.equal(isIdempotent(find('patchCart'), config), true)
+})
+
+test('a configured target matching no operation throws at construction', () => {
+  assert.throws(
+    () => resolveIdempotency({ operations: { nope: { key: '{$request.body#/id}' } } }, api.operations),
+    /matches no operation/
+  )
 })
 
 test('config.methods enables an operation that declares nothing', () => {

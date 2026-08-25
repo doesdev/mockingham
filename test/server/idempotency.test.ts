@@ -293,3 +293,107 @@ test('a respond callback returning an already-read Response still returns it', a
   assert.equal(response.status, 201)
   assert.ok(errors.length > 0)
 })
+
+/**
+ * Body-pointer keys (delta design §6). A separate document, because the point
+ * is an operation that declares NO Idempotency-Key header parameter and whose
+ * method config names nothing — the configured pointer is the only route to
+ * idempotency. It also declares no `security`, so auth (stage 3) cannot
+ * short-circuit before the idempotency stage (stage 5) is reached.
+ */
+const eventsApi = loadApi({
+  openapi: '3.1.0',
+  paths: {
+    '/events': {
+      post: {
+        operationId: 'deliverEvent',
+        requestBody: { content: { 'application/json': { schema: { type: 'object' } } } },
+        responses: {
+          '200': {
+            description: 'ok',
+            content: { 'application/json': { schema: { type: 'object' } } }
+          }
+        }
+      }
+    }
+  }
+})
+
+/**
+ * A counter, for the same reason as `counting()` above: seeded generation makes
+ * two real executions byte-identical, so comparing bodies alone would pass with
+ * idempotency removed entirely. Counting executions is the mechanism under test.
+ */
+function eventHandler(body: unknown) {
+  const state = { runs: 0 }
+  const handle = createHandler(eventsApi, {
+    seed: 'idem',
+    idempotency: { operations: { deliverEvent: { key: '{$request.body#/meta/requestId}' } } },
+    operations: {
+      deliverEvent: {
+        respond: (ctx: Ctx) => {
+          state.runs += 1
+          return ctx.respond(200, { ok: true })
+        }
+      }
+    }
+  }).fetch
+  const send = () =>
+    handle(
+      new Request('http://mock/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    )
+  return { state, send }
+}
+
+test('a body pointer that resolves to nothing leaves the request non-idempotent', async () => {
+  const { state, send } = eventHandler({ meta: {} })
+
+  const first = await send()
+  const second = await send()
+
+  assert.equal(first.status, 200)
+  assert.equal(second.status, 200)
+  // The specific outcome, not merely "no error": the request really executed
+  // twice, and nothing was replayed.
+  assert.equal(state.runs, 2)
+  assert.equal(second.headers.get('idempotent-replay'), null)
+})
+
+test('the same body pointer value replays', async () => {
+  const { state, send } = eventHandler({ meta: { requestId: 'r-1' } })
+
+  await send()
+  const second = await send()
+
+  assert.equal(state.runs, 1)
+  assert.equal(second.headers.get('idempotent-replay'), 'true')
+})
+
+test('a different body under the same body-pointer key conflicts', async () => {
+  // The interaction §6.4 records: the pointer key lives INSIDE the body it is
+  // fingerprinted against, so the same requestId with any other field differing
+  // is MOCK_IDEMPOTENCY_MISMATCH under the default scope.
+  const handle = createHandler(eventsApi, {
+    seed: 'idem',
+    idempotency: { operations: { deliverEvent: { key: '{$request.body#/meta/requestId}' } } }
+  }).fetch
+  const send = (item: string) =>
+    handle(
+      new Request('http://mock/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ meta: { requestId: 'r-2' }, item })
+      })
+    )
+
+  await send('a')
+  const response = await send('b')
+
+  assert.equal(response.status, 409)
+  const body = (await response.json()) as { error: { code: string } }
+  assert.equal(body.error.code, 'MOCK_IDEMPOTENCY_MISMATCH')
+})
