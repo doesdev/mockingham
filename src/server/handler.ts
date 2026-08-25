@@ -8,9 +8,11 @@ import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, EmitCtx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
-import { isSupported } from '../webhooks/expr.ts'
+import { isSupported, resolveExpression } from '../webhooks/expr.ts'
 import { runCapture } from '../runtime/capture.ts'
 import type { CaptureRule } from '../runtime/capture.ts'
+import { compileLinkRules, createLinkTable } from '../runtime/link.ts'
+import type { CompiledLinkRule, LinkRule } from '../runtime/link.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
@@ -28,8 +30,13 @@ import { requestIdFor, emitLog, reportError } from '../runtime/logging.ts'
 import type { LogSink, ErrorSink } from '../runtime/logging.ts'
 import { createIdempotencyStage, resolveIdempotency } from '../runtime/idempotency.ts'
 import type { IdempotencyConfig } from '../runtime/idempotency.ts'
-import { emitWebhook, resolveWebhook, createDeliveryLog } from '../webhooks/emit.ts'
+import {
+  emitWebhook, redeliverWebhook, resolveWebhook, createDeliveryLog
+} from '../webhooks/emit.ts'
 import type { WebhookConfig, ResolvedWebhook } from '../webhooks/emit.ts'
+import { createRegistry, normalizeExpression } from '../webhooks/registry.ts'
+import type { Registration } from '../webhooks/registry.ts'
+import { resolveTarget } from '../resolve/target.ts'
 import type { Delivery } from '../webhooks/deliver.ts'
 import { createFixtureResolver } from '../fixtures/resolve.ts'
 import type { ResolvedLlm } from '../fixtures/resolve.ts'
@@ -37,13 +44,20 @@ import { createMemoryFixtureStore } from '../fixtures/store.ts'
 import type { FixtureStore } from '../fixtures/store.ts'
 import { createCompiler } from '../schema/compile.ts'
 import { readOverride } from '../runtime/overrides.ts'
+import { readVariant } from '../runtime/variant.ts'
 
 export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
 /** Passed to `Handler.emit` — the imperative trigger. */
 export interface EmitOptions {
-  /** Destination tier 1: wins over a captured or configured url. */
+  /** Destination tier 1: wins over a registered, captured or configured url. */
   to?: string
+  /**
+   * Which registration this emission addresses. An explicit scope wins over a
+   * configured `scopeBy` expression, exactly as `to` wins over any resolved
+   * destination. Absent addresses the unscoped registration — design §3.4.
+   */
+  scope?: string
   /** Layered over the generated payload, exactly as a response body override is. */
   body?: OverrideNode
 }
@@ -74,9 +88,30 @@ export interface Handler {
    * `close()` genuinely wait for it rather than racing ahead of it.
    */
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  /**
+   * Re-sends a recorded delivery's bytes — refinements design §7.3. Same body,
+   * same signature header, same destination, same `id`; the payload is not
+   * regenerated and the destination is not re-resolved. Appends a second record
+   * carrying the same id.
+   *
+   * Rejects on an id that is not in the log, or one that has aged out of it —
+   * both are caller errors, like an undeclared webhook name. A redelivery that
+   * FAILS is still a recorded `Delivery`, never a rejection.
+   */
+  redeliver(id: string): Promise<Delivery>
   /** Oldest first. */
   deliveries(): Delivery[]
   clearDeliveries(): void
+  /**
+   * Every known webhook destination registration, sorted by webhook then
+   * scope. Sorted because invariant 2 forbids an unordered iteration deciding
+   * anything observable, and this is observable. Enumeration is process-local
+   * even when the Store is shared — design §13.1.
+   */
+  registrations(webhook?: string): Promise<Registration[]>
+  /** The imperative equivalent of a `registerVia` operation. */
+  register(webhook: string, url: string, scope?: string): Promise<void>
+  unregister(webhook: string, scope?: string): Promise<void>
   /**
    * Resolves once every pending emission — from either trigger — has settled.
    * The response never waits for one (§13), so a test needs this to await what
@@ -130,6 +165,13 @@ export interface HandlerOptions {
    * so an embedding application can route it.
    */
   onWarn?: (message: string) => void
+  /**
+   * Response linking for create-then-read loops. A write records its generated
+   * response against a key it minted; a read whose key matches replays those
+   * bytes; a miss falls through to ordinary generation. NOT stateful CRUD — see
+   * `src/runtime/link.ts` and the refinements design §4.
+   */
+  link?: LinkRule[]
   webhooks?: Record<string, WebhookConfig>
   /** Capture every delivery without sending it. See the webhooks design §2.6. */
   captureOnly?: boolean
@@ -229,10 +271,76 @@ export function createHandler(
     return { operation, specs, rules }
   })
 
+  // Response linking. Targets resolve here so a typo throws at construction
+  // rather than silently never linking, and the bounds default here so the
+  // table is never unbounded — design §4.3.
+  const linkRules = compileLinkRules(options.link, api.operations)
+  const linkTable =
+    linkRules.length === 0
+      ? undefined
+      : createLinkTable(store, linkRules.map((rule) => ({ ttlMs: rule.ttlMs, max: rule.max })))
+  // Compiled once per operation, not per request, exactly as the callback rules
+  // above are. A `from` operation records; a `to` operation recalls.
+  const linkCaptureRules = new Map<Operation, CaptureRule[]>()
+  const linkRecallRules = new Map<Operation, CompiledLinkRule[]>()
+  for (const rule of linkRules) {
+    for (const operation of rule.from) {
+      const existing = linkCaptureRules.get(operation) ?? []
+      existing.push({
+        kind: 'link',
+        index: rule.index,
+        keyExpr: rule.fromKey,
+        remember: rule.remember
+      })
+      linkCaptureRules.set(operation, existing)
+    }
+    for (const operation of rule.to) {
+      const existing = linkRecallRules.get(operation) ?? []
+      existing.push(rule)
+      linkRecallRules.set(operation, existing)
+    }
+  }
+
   const webhookConfigs = new Map<string, ResolvedWebhook>()
   for (const [name, config] of Object.entries(options.webhooks ?? {})) {
     webhookConfigs.set(name, resolveWebhook(config))
   }
+
+  // The cross-operation destination registry (design §3). Store-backed, so
+  // `reset()` clears registrations for free through `store.clear()`.
+  const registry = createRegistry(store)
+
+  // `registerVia`/`unregisterVia` become capture rules here, once, keyed by the
+  // operation their target resolves to — exactly as the callback rules above
+  // are. `resolveTarget` throws on a target matching nothing, so a typo fails
+  // loudly at construction rather than silently never registering.
+  const registryRules = new Map<Operation, CaptureRule[]>()
+  const scopeExpressions = new Map<string, string>()
+  for (const [name, config] of Object.entries(options.webhooks ?? {})) {
+    const scope = config.scopeBy === undefined
+      ? undefined
+      : normalizeExpression(config.scopeBy)
+    if (scope !== undefined) scopeExpressions.set(name, scope)
+    const addRule = (target: string, rule: CaptureRule): void => {
+      for (const operation of resolveTarget(target, api.operations)) {
+        const existing = registryRules.get(operation) ?? []
+        existing.push(rule)
+        registryRules.set(operation, existing)
+      }
+    }
+    if (config.registerVia !== undefined) {
+      addRule(config.registerVia.operationId, {
+        kind: 'register',
+        webhook: name,
+        url: normalizeExpression(config.registerVia.url),
+        scope
+      })
+    }
+    if (config.unregisterVia !== undefined) {
+      addRule(config.unregisterVia.operationId, { kind: 'unregister', webhook: name, scope })
+    }
+  }
+
   const deliveryLog = createDeliveryLog()
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
 
@@ -294,7 +402,7 @@ export function createHandler(
    */
   async function runEmit(
     name: string,
-    opts: { to?: string; body?: OverrideNode; ctx?: unknown } = {}
+    opts: { to?: string; scope?: string; body?: OverrideNode; ctx?: unknown } = {}
   ): Promise<Delivery> {
     // Drawn ONCE and used twice: the payload rng and the delivery id both key
     // off this ordinal. Calling `counters.next` twice would advance it between
@@ -320,8 +428,31 @@ export function createHandler(
       sleep,
       now,
       to: opts.to,
+      registry,
+      scope: opts.scope,
       bodyOverride: opts.body,
       ctx: opts.ctx
+    })
+    deliveryLog.record(delivery)
+    return delivery
+  }
+
+  /**
+   * One redelivery — refinements design §7.3. Draws NO ordinal and builds no
+   * new id: the recorded id travels with the recorded bytes, which is what
+   * makes a duplicate observably the same delivery. Recorded into the log like
+   * any other emission, so `deliveries()` shows two entries under one id.
+   */
+  async function runRedeliver(id: string): Promise<Delivery> {
+    const delivery = await redeliverWebhook({
+      id,
+      api,
+      log: deliveryLog,
+      configFor: (webhook) => webhookConfigs.get(webhook) ?? resolveWebhook(),
+      captureOnly: options.captureOnly === true,
+      seed,
+      fetch: doFetch,
+      sleep
     })
     deliveryLog.record(delivery)
     return delivery
@@ -432,6 +563,14 @@ export function createHandler(
     // selection below and selection runs well before the body is rendered, so
     // one read serves both. Design section 4.
     const runtime = await readOverride(store, operation)
+    // `Prefer: variant=` on THIS request beats the stored `set_variant`
+    // preference, for the same reason `Prefer: status` beats a configured
+    // status: a header is a statement about this call. A name matching no
+    // branch falls through to the seeded pick rather than failing — the
+    // sibling directive's rule, and what keeps the header harmless on the many
+    // responses that contain no union at all. Design section 5.5.
+    const variant =
+      preferred(request, 'variant') ?? (await readVariant(store, operation))
     // Computed once — it was built twice per request before this refactor.
     const key = requestKey(operation, params, seed)
     const fail = failWith(operation, key)
@@ -475,7 +614,12 @@ export function createHandler(
         preferExamples: options.preferExamples,
         resolvers,
         schemaNames: api.schemaNames,
-        clock: virtualClock
+        clock: virtualClock,
+        // Deliberately the ONLY construction site that receives it. `runEmit`
+        // has no request behind it, and steering an error envelope's union
+        // (`failWith`) or a header's (render.ts) from a request header is not
+        // a behavior to introduce silently. Design section 5.4.
+        variant
       },
       // ctx is declared just below; this getter is only invoked later (inside
       // generateValue, at generation time), by which point the assignment has
@@ -601,6 +745,42 @@ export function createHandler(
     resolvedWhole = fixture?.whole
     selectedStatus = chosen.status
 
+    // Stage 7.5 — link recall. Immediately after status selection and
+    // immediately before the fixture contributes, because the resulting
+    // precedence is
+    //   runtime override > config override > link recall > fixture > example > generated
+    // — a recalled entity is more specific than a fixture for the operation
+    // (the fixture answers "what does this endpoint return", the recall answers
+    // "what does it return FOR THIS ID"), and less specific than either
+    // override layer, which are deliberate statements from the caller.
+    //
+    // Only a SUCCESS status recalls. Replaying a stored body into a 404 or a
+    // 500 would be actively wrong, and the failure-injection stage exists
+    // precisely so a caller can force those — design §4.4.
+    const linkLayer: OverrideNode[] = []
+    if (linkTable !== undefined && chosen.status >= 200 && chosen.status < 300) {
+      for (const rule of linkRecallRules.get(operation) ?? []) {
+        const recallKey = resolveExpression(rule.toKey, {
+          request,
+          url,
+          method: request.method,
+          params,
+          body: parsed.body.value
+        })
+        if (!recallKey.ok) continue
+        const recalled = await linkTable.recall(rule.index, recallKey.value)
+        // A miss falls through to ordinary generation, exactly as a fixture
+        // miss does. That is the whole read side of the feature: an id the mock
+        // never minted is generated for, not recalled.
+        if (recalled === undefined) continue
+        // A FUNCTION node, so the recalled entity replaces the generated body
+        // rather than merging key-by-key into it — replaying the recorded bytes
+        // is the point. The layers above still refine what it produced.
+        linkLayer.push(() => recalled)
+        break
+      }
+    }
+
     // Computed once, here, for both the composition below and the debug
     // header: calling `runtime.bodies`/`runtime.headers` again just to answer
     // "did it actually apply" would be a second read of the same layer.
@@ -622,7 +802,7 @@ export function createHandler(
       chosen,
       // The runtime layer goes last so it refines the config layers rather
       // than erasing them, and the fixture stays beneath both.
-      bodyOverrides: [...config.bodies(chosen.status), ...runtimeBodies],
+      bodyOverrides: [...linkLayer, ...config.bodies(chosen.status), ...runtimeBodies],
       fixtureLayer: fixture?.layer as OverrideNode | undefined,
       headerOverrides: {
         ...config.headers(chosen.status),
@@ -735,8 +915,27 @@ export function createHandler(
         (candidate) => candidate.operation === trace.operation && candidate.specs.length > 0
       )
     const hasEmits = trace.emits !== undefined && trace.emits.length > 0
+    // Any capture rule may address `$response.body`, so this exit must capture
+    // the body whenever the operation carries one. Without this the capture
+    // pass runs against an undefined result body and records NOTHING — a link
+    // rule then silently generates forever, and a registerVia never registers,
+    // in both cases with no error anywhere to notice.
+    //
+    // Deliberately asked of the rule maps as a group rather than one clause per
+    // kind: this gate and the rule list assembled at the capture call below
+    // must name the same set, and two places listing kinds by hand drift the
+    // moment a fourth kind is added. Both defects above were exactly that drift
+    // — link rules reached the capture pass while this gate still listed only
+    // callbacks, and registry rules were then added to the pass alone.
+    const hasCaptureRules =
+      trace.operation !== undefined &&
+      (registryRules.has(trace.operation) || linkCaptureRules.has(trace.operation))
     const needsBody =
-      claimed !== undefined || options.onLog !== undefined || hasCallbacks || hasEmits
+      claimed !== undefined ||
+      options.onLog !== undefined ||
+      hasCallbacks ||
+      hasEmits ||
+      hasCaptureRules
     // The body is read at most once, from a clone, and only when something
     // needs it: an idempotency record to store, a `bytesOut` to report, a
     // callback expression that may point at it, or an emit's `ctx.result.body`.
@@ -830,7 +1029,18 @@ export function createHandler(
     if (trace.operation !== undefined && response.status < 400) {
       try {
         const entry = callbacks.find((candidate) => candidate.operation === trace.operation)
-        if (entry !== undefined && entry.rules.length > 0) {
+        // One rule list, one pass: the ordering between a callback capture and
+        // a registration write is decided by rule order rather than by which
+        // feature's block happens to run first (design §2).
+        const rules: CaptureRule[] = [
+          ...(entry?.rules ?? []),
+          ...(registryRules.get(trace.operation) ?? []),
+          // A `link` rule's `from` operation records here, under exactly the
+          // same `status < 400` precondition and inside exactly the same
+          // try/catch as the destination tiers above it.
+          ...(linkCaptureRules.get(trace.operation) ?? [])
+        ]
+        if (rules.length > 0) {
           const responseBody = parseBodyText(captured, response)
           const exprInput = {
             request,
@@ -845,9 +1055,11 @@ export function createHandler(
             }
           }
           await runCapture({
-            rules: entry.rules,
+            rules,
             expr: exprInput,
             store,
+            registry,
+            link: linkTable,
             responseBody,
             requestBody: trace.ctx?.body
           })
@@ -898,6 +1110,29 @@ export function createHandler(
             }
           }
           const at = generation
+          // An operation-linked emit HAS the triggering request, so a
+          // configured `scopeBy` resolves normally here — design §3.4's first
+          // case. Resolved once, before the delayed emissions fan out, so a
+          // later request cannot change which registration this one addresses.
+          const scopeFor = (webhook: string): string | undefined => {
+            const expression = scopeExpressions.get(webhook)
+            if (expression === undefined) return undefined
+            const resolved = resolveExpression(expression, {
+              request,
+              url: new URL(request.url),
+              method: request.method,
+              params: trace.params,
+              body: ctx.body,
+              result: emitCtx.result
+            })
+            // A scope that does not resolve addresses the unscoped
+            // registration, which is the same place `mock.emit(name)` lands.
+            // Finding nothing there is `unresolved`, never a cross-tenant send.
+            return resolved.ok ? resolved.value : ''
+          }
+          const scopes = new Map<string, string | undefined>(
+            trace.emits.map((emit) => [emit.webhook, scopeFor(emit.webhook)])
+          )
           for (const emit of trace.emits) {
             track((async () => {
               try {
@@ -910,7 +1145,11 @@ export function createHandler(
                 }
                 // A reset or a close while this was waiting invalidates it.
                 if (closed || at !== generation) return
-                await runEmit(emit.webhook, { body: emit.body, ctx: emitCtx })
+                await runEmit(emit.webhook, {
+                  body: emit.body,
+                  ctx: emitCtx,
+                  scope: scopes.get(emit.webhook)
+                })
               } catch (error) {
                 reportError(options.onError, markCallback(error), emitCtx)
               }
@@ -939,6 +1178,9 @@ export function createHandler(
       requestOrdinals.clear()
       generation += 1
       deliveryLog.clear()
+      // The values live in the Store that `clear()` below wipes; this drops the
+      // process-local eviction index that tracks them.
+      linkTable?.clear()
       await store.clear()
     },
     emit: (name, opts = {}) => {
@@ -959,8 +1201,24 @@ export function createHandler(
       track(delivery.then(() => undefined, () => undefined))
       return delivery
     },
+    redeliver: (id) => {
+      // A redelivery is an emission, so it obeys the same close() rule and is
+      // tracked the same way — otherwise settled() would race past it.
+      if (closed) {
+        return Promise.reject(new Error(
+          'mockingham: redeliver() was called after close(). The handler has ' +
+            'stopped accepting new emissions.'
+        ))
+      }
+      const delivery = runRedeliver(id)
+      track(delivery.then(() => undefined, () => undefined))
+      return delivery
+    },
     deliveries: () => deliveryLog.all(),
     clearDeliveries: () => deliveryLog.clear(),
+    registrations: (webhook) => registry.all(webhook),
+    register: (webhook, url, scope) => registry.register(webhook, url, scope),
+    unregister: (webhook, scope) => registry.unregister(webhook, scope),
     settled,
     async close() {
       closed = true
