@@ -674,10 +674,16 @@ This is the same shape as `requestOrdinals` and the webhook counter, both of
 which were already drawn synchronously per request. The clock was the one piece
 of generation state that was not, which is why it was the one that broke.
 
-The block size bounds how many v7s one request can mint while still sorting
-strictly ahead of the next request's. Beyond it a block spills into its
-successor's range: still deterministic, still unique unless the successor also
-spills, and 65,536 values in one response is far outside what a mock is for.
+The block size bounds how many v7s one request can mint. Beyond it a block
+spills into its successor's range and **collides with it immediately** — the
+spilling block's 65,537th value equals its successor's first — so both ordering
+and uniqueness break. Reachable only from an array with `minItems` above 65,536,
+which nothing bounds today; 65,536 values in one response is far outside what a
+mock is for.
+
+`seedTime` is additionally bounded above by `2^48 - 2^32`, leaving room for
+65,536 later blocks. `2^48 - 1` fits the field and then wraps on the very next
+request, which destroys the ordering the validation exists to protect.
 
 `seedTime` is validated at construction (a whole number of milliseconds in
 `[0, 2^48)`); `NaN` previously reached the hex encoding and was served as

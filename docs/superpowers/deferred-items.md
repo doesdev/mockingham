@@ -621,6 +621,54 @@ not duplicated here.*
     slowing request B discriminates. Written by the same person who had spent
     the cycle catching this exact shape in other people's work.
 
+51. **The plan 11 fix wave introduced two new defects of the same class it was
+    written to close, and the scoped re-review caught both.** Recorded because
+    "the fix wave needs the same scrutiny as the work" is a lesson this project
+    had not yet paid for.
+    - **The bare-expression fix missed the one call site its own rationale
+      names.** `normalizeExpression` was applied to link keys, `remember`, the
+      idempotency key, `registerVia.url` and `scopeBy` — but not to the
+      document's `callbacks` expression (`src/server/handler.ts`), which is
+      precisely the site both `expr.ts` and `capture.ts` cite when explaining
+      why bare spellings must be accepted ("OpenAPI's own `callbacks` keys are
+      written bare"). A bare key resolved to itself, so the literal text
+      `$request.body#/hook` was stored as a destination and used as a delivery
+      URL, with no warning — `isSupported` is vacuously true for a token-free
+      string.
+    - **The clock fix keyed its tickers by webhook NAME.** `trace.emits` is an
+      array and two entries may name one webhook; a `Map` kept only the last,
+      so both emissions shared a block and drew offsets at FIRING time —
+      reintroducing, for that configuration, the exact race the reservation
+      removes.
+    **Status: FIXED, plan 11 re-review wave.** Both pinned by regression tests.
+    Also fixed there: `seedTime`'s upper bound now leaves headroom for later
+    blocks (`2**48 - 1` passed the old check and wrapped on request two,
+    destroying the ordering the check exists to protect, while the boundary
+    test certified it by only inspecting the first id); `normalizeExpression`
+    now tests for a matched token rather than the presence of a `{`, so a stray
+    brace is wrapped instead of passed through; and a README sentence claiming
+    a `PUT` rule replaces what a `POST` recorded was corrected — records are
+    namespaced per rule index, so rules never overwrite one another and
+    declaration order alone decides which recall wins.
+
+52. **A global regex's `lastIndex` leaked between two consumers.** Introduced
+    and caught within the plan 11 re-review wave. `TOKEN` in
+    `src/webhooks/expr.ts` is declared `/g`; calling `.test()` on it advances
+    and LEAVES `lastIndex` advanced, and `String.prototype.matchAll` begins
+    from the regex's current `lastIndex`. So a `test` inside
+    `normalizeExpression` made the next `isSupported` call skip the first token
+    of whatever expression it examined — reporting an unsupported expression as
+    supported and silently withholding the startup warning. Four warning tests
+    failed at once, which is the only reason it was noticed.
+    **Status: FIXED, plan 11 re-review wave.** A separate stateless
+    `ONE_TOKEN` pattern is used for one-shot checks; resetting `lastIndex` by
+    hand at each call site was rejected as exactly the sort of convention that
+    drifts. Pinned by a test that calls `normalizeExpression` and then
+    `isSupported`, in that order.
+    Worth generalizing: any `/g` regex shared between a `test`/`exec` caller
+    and a `matchAll`/`replace` caller has this hazard, and it is invisible
+    until the two run in the wrong order.
+
 ---
 
 ## Polish

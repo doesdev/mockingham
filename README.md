@@ -383,17 +383,26 @@ What the mock supplies no semantics of its own for is mutation and lifecycle.
 It never infers that a `PUT` updates an entity, that a `DELETE` removes one, or
 that a create should cascade into a collection — it has no model of your
 resources to reason about. But **a rule you write is what decides which
-operations record**, and nothing restricts `from` to creates. Point a rule's
-`from` at your `PUT /payments/{id}` and its response is recorded under that key,
-replacing whatever the `POST` recorded there — `record` is a plain write to the
-rule's key, so the last write wins. Point a rule's `to` at `GET /payments` and
-that list replays what was recorded for its key. Those behaviors come from the
-rules in your config, not from the mock inventing a lifecycle; the example above
-has none of them because it declares one create-to-read rule and nothing else.
+operations record**, and nothing restricts `from` to creates. Add a second rule
+whose `from` is your `PUT /payments/{id}` and whose `to` is the same `GET`, and
+that `GET` can replay what the `PUT` returned. Point a rule's `to` at
+`GET /payments` and that list replays what was recorded for its key. Those
+behaviors come from the rules in your config, not from the mock inventing a
+lifecycle; the example above has none of them because it declares one
+create-to-read rule and nothing else.
 
-When several rules recall for the same operation, the loop stops at the first
-one whose key expression resolves to a recorded entry, so **declaration order in
-`link` decides which rule wins** — put the more specific rule first.
+Rules do **not** overwrite one another: each records under its own rule index,
+so a `PUT` rule's entry and a create rule's entry coexist. What decides which
+one a read sees is order — the recall loop stops at the first rule whose key
+expression resolves to a recorded entry, so **declaration order in `link` decides
+which rule wins**. Declare the `PUT` rule before the create rule and reads
+follow the `PUT`; declare it after and reads keep returning what the create
+minted, however many `PUT`s land in between. Put the rule you want to win first.
+
+One trap worth naming: on a `PUT` rule, `from.key: '{$response.body#/id}'`
+records under the id in the *generated response body*, not the id in the path.
+Use `'{$request.path.id}'` there, or the rule records under a key no read will
+ever ask for and silently does nothing.
 
 A recalled body behaves exactly like a fixture layer, sitting beneath the
 override layers and above generation:

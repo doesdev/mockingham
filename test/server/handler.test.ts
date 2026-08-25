@@ -4,6 +4,7 @@ import { loadApi } from '../../src/spec/load.ts'
 import { createHandler } from '../../src/server/handler.ts'
 import { createMemoryStore } from '../../src/runtime/store.ts'
 import type { Store } from '../../src/runtime/store.ts'
+import { DEFAULT_SEED_TIME, TICKS_PER_ALLOCATION } from '../../src/generate/clock.ts'
 import { petstore } from '../fixtures/petstore.ts'
 import type { Ctx } from '../../src/runtime/types.ts'
 
@@ -395,6 +396,42 @@ test('a delayed emission does not steal the next request timestamp', async () =>
   assert.equal(slow, fast)
 })
 
+test('two emissions of the SAME webhook get separate timestamp blocks', async () => {
+  // The tickers were keyed by webhook name, so two entries naming one webhook
+  // collapsed to a single block — putting their offsets back on the FIRING
+  // path, which is the bug the reservation exists to remove. Two entries for
+  // one webhook is the fixture that discriminates; with two DIFFERENT webhooks
+  // a name-keyed map behaves correctly and the defect is invisible.
+  const mock = createHandler(loadApi(emitUuid7Doc), {
+    seed: 'v7',
+    captureOnly: true,
+    operations: {
+      makeThing: {
+        emits: [
+          { webhook: 'thingMade' },
+          { webhook: 'thingMade', afterMs: 10 }
+        ]
+      }
+    }
+  })
+  await mock.fetch(new Request('http://x/things', { method: 'POST' }))
+  await mock.settled()
+
+  // The BLOCK INDEX, not the id and not the raw timestamp. Two emissions
+  // sharing one block still produce different ids and different timestamps —
+  // offsets 0 and 1 — so asserting either passes against the very defect this
+  // test exists to catch. It has to be the block.
+  const blocks = mock.deliveries().map((delivery) => {
+    const id = (JSON.parse(delivery.body) as { id: string }).id
+    const stamp = Number.parseInt(id.slice(0, 13).replace('-', ''), 16)
+    return Math.floor((stamp - DEFAULT_SEED_TIME) / TICKS_PER_ALLOCATION)
+  })
+  await mock.close()
+
+  assert.equal(blocks.length, 2)
+  assert.notEqual(blocks[0], blocks[1])
+})
+
 test('reset returns the virtual clock to seedTime', async () => {
   const mock = createHandler(loadApi(uuid7Doc), { seed: 'v7' })
   const read = async () =>
@@ -436,16 +473,34 @@ test('a seedTime that cannot be a v7 timestamp throws at construction', () => {
   }
 })
 
-test('the seedTime boundary values are accepted', async () => {
-  // The check must not be so tight that it rejects a legal timestamp. 0 is the
-  // epoch and 2**48 - 1 is the largest value the 48-bit field holds.
-  for (const seedTime of [0, 2 ** 48 - 1]) {
+test('an accepted seedTime keeps ids ordered across several requests', async () => {
+  // Checks ORDER over several requests, not just the shape of the first id.
+  // The previous version did the latter and therefore certified 2**48 - 1 as
+  // "accepted" — a value that wraps the 48-bit field on request two and
+  // destroys the sort order the validator exists to protect. A boundary test
+  // that only looks at the first value cannot see a boundary being crossed.
+  for (const seedTime of [0, 2 ** 48 - 2 ** 32]) {
     const handle = createHandler(loadApi(uuid7Doc), { seed: 'v7', seedTime }).fetch
-    const body = (await (await handle(new Request('http://x/things/a'))).json()) as any
-    assert.match(
-      String(body.id),
-      /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
-      `seedTime ${seedTime} must still produce a well-formed v7`
-    )
+    const ids: string[] = []
+    for (const id of ['a', 'b', 'c']) {
+      const body = (await (await handle(new Request(`http://x/things/${id}`))).json()) as any
+      ids.push(String(body.id))
+      assert.match(
+        String(body.id),
+        /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        `seedTime ${seedTime} must still produce a well-formed v7`
+      )
+    }
+    assert.deepEqual([...ids].sort(), ids, `seedTime ${seedTime} must keep ids ordered`)
   }
+})
+
+test('a seedTime with no room for later blocks is rejected', async () => {
+  // 2**48 - 1 fits the field but leaves no headroom: block 1 wraps to near
+  // zero and every later id sorts BEFORE the first. Rejected at construction
+  // rather than discovered two requests in.
+  assert.throws(
+    () => createHandler(loadApi(uuid7Doc), { seed: 'v7', seedTime: 2 ** 48 - 1 }),
+    /seedTime must be a whole number of milliseconds/
+  )
 })

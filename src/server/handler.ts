@@ -258,12 +258,31 @@ function requestKey(
  * sensible interpretation, so this throws at construction — the same treatment
  * every other unusable option in this file gets.
  */
+/**
+ * How much of the 48-bit timestamp field is reserved as headroom above
+ * `seedTime`, so that later allocations still fit. Each request or emission
+ * takes `TICKS_PER_ALLOCATION`, so this is 2^32 / 65,536 = **65,536
+ * allocations** before the field could wrap.
+ *
+ * A bound rather than the bare field width, because the field width alone is
+ * not the real constraint: block N starts at `seedTime + N * 65_536`, so
+ * `2**48 - 1` passed the old check and then wrapped on the very next request —
+ * destroying the sort order this validation exists to protect, two ids in.
+ * The old boundary test asserted only that the FIRST id was well-formed, so it
+ * certified a value the validator's own rationale forbids.
+ */
+const SEED_TIME_HEADROOM = 2 ** 32
+
+const MAX_SEED_TIME = 2 ** 48 - SEED_TIME_HEADROOM
+
 function assertUsableSeedTime(seedTime: number | undefined): void {
   if (seedTime === undefined) return
-  if (Number.isSafeInteger(seedTime) && seedTime >= 0 && seedTime < 2 ** 48) return
+  if (Number.isSafeInteger(seedTime) && seedTime >= 0 && seedTime <= MAX_SEED_TIME) return
   throw new Error(
-    `mockingham: seedTime must be a whole number of milliseconds in [0, 2^48), got ${seedTime}. ` +
-      'It is the UUIDv7 timestamp field, not a wall clock.'
+    'mockingham: seedTime must be a whole number of milliseconds in ' +
+      `[0, ${MAX_SEED_TIME}], got ${seedTime}. It is the UUIDv7 timestamp ` +
+      'field, not a wall clock, and the upper bound leaves room for the ' +
+      'per-request timestamp blocks that follow it.'
   )
 }
 
@@ -332,7 +351,14 @@ export function createHandler(
     const rules: CaptureRule[] = specs.map((callback) => ({
       kind: 'callback',
       name: callback.name,
-      expression: callback.expression
+      // Normalized like every other expression the mock compiles — and this is
+      // THE site the normalization exists for. OpenAPI writes `callbacks` keys
+      // bare, `resolveExpression` matches only braced tokens, and a bare string
+      // therefore resolves to ITSELF rather than failing: the literal text
+      // `$request.body#/hook` was being stored as a destination and used as a
+      // delivery URL, with no warning. `isSupported` cannot catch it either,
+      // since a string with no tokens is vacuously supported.
+      expression: normalizeExpression(callback.expression)
     }))
     return { operation, specs, rules }
   })
@@ -1379,10 +1405,15 @@ export function createHandler(
           // emission or the caller's next request got the earlier timestamps.
           // Same reasoning as `scopes` above — settle it before the fan-out, so
           // a later request cannot change what a pending emission resolved.
-          const tickers = new Map<string, Ticker>(
-            trace.emits.map((emit) => [emit.webhook, virtualClock.allocate()])
-          )
-          for (const emit of trace.emits) {
+          //
+          // Indexed by POSITION, not keyed by webhook name. `trace.emits` is an
+          // array and two entries may name the same webhook; a Map keyed by
+          // name kept only the last, so both emissions drew from one block and
+          // silently discarded the other. Sharing a block puts offsets back on
+          // the firing path — reintroducing, for exactly that configuration,
+          // the bug this reservation exists to remove.
+          const tickers = trace.emits.map(() => virtualClock.allocate())
+          for (const [index, emit] of trace.emits.entries()) {
             track((async () => {
               try {
                 const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
@@ -1398,7 +1429,7 @@ export function createHandler(
                   body: emit.body,
                   ctx: emitCtx,
                   scope: scopes.get(emit.webhook),
-                  ticker: tickers.get(emit.webhook)
+                  ticker: tickers[index]
                 })
               } catch (error) {
                 reportError(options.onError, markCallback(error), emitCtx)

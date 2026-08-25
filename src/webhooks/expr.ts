@@ -26,6 +26,18 @@ export type ExprResult =
 const TOKEN = /\{([^}]*)\}/g
 
 /**
+ * The same pattern without `g`, for one-shot checks.
+ *
+ * `TOKEN.test(...)` on a global regex advances its `lastIndex` and leaves it
+ * advanced, and `String.prototype.matchAll` starts from the regex's current
+ * `lastIndex` — so a `test` here silently made `isSupported` skip the first
+ * token of the NEXT expression it examined. Four startup-warning tests caught
+ * it. A separate stateless pattern is the honest fix; resetting `lastIndex` by
+ * hand at every call site is the kind of convention that drifts.
+ */
+const ONE_TOKEN = /\{([^}]*)\}/
+
+/**
  * A local JSON-pointer walk rather than reuse of `spec/refs.ts`. That module
  * resolves `$ref` inside a document and carries cycle tracking this does not
  * need; coupling the webhook path to it for eight lines would be the worse
@@ -121,13 +133,21 @@ export function isSupported(expression: string): boolean {
  * expression text. Every site that compiles a caller-written expression must
  * call this before storing it.
  *
- * A template that already contains a brace is passed through whole rather than
- * wrapped, because `{$request.body#/host}/hooks` is a legal mixed template and
- * wrapping it again would produce `{{$request.body#/host}/hooks}`.
+ * A template that already contains a COMPLETE token is passed through whole
+ * rather than wrapped, because `{$request.body#/host}/hooks` is a legal mixed
+ * template and wrapping it again would produce `{{$request.body#/host}/hooks}`.
+ *
+ * The test is a matched token, not the presence of a `{`. A stray opening brace
+ * — `https://h/{tenant` — satisfies "contains a brace" while matching no token,
+ * so it used to be passed through and then resolve to itself: the same silent
+ * wrong answer this function exists to prevent, reached by a different typo.
+ * With no complete token it is wrapped, which makes it an unsupported
+ * expression that `isSupported` warns about at construction and that resolves
+ * `ok: false` rather than inventing a value.
  */
 export function normalizeExpression(expression: string): string {
   const trimmed = expression.trim()
-  return trimmed.includes('{') ? trimmed : `{${trimmed}}`
+  return ONE_TOKEN.test(trimmed) ? trimmed : `{${trimmed}}`
 }
 
 export function resolveExpression(expression: string, input: ExprInput): ExprResult {

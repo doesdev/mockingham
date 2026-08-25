@@ -426,21 +426,34 @@ test('a bare operation key expression keys on the body, not on its own text', as
   assert.equal(second.headers.get('idempotent-replay'), null)
 })
 
-test('a bare operation key still replays on the same value', async () => {
+test('a bare operation key keys on the VALUE, so distinct ids do not collide', async () => {
+  // The previous version of this test sent one requestId twice and asserted a
+  // replay — which passes whether or not the expression is normalized, because
+  // an un-normalized key collapses every request onto the literal expression
+  // text and the second request replays for the wrong reason. Two DIFFERENT
+  // ids are what discriminate: under the bug they share a key and, with the
+  // default bodyHash scope, the second is a 409 mismatch rather than a fresh
+  // success.
   const handle = createHandler(eventsApi, {
     seed: 'idem',
     idempotency: { operations: { deliverEvent: { key: '$request.body#/meta/requestId' } } }
   }).fetch
-  const send = () =>
+  const send = (requestId: string) =>
     handle(
       new Request('http://mock/events', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ meta: { requestId: 'r-bare-3' } })
+        body: JSON.stringify({ meta: { requestId } })
       })
     )
 
-  await send()
-  const second = await send()
-  assert.equal(second.headers.get('idempotent-replay'), 'true')
+  const first = await send('r-bare-3')
+  assert.equal(first.headers.get('idempotent-replay'), null)
+
+  const other = await send('r-bare-4')
+  assert.notEqual(other.status, 409, 'a different id must not conflict with the first')
+  assert.equal(other.headers.get('idempotent-replay'), null)
+
+  const repeat = await send('r-bare-3')
+  assert.equal(repeat.headers.get('idempotent-replay'), 'true')
 })

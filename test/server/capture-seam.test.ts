@@ -45,6 +45,42 @@ test('a document callbacks destination still resolves through the capture pass',
   assert.equal(delivery.outcome, 'captured')
 })
 
+test('a BARE document callbacks expression resolves, it does not become the URL', async () => {
+  // OpenAPI writes callbacks keys bare, and this is the site the whole
+  // normalization exists for — yet it was the one compile site still passing a
+  // caller-written expression to resolveExpression un-normalized. A bare key
+  // matched no token, resolved to ITSELF, and the literal text
+  // "$request.body#/hook" was stored as the destination and used as the
+  // delivery URL. With a real fetch that is an outbound request to a string.
+  // `isSupported` cannot catch it: a string with no tokens is vacuously
+  // supported, so no startup warning fired either.
+  const bareDoc = structuredClone(doc) as unknown as {
+    paths: Record<string, Record<string, { callbacks: Record<string, unknown> }>>
+  }
+  bareDoc.paths['/orders']!.post!.callbacks = {
+    orderDone: {
+      '$request.body#/hook': { post: { responses: { 200: { description: 'ok' } } } }
+    }
+  }
+
+  const warnings: string[] = []
+  const mock = createMock(bareDoc as unknown as Record<string, unknown>, {
+    captureOnly: true,
+    onWarn: (message) => warnings.push(message)
+  })
+  await mock.fetch(
+    new Request('http://mock/orders', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ hook: 'https://consumer.example/bare' })
+    })
+  )
+  const delivery = await mock.emit('orderDone')
+  assert.equal(delivery.url, 'https://consumer.example/bare')
+  assert.equal(delivery.outcome, 'captured')
+  assert.deepEqual(warnings, [])
+})
+
 test('a callbacks expression reading the RESPONSE body still captures', async () => {
   // The body gate at the single exit, asked of the callback kind. A callbacks
   // expression pointing at `$response.body` needs the exit to have captured

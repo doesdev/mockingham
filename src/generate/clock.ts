@@ -68,12 +68,17 @@ export const SEED_TIME_STEP_MS = 1
  * How many timestamps one allocation reserves.
  *
  * This is the ceiling on UUIDv7 values a single request or emission can
- * generate while still sorting strictly before the next one's. Beyond it, a
- * block spills into its successor's range: still deterministic, still unique
- * unless the successor also spills, but no longer strictly ordered against it.
- * 65,536 v7 values in one response body is far outside anything a mock is for,
- * and the alternative — asking a shared counter per value — is precisely the
- * async-ordering bug this design exists to prevent.
+ * generate. Beyond it a block spills into its successor's range and **collides
+ * with it immediately** — the spilling block's 65,537th value equals its
+ * successor's first — so ordering and uniqueness both break, not just
+ * ordering. Since §8.3 records that uniqueness across requests rests on the
+ * clock rather than on entropy, that is worth stating exactly rather than
+ * softening.
+ *
+ * Reachable only from an array with `minItems` above 65,536, which nothing
+ * bounds today. 65,536 v7 values in one response body is far outside anything
+ * a mock is for, and the alternative — asking a shared counter per value — is
+ * precisely the async-ordering bug this design exists to prevent.
  */
 export const TICKS_PER_ALLOCATION = 65_536
 
