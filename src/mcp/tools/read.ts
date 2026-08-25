@@ -8,6 +8,7 @@ import { createRng } from '../../generate/rng.ts'
 import { generateValue } from '../../generate/generate.ts'
 import { targetKey } from '../../runtime/failure.ts'
 import { schemaHashLookup } from '../../fixtures/source.ts'
+import { operationSlug } from '../../fixtures/key.ts'
 
 // One compiler for the module: compilation is pure and its cache is a win
 // across calls. It holds no per-request state.
@@ -22,7 +23,20 @@ export function findOperation(
   const path = args.path as string | undefined
 
   if (operationId !== undefined) {
-    const found = ctx.api.operations.find((op) => op.operationId === operationId)
+    // The declared id first, then the fixture slug. The fixture-facing tools -
+    // `list_fixtures` and `regenerate_fixture` - key on `operationSlug`, which
+    // SYNTHESIZES an id (`get_orders_orderId`) for an operation the document
+    // never named. Without the fallback those tools emit an operationId that
+    // the document-facing tools reject, so an agent could read an id out of
+    // `list_fixtures` and be told it does not exist. The two halves shipped on
+    // separate branches and only met at the 2026-08-25 merge, which is why the
+    // round trip was never exercised.
+    //
+    // Declared ids win, so a document that happens to name one operation the
+    // same as another one's synthesized slug still resolves the declared one.
+    const found =
+      ctx.api.operations.find((op) => op.operationId === operationId)
+      ?? ctx.api.operations.find((op) => operationSlug(op) === operationId)
     if (found === undefined) {
       throw new Error(
         `mockingham: no operation with operationId "${operationId}". ` +

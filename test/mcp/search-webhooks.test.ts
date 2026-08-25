@@ -83,6 +83,10 @@ test('a callback keeps its declaring operation when a configured emitter exists'
   // NOTHING was configured, so the moment any operation's `emits` named the
   // webhook, the operation that actually declares it disappeared from the
   // list - even when it was not among the configured emitters.
+  //
+  // `read.test.ts` pins the same ordering on a different document. Both cycles
+  // closed 29b and ordered the result differently; declarer-first was settled
+  // at the 2026-08-25 merge, so the two files must agree and both assert it.
   const options = {
     operations: { 'GET /orders/{orderId}': { emits: [{ webhook: 'orderShipped' }] } },
     webhooks: { orderShipped: { url: 'https://example.test/hook' } }

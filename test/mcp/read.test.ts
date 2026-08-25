@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createMock } from '../../src/index.ts'
 import type { MockOptions } from '../../src/index.ts'
-import { contextForMock, toolNamed } from './helpers.ts'
+import { contextFor, contextForMock, toolNamed } from './helpers.ts'
 import { mcpDoc } from './doc.ts'
 
 /**
@@ -334,6 +334,12 @@ test('list_registrations returns an empty array when nothing is registered', asy
 })
 
 // --- deferred item 29(a) ----------------------------------------------------
+//
+// `describe.test.ts` covers this same rule, reached through a different tool
+// and asserting a looser /disagree/. Both cycles closed 29a independently and
+// each wrote its own tests, so a change to the agreement rule or its message
+// has to satisfy both files. Kept rather than merged: they exercise different
+// entry points, and the message now deliberately satisfies both assertions.
 
 test('findOperation raises when a supplied method and path contradict the operationId', async () => {
   const { ctx } = capabilityContext()
@@ -362,6 +368,72 @@ test('findOperation accepts a method and path that agree with the operationId', 
   // the operation rather than to some other one.
   assert.equal(result.operationId, 'createOrder')
   assert.equal(result.method, 'POST')
+})
+
+// --- identity round trip between the fixture and document tools -------------
+
+// No `operationId` anywhere, which is the only case where the two identity
+// schemes differ. `operationSlug` synthesizes `get_reports_daily`; the
+// document-facing tools used to know nothing about that name.
+const slugDoc = {
+  openapi: '3.1.0',
+  info: { title: 'slug', version: '1' },
+  paths: {
+    '/reports/daily': {
+      get: {
+        responses: {
+          200: {
+            description: 'ok',
+            content: { 'application/json': { schema: { type: 'object' } } }
+          }
+        }
+      }
+    }
+  }
+}
+
+test('describe_operation resolves the slug the fixture tools report as operationId', async () => {
+  // `list_fixtures` and `regenerate_fixture` key on operationSlug, so for an
+  // operation the document never named they emit `get_reports_daily`. Feeding
+  // that straight back into describe_operation used to throw "no operation
+  // with operationId", which broke the round trip between two halves of the
+  // same tool surface - one from each side of the 2026-08-25 merge.
+  const ctx = contextFor(slugDoc)
+  const result = (await toolNamed('describe_operation').handler(
+    ctx, { operationId: 'get_reports_daily' }
+  )) as { method: string; path: string }
+
+  assert.equal(result.method, 'GET')
+  assert.equal(result.path, '/reports/daily')
+})
+
+test('a declared operationId still wins over another operation slug', async () => {
+  // The fallback must not let a synthesized name shadow a real one. Here
+  // `get_reports_daily` is DECLARED on a different operation than the one whose
+  // slug would synthesize to it, so the declared owner has to win.
+  const collidingDoc = {
+    ...slugDoc,
+    paths: {
+      ...slugDoc.paths,
+      '/other': {
+        get: {
+          operationId: 'get_reports_daily',
+          responses: {
+            200: {
+              description: 'ok',
+              content: { 'application/json': { schema: { type: 'object' } } }
+            }
+          }
+        }
+      }
+    }
+  }
+  const ctx = contextFor(collidingDoc)
+  const result = (await toolNamed('describe_operation').handler(
+    ctx, { operationId: 'get_reports_daily' }
+  )) as { path: string }
+
+  assert.equal(result.path, '/other')
 })
 
 test('findOperation raises on a partial contradiction of method alone', async () => {

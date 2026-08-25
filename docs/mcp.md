@@ -150,6 +150,14 @@ operation or status does not exist rather than reporting a summary of zeroes -
 an agent handed `{"generated": 0}` for a typo has been told it succeeded at
 doing nothing.
 
+**An operation the document never named still has an id.** The fixture store
+keys on a synthesized slug - `GET /reports/daily` becomes `get_reports_daily` -
+so that is the `operationId` `list_fixtures` reports for it and the one
+`regenerate_fixture` takes. Every tool above accepts that slug too, falling
+back to it when no operation declares the id outright, so an `operationId` read
+from any tool can be passed to any other. A declared `operationId` always wins
+over another operation's synthesized slug.
+
 **`regenerate_fixture` can write to disk.** With a disk-backed fixture store
 (`--fixtures <dir>`, or `createDiskFixtureStore`), storing a fixture writes it
 to that directory, exactly as `bake()` does. The `--write` gate is what stands

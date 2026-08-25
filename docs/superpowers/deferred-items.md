@@ -1041,6 +1041,24 @@ declined it.
     false comment in source propagated into a guide, the guide was corrected,
     and the source that caused it was left standing for two more cycles.
 
+50. **`operationId` meant two different things depending on which tool you
+    asked.** The fixture-facing tools (`list_fixtures`, `regenerate_fixture`)
+    key on `operationSlug`, which synthesizes `get_reports_daily` for an
+    operation the document never named. The document-facing tools
+    (`describe_operation`, `sample_response`, `get_auth_requirements`) matched
+    `operation.operationId` only, which is `undefined` for exactly those
+    operations. So `list_fixtures` reported an id that `describe_operation`
+    rejected with "no operation with operationId" - a round trip between two
+    halves of one tool surface that nothing exercised, because the halves
+    shipped on opposite branches and only met at the 2026-08-25 merge.
+    **Status: DONE, post-merge tech-debt review (2026-08-25).**
+    `findOperation` prefers a declared id and falls back to the slug, so an id
+    from any tool resolves in any other. A declared id still wins over another
+    operation's synthesized slug, pinned by its own test. Verified by mutation:
+    removing the fallback fails the round-trip test and leaves the collision
+    test green, so the two assert different things. `docs/mcp.md` states the
+    rule, which neither cycle had documented.
+
 ---
 
 ## Process lessons worth keeping
@@ -1120,3 +1138,22 @@ so mutating that function moved both sides of the assertion together, and the
 mutation looked observed while doing nothing. It is the first shape found that
 survives a naive mutation check. Hardcode the expected value, with a comment
 saying what would legitimately change it.
+
+**A clean merge is not a coherent one, and the gap is invisible to every
+test.** The 2026-08-25 merge of two long-lived branches conflicted in 15 files
+and resolved to a green suite - then the review found `operationId` meaning two
+different things across one tool surface (item 50), three README passages
+describing behavior the other branch had replaced, a `bake.ts` comment warning
+about a defect the other branch had already fixed, and two test files whose
+names described their author rather than their subject. Not one of those is a
+merge conflict; each is two correct halves that never agreed on a convention,
+so git had nothing to flag and the suite had nothing to fail on.
+
+What actually surfaced them was asking, per area, "which of these two did the
+same job, and do they still say the same thing about each other?" Cross-branch
+prose and cross-references are where this concentrates: code that must compile
+together gets reconciled by the compiler, while a comment or a README
+paragraph asserting what the *other* module does can be stale for a whole cycle
+without a single failing test. Budget a review pass for it after any merge of
+independently-developed work, and read the surviving prose against the shipped
+behavior rather than against the diff.

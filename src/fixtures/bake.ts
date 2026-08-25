@@ -51,9 +51,12 @@ export interface BakeOptions {
  * slug is what the fixture store is keyed by - an operation the document gave
  * no id still has one, and naming a fixture is the whole point of the filter.
  *
- * Every supplied field must agree. `findOperation` in the MCP read tools
- * returns on an `operationId` match without checking a co-supplied
- * `method`/`path` (deferred item 29a); that behavior is not reproduced here.
+ * Every supplied field must agree, which is also what `findOperation` in the
+ * MCP read tools does - both cycles closed deferred item 29a independently, so
+ * the two agree on this and no longer need to warn about each other. They still
+ * differ deliberately on identity: this matches the slug, `findOperation`
+ * prefers a declared `operationId` and falls back to the slug, so an id
+ * reported by `list_fixtures` resolves in either.
  */
 function matchesScope(operation: Operation, only: BakeScope): boolean {
   if (

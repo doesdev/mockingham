@@ -79,6 +79,10 @@ test('a mismatched operationId and method/path pair is refused', async () => {
   // Deferred item 29a: the operationId branch used to return on its own match
   // without checking a co-supplied method/path, so a caller who named two
   // different operations was silently answered about one of them.
+  //
+  // `read.test.ts` covers the same rule and pins the message text exactly,
+  // where this asserts only /disagree/. Both cycles closed 29a independently;
+  // the shipped message satisfies both, so changing it means changing both.
   await assert.rejects(
     async () =>
       toolNamed('describe_operation').handler(contextFor(), {

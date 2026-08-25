@@ -2,6 +2,19 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { contextFor, toolNamed } from './helpers.ts'
 
+/**
+ * `list_operations` only. The read tools are split across several files by
+ * subject: `describe.test.ts` (describe_operation and the identify-an-operation
+ * rule), `search-webhooks.test.ts` (search_operations, list_webhooks),
+ * `fixture-tools.test.ts` (list_fixtures, regenerate_fixture) and
+ * `read.test.ts` (the capability fields, list_registrations, and the webhook
+ * payload conversions).
+ *
+ * Was `tools-read.test.ts`, a name that said nothing `read.test.ts` did not
+ * also say. The two arrived from opposite sides of the 2026-08-25 merge and
+ * sitting side by side made neither findable.
+ */
+
 test('list_operations returns every operation in document order', async () => {
   const result = (await toolNamed('list_operations').handler(contextFor(), {})) as
     Array<{ method: string; path: string; operationId?: string; summary?: string; tags: string[] }>
