@@ -110,6 +110,78 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
   return result
 }
 
+/**
+ * Every const-valued property on a branch, as strings, in `Object.keys` order.
+ *
+ * Schema interpretation lives here, beside `classify`, and nowhere else
+ * (invariant 1) — generation calls `matchesVariant` rather than reading
+ * `properties` itself.
+ *
+ * With a formal `discriminator` only that property is considered — a document
+ * that declares one has said which property names its branches, and letting a
+ * second const property match anyway would ignore that declaration.
+ *
+ * On order: this is NOT literal declaration order. `Object.keys` lists
+ * integer-like keys first in ascending numeric order, and after `mergeAllOf`
+ * the `properties` object has been rebuilt as the allOf members' properties
+ * followed by the outer schema's own — so "order" here means merge order, not
+ * the order a reader sees in the document. That is good enough: the order is a
+ * pure function of the schema and so still deterministic across processes
+ * (invariant 2), and the only consumer that depends on it at all is
+ * `variantName`, which takes the first entry. `matchesVariant` — the selection
+ * path — is order-insensitive.
+ */
+function constValues(branch: Schema, discriminator?: string): string[] {
+  const properties = mergeAllOf(branch).properties
+  if (!properties) return []
+
+  const names =
+    discriminator === undefined ? Object.keys(properties) : [discriminator]
+
+  const values: string[] = []
+  for (const name of names) {
+    const property = properties[name]
+    if (property === undefined) continue
+    const kind = classify(property)
+    if (kind.kind !== 'const') continue
+    if (
+      typeof kind.value === 'string' ||
+      typeof kind.value === 'number' ||
+      typeof kind.value === 'boolean'
+    ) {
+      values.push(String(kind.value))
+    }
+  }
+  return values
+}
+
+/**
+ * The name a branch is known by — its first const-valued property, or its
+ * discriminator property when one is declared. For describing a union to a
+ * reader; SELECTION uses `matchesVariant`, which is not the same question when
+ * a branch carries more than one const property.
+ */
+export function variantName(
+  branch: Schema,
+  discriminator?: string
+): string | undefined {
+  return constValues(branch, discriminator)[0]
+}
+
+/**
+ * Whether a branch answers to `name`. Design section 5.1: with no formal
+ * discriminator a branch matches when ANY of its const-valued properties
+ * equals the requested name, so `{ kind: 'refund', status: 'pending' }` is
+ * reachable by either. `variantName` alone would reach only the first.
+ */
+export function matchesVariant(
+  branch: Schema,
+  discriminator: string | undefined,
+  name: string
+): boolean {
+  return constValues(branch, discriminator).includes(name)
+}
+
 export function classify(input: Schema): SchemaKind {
   const schema = mergeAllOf(input)
 

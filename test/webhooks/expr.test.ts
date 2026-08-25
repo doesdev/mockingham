@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isSupported, resolveExpression } from '../../src/webhooks/expr.ts'
+import { isSupported, normalizeExpression, resolveExpression } from '../../src/webhooks/expr.ts'
 import type { ExprInput } from '../../src/webhooks/expr.ts'
 
 function inputFor(overrides: Partial<ExprInput> = {}): ExprInput {
@@ -107,4 +107,53 @@ test('isSupported is about form, not resolvability', () => {
   // supported; it fails at resolution, which is a different tier of the
   // destination fallback.
   assert.equal(isSupported('{$request.body#/absent}'), true)
+})
+
+test('normalizeExpression braces a bare expression and leaves a braced one alone', () => {
+  assert.equal(normalizeExpression('$response.body#/id'), '{$response.body#/id}')
+  assert.equal(normalizeExpression('  $response.body  '), '{$response.body}')
+  assert.equal(normalizeExpression('{$response.body#/id}'), '{$response.body#/id}')
+  // A mixed template already carries a brace, so it is passed through whole
+  // rather than wrapped again — wrapping would produce `{{...}/hooks}`.
+  assert.equal(
+    normalizeExpression('{$request.body#/host}/hooks'),
+    '{$request.body#/host}/hooks'
+  )
+})
+
+test('an unmatched brace is wrapped, not passed through', () => {
+  // The test is a COMPLETE token, not the presence of a `{`. A stray opening
+  // brace satisfies "contains a brace" while matching no token, so it used to
+  // be passed through and then resolve to ITSELF — the same silent wrong
+  // answer normalization exists to prevent, reached by a different typo.
+  // Wrapped, it becomes an unsupported expression that warns at construction
+  // and resolves `ok: false` instead of inventing a value.
+  assert.equal(normalizeExpression('https://h/{tenant'), '{https://h/{tenant}')
+  assert.equal(isSupported(normalizeExpression('https://h/{tenant')), false)
+})
+
+test('normalizeExpression does not disturb isSupported on the next expression', () => {
+  // `TOKEN` is a global regex, and `.test()` on one advances its `lastIndex`
+  // and leaves it advanced — while `matchAll`, which `isSupported` uses,
+  // starts from that `lastIndex`. A stateful check inside normalizeExpression
+  // therefore made isSupported skip the FIRST token of whatever it examined
+  // next, silently. Four startup-warning tests caught it; this pins it
+  // directly, in the order that triggers it.
+  normalizeExpression('{$request.body#/a}')
+  assert.equal(isSupported('{$response.query.url}'), false)
+  normalizeExpression('{$request.body#/a}')
+  assert.equal(isSupported('{$request.body#/a}'), true)
+})
+
+test('a bare expression resolves only after normalization', () => {
+  // The defect this exists to pin: `resolveExpression` matches braced tokens
+  // only, so a bare string matches NOTHING and comes back ok with the literal
+  // text as its value. That is a silent wrong answer, not a failure, which is
+  // why every compile site must normalize before it stores an expression.
+  const input = inputFor({ body: { id: 'ord_1' } })
+  const bare = resolveExpression('$request.body#/id', input)
+  assert.deepEqual(bare, { ok: true, value: '$request.body#/id' })
+
+  const normalized = resolveExpression(normalizeExpression('$request.body#/id'), input)
+  assert.deepEqual(normalized, { ok: true, value: 'ord_1' })
 })

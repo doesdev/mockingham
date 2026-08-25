@@ -1,5 +1,8 @@
 import type { Operation } from '../spec/types.ts'
 import { fnv1aBytes } from '../generate/rng.ts'
+import { normalizeExpression, resolveExpression } from '../webhooks/expr.ts'
+import { resolveTarget } from '../resolve/target.ts'
+import { targetKey } from './failure.ts'
 import type { Ctx, Fail, Stage } from './types.ts'
 import type { Store } from './store.ts'
 
@@ -28,6 +31,13 @@ export interface IdempotencyConfig {
    */
   scope?: ScopePart[]
   conflictStatus?: number
+  /**
+   * Per-operation keys read out of the request itself, delta design §6. The
+   * record key is a control-plane target and the value is a runtime expression
+   * — in practice a body pointer, `{$request.body#/meta/requestId}`, for the
+   * many documents that carry the key in the body rather than in a header.
+   */
+  operations?: Record<string, { key: string }>
 }
 
 export interface ResolvedIdempotency {
@@ -37,6 +47,8 @@ export interface ResolvedIdempotency {
   inFlightTtlMs: number
   scope: ScopePart[]
   conflictStatus: number
+  /** Expression by `targetKey`, expanded from the configured targets. */
+  operations: Map<string, string>
 }
 
 /**
@@ -56,7 +68,17 @@ export type IdempotencyEntry =
       body: string | null
     }
 
-export function resolveIdempotency(config: IdempotencyConfig = {}): ResolvedIdempotency {
+/**
+ * `known` is the document's operations, so a configured target resolves — and,
+ * more importantly, a typo throws here rather than arming a key nothing ever
+ * reads. It is optional only because a unit test may resolve a config with no
+ * document in hand; without it the target string is taken as the `targetKey`
+ * verbatim, which is what a bare operationId resolves to anyway.
+ */
+export function resolveIdempotency(
+  config: IdempotencyConfig = {},
+  known?: Operation[]
+): ResolvedIdempotency {
   const scope = config.scope ?? ['key', 'route', 'bodyHash']
   // A scope of `['bodyHash']` alone would key every request in the document
   // under one record. Throw at construction rather than silently collapsing
@@ -67,20 +89,37 @@ export function resolveIdempotency(config: IdempotencyConfig = {}): ResolvedIdem
         `got [${scope.join(', ')}].`
     )
   }
+  const operations = new Map<string, string>()
+  for (const [target, entry] of Object.entries(config.operations ?? {})) {
+    // Normalized here, once, like every other compile site. A bare key
+    // expression matches no token, so `resolveExpression` returns the literal
+    // expression TEXT as an `ok` value — collapsing every request in the
+    // document onto one record key and answering the second one with a
+    // spurious MOCK_IDEMPOTENCY_MISMATCH 409.
+    const key = normalizeExpression(entry.key)
+    if (known === undefined) operations.set(target, key)
+    else for (const operation of resolveTarget(target, known)) {
+      operations.set(targetKey(operation), key)
+    }
+  }
+
   return {
     header: config.header ?? 'Idempotency-Key',
     methods: (config.methods ?? []).map((method) => method.toUpperCase()),
     ttlMs: config.ttlMs ?? 86_400_000,
     inFlightTtlMs: config.inFlightTtlMs ?? 30_000,
     scope,
-    conflictStatus: config.conflictStatus ?? 409
+    conflictStatus: config.conflictStatus ?? 409,
+    operations
   }
 }
 
 /**
  * Per §11, an operation is idempotent when the document declares the key as a
- * header parameter, or when config names its method. The document wins nothing
- * and loses nothing — either route is sufficient.
+ * header parameter, or when config names its method. Delta design §6 adds a
+ * third route: config names a key expression for the operation. The document
+ * wins nothing and loses nothing — each route is sufficient on its own, and
+ * none takes precedence over another.
  */
 export function isIdempotent(operation: Operation, config: ResolvedIdempotency): boolean {
   const wanted = config.header.toLowerCase()
@@ -88,7 +127,34 @@ export function isIdempotent(operation: Operation, config: ResolvedIdempotency):
     (parameter) =>
       parameter.location === 'header' && parameter.name.toLowerCase() === wanted
   )
-  return declared || config.methods.includes(operation.method.toUpperCase())
+  return (
+    declared ||
+    config.methods.includes(operation.method.toUpperCase()) ||
+    config.operations.has(targetKey(operation))
+  )
+}
+
+/**
+ * The key this request presents, delta design §6.
+ *
+ * A configured expression replaces the header for that operation rather than
+ * supplementing it: an operation whose key lives in the body has no header to
+ * fall back to, and inventing one would key two different callers together.
+ * An expression that resolves to nothing yields `undefined`, exactly as a
+ * missing header does — the request is then not idempotent and proceeds.
+ */
+export function suppliedKey(ctx: Ctx, config: ResolvedIdempotency): string | undefined {
+  const expression = config.operations.get(targetKey(ctx.operation))
+  if (expression === undefined) return ctx.headers[config.header.toLowerCase()]
+
+  const resolved = resolveExpression(expression, {
+    request: ctx.req,
+    url: new URL(ctx.req.url),
+    method: ctx.req.method,
+    params: ctx.params,
+    body: ctx.body
+  })
+  return resolved.ok ? resolved.value : undefined
 }
 
 /** fnv1a over the raw request bytes — see `fnv1aBytes` for why not the parsed body. */
@@ -157,7 +223,9 @@ export function createIdempotencyStage(input: IdempotencyStageInput): Stage {
   return async function idempotencyStage(ctx) {
     if (!isIdempotent(input.operation, input.config)) return undefined
 
-    const supplied = ctx.headers[input.config.header.toLowerCase()]
+    // The body is parsed at stage 2 and this is stage 5, so a body pointer has
+    // a parsed body to read by the time it is evaluated.
+    const supplied = suppliedKey(ctx, input.config)
     // No key, nothing to key on. A document that wants the header mandatory
     // declares it `required`, and stage 4 has already rejected its absence.
     if (supplied === undefined) return undefined

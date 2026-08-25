@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { classify, isNullable, mergeAllOf } from '../../src/schema/walk.ts'
+import {
+  classify, isNullable, matchesVariant, mergeAllOf, variantName
+} from '../../src/schema/walk.ts'
 import type { Schema } from '../../src/spec/types.ts'
 
 test('a self-referential allOf merges instead of overflowing the stack', () => {
@@ -204,4 +206,58 @@ test('union mode distinguishes oneOf from anyOf', () => {
   const any = classify({ anyOf: [{ type: 'string' }] })
   assert.equal(any.kind, 'union')
   if (any.kind === 'union') assert.equal(any.mode, 'any')
+})
+
+test('variantName reads a formal discriminator property', () => {
+  const branch: Schema = {
+    type: 'object', properties: { outcome: { const: 'created' } }
+  }
+  assert.equal(variantName(branch, 'outcome'), 'created')
+})
+
+test('variantName falls back to any const-valued property', () => {
+  // No discriminator argument: the common shape, which carries no
+  // `discriminator` object at all.
+  const branch: Schema = {
+    type: 'object', properties: { outcome: { const: 'conflict' } }
+  }
+  assert.equal(variantName(branch, undefined), 'conflict')
+})
+
+test('variantName ignores a non-const property', () => {
+  const branch: Schema = {
+    type: 'object', properties: { id: { type: 'string' } }
+  }
+  assert.equal(variantName(branch, 'id'), undefined)
+})
+
+test('matchesVariant matches on any const property, not only the first', () => {
+  // Design section 5.1: with no formal discriminator, a branch matches when
+  // ANY of its const-valued properties equals the requested name. Two const
+  // properties in the fixture, because a branch with one cannot tell
+  // "matches any" apart from "matches the first declared".
+  const branch: Schema = {
+    type: 'object',
+    properties: {
+      kind: { const: 'refund' },
+      status: { const: 'pending' }
+    }
+  }
+  assert.equal(matchesVariant(branch, undefined, 'refund'), true)
+  assert.equal(matchesVariant(branch, undefined, 'pending'), true)
+  assert.equal(matchesVariant(branch, undefined, 'settled'), false)
+})
+
+test('matchesVariant honors a formal discriminator exclusively', () => {
+  // With a discriminator declared, a non-discriminator const property must
+  // NOT match — otherwise the document's own declaration is ignored.
+  const branch: Schema = {
+    type: 'object',
+    properties: {
+      kind: { const: 'refund' },
+      status: { const: 'pending' }
+    }
+  }
+  assert.equal(matchesVariant(branch, 'kind', 'refund'), true)
+  assert.equal(matchesVariant(branch, 'kind', 'pending'), false)
 })

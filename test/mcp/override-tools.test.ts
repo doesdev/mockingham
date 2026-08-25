@@ -149,6 +149,21 @@ test('tools/call refuses clear_overrides when the gate is closed', async () => {
   assert.equal(body.note, 'via-override')
 })
 
+test('the tool inventory is exactly the size the design pins it at', () => {
+  // Pinned deliberately (commit 13c012b) so an accidental addition or removal
+  // fails the suite. The numbers come from refinements design §10: eight read
+  // tools, twelve write tools, twenty with the write gate open. An implementer
+  // who computes a different number has found a defect, not a stale test — the
+  // fix is never to edit the number until the count is green.
+  const read = mcpTools().map((tool) => tool.name)
+  const all = mcpTools({ write: true }).map((tool) => tool.name)
+
+  assert.equal(read.length, 8, `read tools: ${read.join(', ')}`)
+  assert.equal(all.length, 20, `all tools: ${all.join(', ')}`)
+  assert.equal(all.length - read.length, 12, 'write tools')
+  assert.equal(new Set(all).size, all.length, 'every tool name must be unique')
+})
+
 /**
  * Extracts the tool names listed as `- \`name\` — ...` bullets in the section
  * that runs from `heading` to the next `## ` heading (or end of file).
@@ -165,7 +180,7 @@ function bulletedToolNames(guide: string, heading: string): string[] {
 test('every shipped tool is named exactly once in the guide inventory, and nowhere in "what isn\'t here yet"', async () => {
   // The guide's inventory is prose, so nothing but this test relates it to the
   // code. This asserts two things a plain substring search cannot: the
-  // inventory list under "## The fourteen tools" names exactly the shipped
+  // inventory list under "## The twenty tools" names exactly the shipped
   // set (set equality both ways — a tool added without listing it there, or
   // listed there after removal, fails), and no shipped tool's name still
   // appears under "## What isn't here yet" (a tool documented as absent
@@ -175,11 +190,11 @@ test('every shipped tool is named exactly once in the guide inventory, and nowhe
   const guide = await readFile(new URL('../../docs/mcp.md', import.meta.url), 'utf8')
   const shipped = mcpTools({ write: true }).map((tool) => tool.name).sort()
 
-  const listed = bulletedToolNames(guide, '## The fourteen tools').sort()
+  const listed = bulletedToolNames(guide, '## The twenty tools').sort()
   assert.deepEqual(
     listed,
     shipped,
-    'the "## The fourteen tools" bullet list must name exactly the shipped tools'
+    'the "## The twenty tools" bullet list must name exactly the shipped tools'
   )
 
   const deferredStart = guide.indexOf('## What isn\'t here yet')

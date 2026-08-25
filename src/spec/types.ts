@@ -33,6 +33,11 @@ export interface Schema {
   uniqueItems?: boolean
   additionalProperties?: boolean | Schema
   description?: string
+  /**
+   * A mock-only format override, honored when `format` itself must keep a
+   * value another consumer validates against. Today only `"uuid7"` is read.
+   */
+  'x-mock-format'?: string
 }
 
 export interface SecurityScheme {

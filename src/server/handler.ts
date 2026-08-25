@@ -1,14 +1,19 @@
 import { createRouter } from '../spec/routes.ts'
 import type { Api, Operation } from '../spec/types.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
+import { createVirtualClock } from '../generate/clock.ts'
+import type { Ticker } from '../generate/clock.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
 import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, EmitCtx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
-import { isSupported, resolveExpression } from '../webhooks/expr.ts'
-import { callbackKey } from '../webhooks/emit.ts'
+import { isSupported, normalizeExpression, resolveExpression } from '../webhooks/expr.ts'
+import { runCapture } from '../runtime/capture.ts'
+import type { CaptureRule } from '../runtime/capture.ts'
+import { compileLinkRules, createLinkTable } from '../runtime/link.ts'
+import type { CompiledLinkRule, LinkRule } from '../runtime/link.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
@@ -18,16 +23,21 @@ import { createValidationStage } from '../runtime/validate.ts'
 import { createAuthStage } from '../runtime/auth.ts'
 import type { AuthConfig } from '../runtime/auth.ts'
 import { createResponders } from '../runtime/pipeline.ts'
-import { createFailureStage, compilePolicies } from '../runtime/failure.ts'
+import { createFailureStage, compilePolicies, targetKey } from '../runtime/failure.ts'
 import type { Directive, FailurePolicy } from '../runtime/failure.ts'
 import { createMemoryStore } from '../runtime/store.ts'
 import type { Store } from '../runtime/store.ts'
 import { requestIdFor, emitLog, reportError } from '../runtime/logging.ts'
 import type { LogSink, ErrorSink } from '../runtime/logging.ts'
-import { createIdempotencyStage, resolveIdempotency } from '../runtime/idempotency.ts'
+import { createIdempotencyStage, resolveIdempotency, isIdempotent } from '../runtime/idempotency.ts'
 import type { IdempotencyConfig } from '../runtime/idempotency.ts'
-import { emitWebhook, resolveWebhook, createDeliveryLog } from '../webhooks/emit.ts'
+import {
+  emitWebhook, redeliverWebhook, resolveWebhook, createDeliveryLog
+} from '../webhooks/emit.ts'
 import type { WebhookConfig, ResolvedWebhook } from '../webhooks/emit.ts'
+import { createRegistry } from '../webhooks/registry.ts'
+import type { Registration } from '../webhooks/registry.ts'
+import { resolveTarget } from '../resolve/target.ts'
 import type { Delivery } from '../webhooks/deliver.ts'
 import { createFixtureResolver } from '../fixtures/resolve.ts'
 import type { ResolvedLlm } from '../fixtures/resolve.ts'
@@ -35,15 +45,61 @@ import { createMemoryFixtureStore } from '../fixtures/store.ts'
 import type { FixtureStore } from '../fixtures/store.ts'
 import { createCompiler } from '../schema/compile.ts'
 import { readOverride } from '../runtime/overrides.ts'
+import { readVariant } from '../runtime/variant.ts'
 
 export type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 
 /** Passed to `Handler.emit` — the imperative trigger. */
 export interface EmitOptions {
-  /** Destination tier 1: wins over a captured or configured url. */
+  /** Destination tier 1: wins over a registered, captured or configured url. */
   to?: string
+  /**
+   * Which registration this emission addresses. An explicit scope wins over a
+   * configured `scopeBy` expression, exactly as `to` wins over any resolved
+   * destination. Absent addresses the unscoped registration — design §3.4.
+   */
+  scope?: string
   /** Layered over the generated payload, exactly as a response body override is. */
   body?: OverrideNode
+}
+
+/**
+ * Where an operation's idempotency key comes from — refinements design §9. A
+ * discriminated pair rather than a bare string, because "Idempotency-Key" and
+ * "{$request.body#/meta/requestId}" are not the same kind of thing and a
+ * consumer that has to guess which it is holding will guess wrong.
+ */
+export interface IdempotencyKeySource {
+  source: 'header' | 'expression'
+  value: string
+}
+
+/** What one operation does beyond generating a response — design §9. */
+export interface OperationCapabilities {
+  /** The operation's control-plane target key. */
+  target: string
+  /** Indices of the link rules this operation RECORDS for. */
+  linksFrom: number[]
+  /** Indices of the link rules this operation RECALLS from. */
+  linksTo: number[]
+  registersWebhook: string[]
+  unregistersWebhook: string[]
+  idempotencyKey?: IdempotencyKeySource
+}
+
+/**
+ * The read-only capability picture design §9 exposes through the MCP read
+ * tools. Computed once at construction from the compiled link rules, the
+ * `registerVia` capture rules and the resolved idempotency config — all of
+ * which are handler internals, which is why it is surfaced from here rather
+ * than recomputed beside them. Every array is sorted or in rule-index order:
+ * invariant 2 forbids an unordered iteration deciding anything observable.
+ */
+export interface Capabilities {
+  /** Keyed by `targetKey(operation)`. */
+  operations: Map<string, OperationCapabilities>
+  /** Webhook names with a `registerVia` or `unregisterVia` configured, sorted. */
+  registryWebhooks: string[]
 }
 
 export interface Handler {
@@ -72,9 +128,35 @@ export interface Handler {
    * `close()` genuinely wait for it rather than racing ahead of it.
    */
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  /**
+   * Re-sends a recorded delivery's bytes — refinements design §7.3. Same body,
+   * same signature header, same destination, same `id`; the payload is not
+   * regenerated and the destination is not re-resolved. Appends a second record
+   * carrying the same id.
+   *
+   * Rejects on an id that is not in the log, or one that has aged out of it —
+   * both are caller errors, like an undeclared webhook name. A redelivery that
+   * FAILS is still a recorded `Delivery`, never a rejection.
+   */
+  redeliver(id: string): Promise<Delivery>
   /** Oldest first. */
   deliveries(): Delivery[]
   clearDeliveries(): void
+  /**
+   * Every known webhook destination registration, sorted by webhook then
+   * scope. Sorted because invariant 2 forbids an unordered iteration deciding
+   * anything observable, and this is observable. Enumeration is process-local
+   * even when the Store is shared — design §13.1.
+   */
+  registrations(webhook?: string): Promise<Registration[]>
+  /**
+   * Which operations recall, register or carry an idempotency key — design §9.
+   * Read-only and computed at construction; nothing a request does changes it.
+   */
+  capabilities(): Capabilities
+  /** The imperative equivalent of a `registerVia` operation. */
+  register(webhook: string, url: string, scope?: string): Promise<void>
+  unregister(webhook: string, scope?: string): Promise<void>
   /**
    * Resolves once every pending emission — from either trigger — has settled.
    * The response never waits for one (§13), so a test needs this to await what
@@ -113,6 +195,13 @@ export interface HandlerOptions {
    * else.
    */
   now?: () => number
+  /**
+   * The starting timestamp of the seeded virtual clock UUIDv7 generation reads
+   * — NOT a wall clock, and deliberately not defaulted to one. Defaults to
+   * `DEFAULT_SEED_TIME`, a fixed epoch, so a baked fixture holding a v7 is
+   * stable across runs. See `src/generate/clock.ts`.
+   */
+  seedTime?: number
   onLog?: LogSink
   onError?: ErrorSink
   /**
@@ -121,6 +210,13 @@ export interface HandlerOptions {
    * so an embedding application can route it.
    */
   onWarn?: (message: string) => void
+  /**
+   * Response linking for create-then-read loops. A write records its generated
+   * response against a key it minted; a read whose key matches replays those
+   * bytes; a miss falls through to ordinary generation. NOT stateful CRUD — see
+   * `src/runtime/link.ts` and the refinements design §4.
+   */
+  link?: LinkRule[]
   webhooks?: Record<string, WebhookConfig>
   /** Capture every delivery without sending it. See the webhooks design §2.6. */
   captureOnly?: boolean
@@ -152,6 +248,44 @@ function requestKey(
   return `${seed}|${operation.method}|${operation.path}|${ordered}`
 }
 
+/**
+ * `seedTime` is a public option that lands, unexamined, in the 48-bit timestamp
+ * field of every generated UUIDv7. The values a caller actually produces by
+ * accident all corrupt that field silently: `Date.parse` of a bad env var is
+ * `NaN`, which hex-encodes to `NaN` and is SERVED as part of an id; anything at
+ * or past `2**48` wraps and destroys the sort order that is v7's whole point;
+ * negative and fractional values produce a malformed uuid. None of them has a
+ * sensible interpretation, so this throws at construction — the same treatment
+ * every other unusable option in this file gets.
+ */
+/**
+ * How much of the 48-bit timestamp field is reserved as headroom above
+ * `seedTime`, so that later allocations still fit. Each request or emission
+ * takes `TICKS_PER_ALLOCATION`, so this is 2^32 / 65,536 = **65,536
+ * allocations** before the field could wrap.
+ *
+ * A bound rather than the bare field width, because the field width alone is
+ * not the real constraint: block N starts at `seedTime + N * 65_536`, so
+ * `2**48 - 1` passed the old check and then wrapped on the very next request —
+ * destroying the sort order this validation exists to protect, two ids in.
+ * The old boundary test asserted only that the FIRST id was well-formed, so it
+ * certified a value the validator's own rationale forbids.
+ */
+const SEED_TIME_HEADROOM = 2 ** 32
+
+const MAX_SEED_TIME = 2 ** 48 - SEED_TIME_HEADROOM
+
+function assertUsableSeedTime(seedTime: number | undefined): void {
+  if (seedTime === undefined) return
+  if (Number.isSafeInteger(seedTime) && seedTime >= 0 && seedTime <= MAX_SEED_TIME) return
+  throw new Error(
+    'mockingham: seedTime must be a whole number of milliseconds in ' +
+      `[0, ${MAX_SEED_TIME}], got ${seedTime}. It is the UUIDv7 timestamp ` +
+      'field, not a wall clock, and the upper bound leaves room for the ' +
+      'per-request timestamp blocks that follow it.'
+  )
+}
+
 export function createHandler(
   api: Api,
   options: HandlerOptions = {}
@@ -162,7 +296,14 @@ export function createHandler(
 
   const compiled = compileConfigs(options.operations, api.operations)
 
+  assertUsableSeedTime(options.seedTime)
+
   const counters: Counters = createCounters()
+
+  // Per-mock, not per-request: it advances across requests, which is what makes
+  // ids from successive POSTs sort correctly. That also makes v7 generation a
+  // sequence-dependent output — same request sequence, same ids.
+  const virtualClock = createVirtualClock(options.seedTime)
 
   const now = options.now ?? (() => Date.now())
   // One clock for the store and the log, so a fake clock in a test drives both.
@@ -176,7 +317,7 @@ export function createHandler(
     now,
     onError: (error) => reportError(options.onError, error)
   })
-  const idempotency = resolveIdempotency(options.idempotency)
+  const idempotency = resolveIdempotency(options.idempotency, api.operations)
   const policies = compilePolicies(options.failure, api.operations)
   const chaosSeed = options.chaosSeed ?? seed
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
@@ -192,9 +333,8 @@ export function createHandler(
   // Compiled once. An expression outside the documented subset warns here
   // rather than silently never firing — the same reasoning as `compileTarget`
   // throwing on a target that matches nothing.
-  const callbacks = api.operations.map((operation) => ({
-    operation,
-    specs: operation.callbacks.filter((callback) => {
+  const callbacks = api.operations.map((operation) => {
+    const specs = operation.callbacks.filter((callback) => {
       if (isSupported(callback.expression)) return true
       warn(
         `mockingham: callback "${callback.name}" on ` +
@@ -204,12 +344,222 @@ export function createHandler(
       )
       return false
     })
-  }))
+    // The document's `callbacks` entries become capture rules here, once, not
+    // per request. The tier-2 block at the single exit then runs them through
+    // the same pass the registry and response linking use, so the existing
+    // behavior travels through the new path rather than sitting beside it.
+    const rules: CaptureRule[] = specs.map((callback) => ({
+      kind: 'callback',
+      name: callback.name,
+      // Normalized like every other expression the mock compiles — and this is
+      // THE site the normalization exists for. OpenAPI writes `callbacks` keys
+      // bare, `resolveExpression` matches only braced tokens, and a bare string
+      // therefore resolves to ITSELF rather than failing: the literal text
+      // `$request.body#/hook` was being stored as a destination and used as a
+      // delivery URL, with no warning. `isSupported` cannot catch it either,
+      // since a string with no tokens is vacuously supported.
+      expression: normalizeExpression(callback.expression)
+    }))
+    return { operation, specs, rules }
+  })
+
+  // Keyed by operation, exactly as `registryRules` and `linkCaptureRules` are.
+  // The callback kind used to be listed by hand at the body gate below, with a
+  // predicate of its own (`specs.length > 0`) that only coincidentally agreed
+  // with the rule list. Same shape, same key, one group — which is what makes
+  // the gate and the capture call name the same set by construction rather
+  // than by two authors happening to keep two lists in step.
+  const callbackRules = new Map<Operation, CaptureRule[]>()
+  for (const entry of callbacks) {
+    if (entry.rules.length > 0) callbackRules.set(entry.operation, entry.rules)
+  }
+
+  // Response linking. Targets resolve here so a typo throws at construction
+  // rather than silently never linking, and the bounds default here so the
+  // table is never unbounded — design §4.3.
+  const linkRules = compileLinkRules(options.link, api.operations)
+  const linkTable =
+    linkRules.length === 0
+      ? undefined
+      : createLinkTable(store, linkRules.map((rule) => ({ ttlMs: rule.ttlMs, max: rule.max })))
+  // Compiled once per operation, not per request, exactly as the callback rules
+  // above are. A `from` operation records; a `to` operation recalls.
+  const linkCaptureRules = new Map<Operation, CaptureRule[]>()
+  const linkRecallRules = new Map<Operation, CompiledLinkRule[]>()
+  for (const rule of linkRules) {
+    for (const operation of rule.from) {
+      const existing = linkCaptureRules.get(operation) ?? []
+      existing.push({
+        kind: 'link',
+        index: rule.index,
+        keyExpr: rule.fromKey,
+        remember: rule.remember
+      })
+      linkCaptureRules.set(operation, existing)
+    }
+    for (const operation of rule.to) {
+      const existing = linkRecallRules.get(operation) ?? []
+      existing.push(rule)
+      linkRecallRules.set(operation, existing)
+    }
+  }
 
   const webhookConfigs = new Map<string, ResolvedWebhook>()
   for (const [name, config] of Object.entries(options.webhooks ?? {})) {
     webhookConfigs.set(name, resolveWebhook(config))
   }
+
+  // The cross-operation destination registry (design §3). Store-backed, so
+  // `reset()` clears registrations for free through `store.clear()`.
+  const registry = createRegistry(store)
+
+  // `registerVia`/`unregisterVia` become capture rules here, once, keyed by the
+  // operation their target resolves to — exactly as the callback rules above
+  // are. `resolveTarget` throws on a target matching nothing, so a typo fails
+  // loudly at construction rather than silently never registering.
+  //
+  /**
+   * A registration for a webhook the document never declares can never be
+   * delivered to, so it is a typo rather than a destination question —
+   * the same judgment `emitWebhook` already makes for an undeclared name,
+   * and the same one `assertValidOverrideKeys` makes for an override key
+   * that can never be read back.
+   *
+   * Both routes to a registration go through this: the imperative
+   * `register`/`unregister` at call time, and every key of `options.webhooks`
+   * once at construction, just below. The config route used to be exempt, on
+   * the theory that a rule for an undeclared name "simply never fires" — but it
+   * does fire. It writes a registration `registrations()` LISTS, that no
+   * emission can resolve, and that `unregister` then REFUSES to remove because
+   * the imperative path asserts what the config path did not.
+   */
+  function assertDeclaredWebhook(webhook: string): void {
+    if (api.webhooks[webhook] !== undefined) return
+    throw new Error(
+      `mockingham: no webhook named "${webhook}" is declared in the document. ` +
+        'Declare it under the top-level `webhooks`, or as an operation ' +
+        '`callbacks` entry.'
+    )
+  }
+
+  /**
+   * The startup warning the document's own `callbacks` expressions have always
+   * had, extended to every field that takes a runtime expression. A warning and
+   * not a throw, because the callbacks path warns and a caller who accepts one
+   * unsupported expression today must not start getting exceptions for it.
+   *
+   * This does NOT subsume normalization and normalization does not subsume it:
+   * `isSupported` finds no token in a bare string and so returns `true`
+   * vacuously. Normalization is what makes a bare expression resolve; this is
+   * what reports a token whose FORM this implementation never handles. Called
+   * after normalization, so a bare-but-supported expression stays silent.
+   */
+  function warnUnsupported(field: string, expression: string, consequence: string): void {
+    if (isSupported(expression)) return
+    warn(
+      `mockingham: ${field} uses the runtime expression ${expression}, which is ` +
+        `outside the supported subset. ${consequence}`
+    )
+  }
+
+  for (const name of Object.keys(options.webhooks ?? {})) assertDeclaredWebhook(name)
+
+  for (const [index, rule] of linkRules.entries()) {
+    warnUnsupported(`link rule ${index} from.key`, rule.fromKey, 'It will never record.')
+    warnUnsupported(`link rule ${index} to.key`, rule.toKey, 'It will never recall.')
+    warnUnsupported(`link rule ${index} remember`, rule.remember, 'It will record nothing.')
+  }
+
+  // Read off the CONFIG rather than the resolved map, so the warning names the
+  // target the caller wrote instead of the `targetKey` it expanded to.
+  for (const [target, entry] of Object.entries(options.idempotency?.operations ?? {})) {
+    warnUnsupported(
+      `idempotency operations["${target}"].key`,
+      normalizeExpression(entry.key),
+      'The operation will never present a key, so every request proceeds unkeyed.'
+    )
+  }
+
+  const registryRules = new Map<Operation, CaptureRule[]>()
+  const scopeExpressions = new Map<string, string>()
+  for (const [name, config] of Object.entries(options.webhooks ?? {})) {
+    const scope = config.scopeBy === undefined
+      ? undefined
+      : normalizeExpression(config.scopeBy)
+    if (scope !== undefined) {
+      scopeExpressions.set(name, scope)
+      warnUnsupported(
+        `webhook "${name}" scopeBy`,
+        scope,
+        'It will never resolve, so no scoped registration is written.'
+      )
+    }
+    const addRule = (target: string, rule: CaptureRule): void => {
+      for (const operation of resolveTarget(target, api.operations)) {
+        const existing = registryRules.get(operation) ?? []
+        existing.push(rule)
+        registryRules.set(operation, existing)
+      }
+    }
+    if (config.registerVia !== undefined) {
+      const url = normalizeExpression(config.registerVia.url)
+      warnUnsupported(
+        `webhook "${name}" registerVia.url`,
+        url,
+        'It will never resolve a destination, so nothing is registered.'
+      )
+      addRule(config.registerVia.operationId, {
+        kind: 'register',
+        webhook: name,
+        url,
+        scope
+      })
+    }
+    if (config.unregisterVia !== undefined) {
+      addRule(config.unregisterVia.operationId, { kind: 'unregister', webhook: name, scope })
+    }
+  }
+
+  // Design §9. Every input is settled by now and none of it moves again, so
+  // this is computed once here rather than on each read-tool call.
+  const capabilities: Capabilities = (() => {
+    const registryWebhooks = new Set<string>()
+    const operations = new Map<string, OperationCapabilities>()
+    for (const operation of api.operations) {
+      const key = targetKey(operation)
+      const registers: string[] = []
+      const unregisters: string[] = []
+      for (const rule of registryRules.get(operation) ?? []) {
+        if (rule.kind === 'register') registers.push(rule.webhook)
+        else if (rule.kind === 'unregister') unregisters.push(rule.webhook)
+      }
+      const expression = idempotency.operations.get(key)
+      operations.set(key, {
+        target: key,
+        // Rule index order, which is the order the caller declared them in.
+        linksFrom: linkRules.filter((r) => r.from.includes(operation)).map((r) => r.index),
+        linksTo: linkRules.filter((r) => r.to.includes(operation)).map((r) => r.index),
+        registersWebhook: registers.sort(),
+        unregistersWebhook: unregisters.sort(),
+        // A configured expression is reported as itself; otherwise, if the
+        // operation is idempotent at all, the key comes from the header.
+        idempotencyKey: expression !== undefined
+          ? { source: 'expression', value: expression }
+          : isIdempotent(operation, idempotency)
+            ? { source: 'header', value: idempotency.header }
+            : undefined
+      })
+    }
+    for (const rules of registryRules.values()) {
+      for (const rule of rules) {
+        if (rule.kind === 'register' || rule.kind === 'unregister') {
+          registryWebhooks.add(rule.webhook)
+        }
+      }
+    }
+    return { operations, registryWebhooks: [...registryWebhooks].sort() }
+  })()
+
   const deliveryLog = createDeliveryLog()
   const doFetch = options.fetch ?? ((...args: Parameters<typeof fetch>) => fetch(...args))
 
@@ -271,8 +621,28 @@ export function createHandler(
    */
   async function runEmit(
     name: string,
-    opts: { to?: string; body?: OverrideNode; ctx?: unknown } = {}
+    opts: {
+      to?: string
+      scope?: string
+      body?: OverrideNode
+      ctx?: unknown
+      /**
+       * Supplied by an operation-linked emission, which reserves its block when
+       * it is SCHEDULED rather than when it fires. Absent for an imperative
+       * `mock.emit()`, where the call itself is the scheduling point.
+       */
+      ticker?: Ticker
+    } = {}
   ): Promise<Delivery> {
+    // Drawn ONCE and used twice: the payload rng and the delivery id both key
+    // off this ordinal. Calling `counters.next` twice would advance it between
+    // the two and silently decouple an emission's payload from its identity.
+    const ordinal = counters.next(`webhook|${name}`)
+    // An operation-linked emission reserves its block at SCHEDULING time and
+    // hands it in, because firing may be a timer away. An imperative
+    // `mock.emit()` has no such gap — this call is the scheduling point — so it
+    // reserves here. Either way the block is fixed before anything awaits.
+    const ticker = opts.ticker ?? virtualClock.allocate()
     const delivery = await emitWebhook({
       name,
       api,
@@ -280,19 +650,44 @@ export function createHandler(
       store,
       captureOnly: options.captureOnly === true,
       seed,
-      rng: createRng(`${seed}|webhook|${name}|${counters.next(`webhook|${name}`)}`),
+      ordinal,
+      rng: createRng(`${seed}|webhook|${name}|${ordinal}`),
       generateOptions: {
         maxDepth: options.maxDepth,
         preferExamples: options.preferExamples,
         resolvers,
-        schemaNames: api.schemaNames
+        schemaNames: api.schemaNames,
+        clock: ticker
       },
       fetch: doFetch,
       sleep,
       now,
       to: opts.to,
+      registry,
+      scope: opts.scope,
       bodyOverride: opts.body,
       ctx: opts.ctx
+    })
+    deliveryLog.record(delivery)
+    return delivery
+  }
+
+  /**
+   * One redelivery — refinements design §7.3. Draws NO ordinal and builds no
+   * new id: the recorded id travels with the recorded bytes, which is what
+   * makes a duplicate observably the same delivery. Recorded into the log like
+   * any other emission, so `deliveries()` shows two entries under one id.
+   */
+  async function runRedeliver(id: string): Promise<Delivery> {
+    const delivery = await redeliverWebhook({
+      id,
+      api,
+      log: deliveryLog,
+      configFor: (webhook) => webhookConfigs.get(webhook) ?? resolveWebhook(),
+      captureOnly: options.captureOnly === true,
+      seed,
+      fetch: doFetch,
+      sleep
     })
     deliveryLog.record(delivery)
     return delivery
@@ -304,7 +699,11 @@ export function createHandler(
    * live in its own module. The rng seed string is unchanged from plan 4, so
    * generated error bodies stay byte-identical.
    */
-  const failWith = (operation: Operation | undefined, key: string): Fail =>
+  const failWith = (
+    operation: Operation | undefined,
+    key: string,
+    ticker: Ticker
+  ): Fail =>
     (status, code, message, ctx, errors) =>
       buildError({
         operation,
@@ -319,7 +718,11 @@ export function createHandler(
           maxDepth: options.maxDepth,
           preferExamples: options.preferExamples,
           resolvers,
-          schemaNames: api.schemaNames
+          schemaNames: api.schemaNames,
+          // The REQUEST's block, not a fresh draw: an error body is part of the
+          // response this request produces, so its timestamps must belong to
+          // the same reservation as everything else that request generated.
+          clock: ticker
         },
         debugHeaders: options.debugHeaders
       })
@@ -337,6 +740,13 @@ export function createHandler(
     bytesIn: number
     ctx?: Ctx
     error?: unknown
+    /**
+     * This request's reserved block of UUIDv7 timestamps, allocated
+     * synchronously in `handle()` before anything can await. Every value this
+     * request generates — a response body, an error envelope — draws from it,
+     * so no other request's or emission's interleaving can shift them.
+     */
+    ticker: Ticker
     /** Set by stage 5 when this request claimed a key; read by the single exit. */
     claimed?: { key: string; fingerprint: string }
     /**
@@ -377,7 +787,7 @@ export function createHandler(
       const unmatchedInbound = request.headers.get('x-request-id')
       trace.requestId = unmatchedInbound ?? requestIdFor(unmatchedKey, unmatchedOrdinal)
 
-      const fail = failWith(undefined, seed)
+      const fail = failWith(undefined, seed, trace.ticker)
       const allowed = router.allowedMethods(url.pathname)
       if (allowed.length > 0) {
         // The router matched the path on segments alone — the method is what's
@@ -402,9 +812,17 @@ export function createHandler(
     // selection below and selection runs well before the body is rendered, so
     // one read serves both. Design section 4.
     const runtime = await readOverride(store, operation)
+    // `Prefer: variant=` on THIS request beats the stored `set_variant`
+    // preference, for the same reason `Prefer: status` beats a configured
+    // status: a header is a statement about this call. A name matching no
+    // branch falls through to the seeded pick rather than failing — the
+    // sibling directive's rule, and what keeps the header harmless on the many
+    // responses that contain no union at all. Design section 5.5.
+    const variant =
+      preferred(request, 'variant') ?? (await readVariant(store, operation))
     // Computed once — it was built twice per request before this refactor.
     const key = requestKey(operation, params, seed)
-    const fail = failWith(operation, key)
+    const fail = failWith(operation, key, trace.ticker)
 
     trace.operation = operation
     trace.params = params
@@ -444,7 +862,13 @@ export function createHandler(
         maxDepth: options.maxDepth,
         preferExamples: options.preferExamples,
         resolvers,
-        schemaNames: api.schemaNames
+        schemaNames: api.schemaNames,
+        clock: trace.ticker,
+        // Deliberately the ONLY construction site that receives it. `runEmit`
+        // has no request behind it, and steering an error envelope's union
+        // (`failWith`) or a header's (render.ts) from a request header is not
+        // a behavior to introduce silently. Design section 5.4.
+        variant
       },
       // ctx is declared just below; this getter is only invoked later (inside
       // generateValue, at generation time), by which point the assignment has
@@ -570,6 +994,42 @@ export function createHandler(
     resolvedWhole = fixture?.whole
     selectedStatus = chosen.status
 
+    // Stage 7.5 — link recall. Immediately after status selection and
+    // immediately before the fixture contributes, because the resulting
+    // precedence is
+    //   runtime override > config override > link recall > fixture > example > generated
+    // — a recalled entity is more specific than a fixture for the operation
+    // (the fixture answers "what does this endpoint return", the recall answers
+    // "what does it return FOR THIS ID"), and less specific than either
+    // override layer, which are deliberate statements from the caller.
+    //
+    // Only a SUCCESS status recalls. Replaying a stored body into a 404 or a
+    // 500 would be actively wrong, and the failure-injection stage exists
+    // precisely so a caller can force those — design §4.4.
+    const linkLayer: OverrideNode[] = []
+    if (linkTable !== undefined && chosen.status >= 200 && chosen.status < 300) {
+      for (const rule of linkRecallRules.get(operation) ?? []) {
+        const recallKey = resolveExpression(rule.toKey, {
+          request,
+          url,
+          method: request.method,
+          params,
+          body: parsed.body.value
+        })
+        if (!recallKey.ok) continue
+        const recalled = await linkTable.recall(rule.index, recallKey.value)
+        // A miss falls through to ordinary generation, exactly as a fixture
+        // miss does. That is the whole read side of the feature: an id the mock
+        // never minted is generated for, not recalled.
+        if (recalled === undefined) continue
+        // A FUNCTION node, so the recalled entity replaces the generated body
+        // rather than merging key-by-key into it — replaying the recorded bytes
+        // is the point. The layers above still refine what it produced.
+        linkLayer.push(() => recalled)
+        break
+      }
+    }
+
     // Computed once, here, for both the composition below and the debug
     // header: calling `runtime.bodies`/`runtime.headers` again just to answer
     // "did it actually apply" would be a second read of the same layer.
@@ -591,7 +1051,7 @@ export function createHandler(
       chosen,
       // The runtime layer goes last so it refines the config layers rather
       // than erasing them, and the fixture stays beneath both.
-      bodyOverrides: [...config.bodies(chosen.status), ...runtimeBodies],
+      bodyOverrides: [...linkLayer, ...config.bodies(chosen.status), ...runtimeBodies],
       fixtureLayer: fixture?.layer as OverrideNode | undefined,
       headerOverrides: {
         ...config.headers(chosen.status),
@@ -678,7 +1138,17 @@ export function createHandler(
    */
   async function handle(request: Request): Promise<Response> {
     const startedAt = now()
-    const trace: Trace = { params: {}, requestKey: seed, bytesIn: 0 }
+    // Allocated HERE, on the synchronous path into `handle()`, before any
+    // await. Reservation order is therefore arrival order, which is what "the
+    // request sequence" means in the amended invariant 2 — and it stays fixed
+    // however long generation later takes, or however the mock interleaves
+    // this request with another. See `generate/clock.ts`.
+    const trace: Trace = {
+      params: {},
+      requestKey: seed,
+      bytesIn: 0,
+      ticker: virtualClock.allocate()
+    }
 
     let response: Response
     try {
@@ -698,14 +1168,31 @@ export function createHandler(
     // before this fix, a throw anywhere past `produce()` destroyed an
     // already-correct response instead of merely failing to log or store it.
     const claimed = trace.claimed
-    const hasCallbacks =
-      trace.operation !== undefined &&
-      callbacks.some(
-        (candidate) => candidate.operation === trace.operation && candidate.specs.length > 0
-      )
     const hasEmits = trace.emits !== undefined && trace.emits.length > 0
+    // Any capture rule may address `$response.body`, so this exit must capture
+    // the body whenever the operation carries one. Without this the capture
+    // pass runs against an undefined result body and records NOTHING — a link
+    // rule then silently generates forever, and a registerVia never registers,
+    // in both cases with no error anywhere to notice.
+    //
+    // Deliberately asked of the rule maps as a group rather than one clause per
+    // kind: this gate and the rule list assembled at the capture call below
+    // must name the same set, and two places listing kinds by hand drift the
+    // moment a fourth kind is added. Both defects above were exactly that drift
+    // — link rules reached the capture pass while this gate still listed only
+    // callbacks, and registry rules were then added to the pass alone. The
+    // callback kind is in the group too: it was the last one still hand-listed
+    // beside it, under a different predicate that agreed only by coincidence.
+    const hasCaptureRules =
+      trace.operation !== undefined &&
+      (callbackRules.has(trace.operation) ||
+        registryRules.has(trace.operation) ||
+        linkCaptureRules.has(trace.operation))
     const needsBody =
-      claimed !== undefined || options.onLog !== undefined || hasCallbacks || hasEmits
+      claimed !== undefined ||
+      options.onLog !== undefined ||
+      hasEmits ||
+      hasCaptureRules
     // The body is read at most once, from a clone, and only when something
     // needs it: an idempotency record to store, a `bytesOut` to report, a
     // callback expression that may point at it, or an emit's `ctx.result.body`.
@@ -798,8 +1285,28 @@ export function createHandler(
     // resolve, because the result exists.
     if (trace.operation !== undefined && response.status < 400) {
       try {
-        const entry = callbacks.find((candidate) => candidate.operation === trace.operation)
-        if (entry !== undefined && entry.specs.length > 0) {
+        // One rule list, one pass, so every capture kind shares one set of
+        // preconditions and one try/catch rather than each feature growing its
+        // own block (design §2).
+        //
+        // The order within that list is FEATURE order — callbacks, then
+        // registry, then link — fixed by this concatenation, not by the order
+        // rules appear in config. Nothing observable depends on it today: the
+        // three kinds write disjoint key namespaces (`callback|`,
+        // `registration|`, `link|`), so no two rules in one pass can contend
+        // for the same key. If a future kind shares a namespace with another,
+        // this concatenation is where the tie is broken and it would need
+        // deciding deliberately.
+        const rules: CaptureRule[] = [
+          ...(callbackRules.get(trace.operation) ?? []),
+          ...(registryRules.get(trace.operation) ?? []),
+          // A `link` rule's `from` operation records here, under exactly the
+          // same `status < 400` precondition and inside exactly the same
+          // try/catch as the destination tiers above it.
+          ...(linkCaptureRules.get(trace.operation) ?? [])
+        ]
+        if (rules.length > 0) {
+          const responseBody = parseBodyText(captured, response)
           const exprInput = {
             request,
             url: new URL(request.url),
@@ -809,13 +1316,18 @@ export function createHandler(
             result: {
               status: response.status,
               headers: headersOf(response),
-              body: parseBodyText(captured, response)
+              body: responseBody
             }
           }
-          for (const callback of entry.specs) {
-            const resolved = resolveExpression(callback.expression, exprInput)
-            if (resolved.ok) await store.set(callbackKey(callback.name), resolved.value)
-          }
+          await runCapture({
+            rules,
+            expr: exprInput,
+            store,
+            registry,
+            link: linkTable,
+            responseBody,
+            requestBody: trace.ctx?.body
+          })
         }
       } catch (error) {
         reportError(options.onError, error, trace.ctx)
@@ -863,7 +1375,45 @@ export function createHandler(
             }
           }
           const at = generation
-          for (const emit of trace.emits) {
+          // An operation-linked emit HAS the triggering request, so a
+          // configured `scopeBy` resolves normally here — design §3.4's first
+          // case. Resolved once, before the delayed emissions fan out, so a
+          // later request cannot change which registration this one addresses.
+          const scopeFor = (webhook: string): string | undefined => {
+            const expression = scopeExpressions.get(webhook)
+            if (expression === undefined) return undefined
+            const resolved = resolveExpression(expression, {
+              request,
+              url: new URL(request.url),
+              method: request.method,
+              params: trace.params,
+              body: ctx.body,
+              result: emitCtx.result
+            })
+            // A scope that does not resolve addresses the unscoped
+            // registration, which is the same place `mock.emit(name)` lands.
+            // Finding nothing there is `unresolved`, never a cross-tenant send.
+            return resolved.ok ? resolved.value : ''
+          }
+          const scopes = new Map<string, string | undefined>(
+            trace.emits.map((emit) => [emit.webhook, scopeFor(emit.webhook)])
+          )
+          // Reserved HERE, when the emission is scheduled, not inside the async
+          // body where it would be reserved when the emission FIRES. That
+          // distinction is the whole fix: with an `afterMs`, firing happens on
+          // a timer, so allocating there let the delay decide whether this
+          // emission or the caller's next request got the earlier timestamps.
+          // Same reasoning as `scopes` above — settle it before the fan-out, so
+          // a later request cannot change what a pending emission resolved.
+          //
+          // Indexed by POSITION, not keyed by webhook name. `trace.emits` is an
+          // array and two entries may name the same webhook; a Map keyed by
+          // name kept only the last, so both emissions drew from one block and
+          // silently discarded the other. Sharing a block puts offsets back on
+          // the firing path — reintroducing, for exactly that configuration,
+          // the bug this reservation exists to remove.
+          const tickers = trace.emits.map(() => virtualClock.allocate())
+          for (const [index, emit] of trace.emits.entries()) {
             track((async () => {
               try {
                 const delay = typeof emit.afterMs === 'function' ? emit.afterMs(emitCtx) : emit.afterMs
@@ -875,7 +1425,12 @@ export function createHandler(
                 }
                 // A reset or a close while this was waiting invalidates it.
                 if (closed || at !== generation) return
-                await runEmit(emit.webhook, { body: emit.body, ctx: emitCtx })
+                await runEmit(emit.webhook, {
+                  body: emit.body,
+                  ctx: emitCtx,
+                  scope: scopes.get(emit.webhook),
+                  ticker: tickers[index]
+                })
               } catch (error) {
                 reportError(options.onError, markCallback(error), emitCtx)
               }
@@ -893,16 +1448,31 @@ export function createHandler(
   return {
     fetch: handle,
     store,
+    // Reseeds the PRNG and nothing else — the request counters and the virtual
+    // clock keep running, exactly as they do across ordinary requests. Only
+    // `reset()` rewinds them.
+    //
+    // Worth knowing before comparing baked fixtures: after `setSeed('x')` a
+    // mock does NOT match a freshly constructed mock with `seed: 'x'`. The
+    // random bits of a uuid7 agree, but the timestamp half does not, because
+    // the fresh mock's clock is still at `seedTime` while this one has already
+    // advanced a millisecond per v7 generated. Construct the mock with the seed
+    // when byte-identical output is the point — `reset()` is not the escape
+    // hatch, since it restores the CONFIGURED seed and so discards this one.
     setSeed(next) {
       seed = next
     },
     async reset() {
       seed = options.seed ?? 'mockingham'
       counters.reset()
+      virtualClock.reset()
       chaosCounts.clear()
       requestOrdinals.clear()
       generation += 1
       deliveryLog.clear()
+      // The values live in the Store that `clear()` below wipes; this drops the
+      // process-local eviction index that tracks them.
+      linkTable?.clear()
       await store.clear()
     },
     emit: (name, opts = {}) => {
@@ -923,8 +1493,31 @@ export function createHandler(
       track(delivery.then(() => undefined, () => undefined))
       return delivery
     },
+    redeliver: (id) => {
+      // A redelivery is an emission, so it obeys the same close() rule and is
+      // tracked the same way — otherwise settled() would race past it.
+      if (closed) {
+        return Promise.reject(new Error(
+          'mockingham: redeliver() was called after close(). The handler has ' +
+            'stopped accepting new emissions.'
+        ))
+      }
+      const delivery = runRedeliver(id)
+      track(delivery.then(() => undefined, () => undefined))
+      return delivery
+    },
     deliveries: () => deliveryLog.all(),
     clearDeliveries: () => deliveryLog.clear(),
+    registrations: (webhook) => registry.all(webhook),
+    capabilities: () => capabilities,
+    register: async (webhook, url, scope) => {
+      assertDeclaredWebhook(webhook)
+      await registry.register(webhook, url, scope)
+    },
+    unregister: async (webhook, scope) => {
+      assertDeclaredWebhook(webhook)
+      await registry.unregister(webhook, scope)
+    },
     settled,
     async close() {
       closed = true

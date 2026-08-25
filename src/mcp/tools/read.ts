@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import type { McpContext, McpTool } from '../context.ts'
 import { createCompiler } from '../../schema/compile.ts'
+import { classify, variantName } from '../../schema/walk.ts'
 import { toJsonSchema } from '../../schema/json-schema.ts'
 import type { Operation, Parameter, Schema } from '../../spec/types.ts'
 import { createRng } from '../../generate/rng.ts'
 import { generateValue } from '../../generate/generate.ts'
+import { targetKey } from '../../runtime/failure.ts'
 
 // One compiler for the module: compilation is pure and its cache is a win
 // across calls. It holds no per-request state.
@@ -24,6 +26,22 @@ export function findOperation(
       throw new Error(
         `mockingham: no operation with operationId "${operationId}". ` +
           'Call list_operations to see what this document declares.'
+      )
+    }
+    // Deferred item 29(a). Returning here without checking a co-supplied
+    // method/path meant a caller who asked for GET /orders/{orderId} by an
+    // operationId that names POST /orders got the POST back and was told
+    // nothing. The disagreement is a caller mistake, and a mock that answers a
+    // question nobody asked is worse than one that says so.
+    const disagrees =
+      (method !== undefined && found.method !== method) ||
+      (path !== undefined && found.path !== path)
+    if (disagrees) {
+      throw new Error(
+        `mockingham: operationId "${operationId}" is ` +
+          `${found.method.toUpperCase()} ${found.path}, but method and path say ` +
+          `${(method ?? found.method).toUpperCase()} ${path ?? found.path}. ` +
+          'Supply operationId alone, or a method and path that agree with it.'
       )
     }
     return found
@@ -55,6 +73,34 @@ function jsonSchemaOf(schema: Schema): Record<string, unknown> {
   }
 }
 
+/**
+ * The names `set_variant` and `Prefer: variant=` answer to for one response
+ * body, or `undefined` when the body is not a union.
+ *
+ * Read through `classify`/`variantName` rather than by inspecting `oneOf`
+ * here: invariant 1 puts schema interpretation in `schema/walk.ts` and nowhere
+ * else, so the names an agent is shown are by construction the names selection
+ * matches. Without this an agent had to infer a variant name from raw JSON
+ * Schema `const`s in the converted output.
+ *
+ * One level only — the union AT the response body, not a walk of the tree.
+ * `variant` applies at every union in the tree, but enumerating nested ones
+ * would produce a flat list of names with no indication of where each applies,
+ * which is more misleading than saying nothing. A branch with no const-valued
+ * property has no name and is unreachable by `set_variant`, so it is omitted
+ * rather than reported as an empty string.
+ */
+function variantNames(schema: Schema): string[] | undefined {
+  const kind = classify(schema)
+  if (kind.kind !== 'union') return undefined
+  const names: string[] = []
+  for (const branch of kind.variants) {
+    const name = variantName(branch, kind.discriminator)
+    if (name !== undefined && !names.includes(name)) names.push(name)
+  }
+  return names.length > 0 ? names : undefined
+}
+
 function contentSchemas(
   content: Record<string, { schema: Schema; example?: unknown }> | undefined
 ): Record<string, unknown> | undefined {
@@ -77,7 +123,12 @@ const describeOperation: McpTool = {
   description:
     'The full contract for one operation: parameters, request body schema, ' +
     'every declared response schema, security requirements, and declared ' +
-    'examples. Identify it by operationId, or by method and path.',
+    'examples. Also what the operation does beyond generating a response — ' +
+    'which response-link rules it records for (linksFrom) or replays from ' +
+    '(linksTo), which webhook destination it registers or unregisters, and ' +
+    'where its idempotency key comes from. A response whose body is a union ' +
+    'also lists the branch names set_variant and "Prefer: variant=" accept ' +
+    'for it. Identify it by operationId, or by method and path.',
   inputSchema: {
     operationId: z.string().optional(),
     method: z.string().optional(),
@@ -85,10 +136,21 @@ const describeOperation: McpTool = {
   },
   handler(ctx: McpContext, args: Record<string, unknown>) {
     const operation = findOperation(ctx, args)
+    // Design §9. An operation that recalls a recorded response and one that
+    // generates a fresh one are indistinguishable from outside, and that is the
+    // difference between a workflow that round-trips and one that quietly does
+    // not. Defaulted rather than left absent so a document with no linking at
+    // all still answers the question with [] instead of silence.
+    const capabilities = ctx.capabilities().operations.get(targetKey(operation))
     return {
       method: operation.method.toUpperCase(),
       path: operation.path,
       operationId: operation.operationId,
+      linksFrom: capabilities?.linksFrom ?? [],
+      linksTo: capabilities?.linksTo ?? [],
+      registersWebhook: capabilities?.registersWebhook ?? [],
+      unregistersWebhook: capabilities?.unregistersWebhook ?? [],
+      idempotencyKey: capabilities?.idempotencyKey,
       summary: operation.summary,
       description: operation.description,
       tags: operation.tags,
@@ -115,6 +177,12 @@ const describeOperation: McpTool = {
           // media-type key to find it.
           schema: response.content['application/json']
             ? jsonSchemaOf(response.content['application/json']!.schema)
+            : undefined,
+          // The branch names set_variant accepts for this response, when it is
+          // a union. Absent otherwise, so an agent is never told a union
+          // exists where none does.
+          variants: response.content['application/json']
+            ? variantNames(response.content['application/json']!.schema)
             : undefined
         })),
       security: operation.security
@@ -322,9 +390,10 @@ const listWebhooks: McpTool = {
     'Outbound requests this API can make — top-level webhooks and per-operation ' +
     'callbacks — with payload schemas and which operations are configured to ' +
     'emit them. An empty emittedBy means the document declares it but nothing ' +
-    'fires it.',
+    'fires it. `registry` reports whether a destination registry is configured ' +
+    'and how many registrations exist; call list_registrations for the URLs.',
   inputSchema: {},
-  handler(ctx: McpContext) {
+  async handler(ctx: McpContext) {
     const callbacks = new Map<string, { expression: string; owner: string }>()
     for (const operation of ctx.api.operations) {
       for (const callback of operation.callbacks) {
@@ -336,27 +405,69 @@ const listWebhooks: McpTool = {
       }
     }
 
+    const registryWebhooks = new Set(ctx.capabilities().registryWebhooks)
+
     // Sorted: api.webhooks is an object, and invariant 2 forbids object key
     // order deciding output.
-    return Object.keys(ctx.api.webhooks).sort().map((name) => {
+    const out = []
+    for (const name of Object.keys(ctx.api.webhooks).sort()) {
       const webhook = ctx.api.webhooks[name]!
       const callback = callbacks.get(name)
       const media = webhook.body?.['application/json']
       const configured = ctx.emitters.get(name) ?? []
-      return {
+
+      // Deferred item 29(b). A callback's owning operation is DECLARED in the
+      // document, so it emits the webhook whether or not anything is also
+      // configured to. The old conditional reported it only when `configured`
+      // was empty, so the moment some unrelated operation's `emits` named the
+      // webhook, the operation that actually declares it vanished from the
+      // list. Appended rather than sorted in: `configured` is already in
+      // document order, and the declarer is the tail the caller did not have.
+      const emittedBy = [...configured]
+      if (callback !== undefined && !emittedBy.includes(callback.owner)) {
+        emittedBy.push(callback.owner)
+      }
+
+      out.push({
         name,
         kind: callback === undefined ? 'webhook' : 'callback',
         method: webhook.method.toUpperCase(),
-        payloadSchema: media ? toJsonSchema(media.schema, compiler) : undefined,
-        // A callback's owning operation is declared in the document, so it is
-        // reported whether or not anything is configured to emit it. A
-        // top-level webhook has no declared owner — only config can link it.
-        emittedBy: callback !== undefined && configured.length === 0
-          ? [callback.owner]
-          : configured,
-        expression: callback?.expression
-      }
-    })
+        // Deferred item 29(c). Through the shared helper, like every other
+        // schema this module reports: a payload the converter refuses is named
+        // as such rather than coming back `undefined`, which reads as "no
+        // payload" and is a different and wrong answer.
+        payloadSchema: media ? jsonSchemaOf(media.schema) : undefined,
+        emittedBy,
+        expression: callback?.expression,
+        // Design §9: whether a registry is configured, and how many
+        // registrations exist — deliberately NOT the URLs. A registered
+        // destination is a consumer's endpoint and does not belong in a
+        // capability listing an agent may dump into a log. list_registrations
+        // returns them, because asking is a different act from being told.
+        registry: {
+          configured: registryWebhooks.has(name),
+          registrations: (await ctx.registrations(name)).length
+        }
+      })
+    }
+    return out
+  }
+}
+
+const listRegistrations: McpTool = {
+  name: 'list_registrations',
+  description:
+    'Webhook destinations currently registered with this mock — webhook name, ' +
+    'URL, and scope — sorted by webhook then scope. These are the URLs an ' +
+    'emission will actually deliver to. Filter by webhook name.',
+  inputSchema: {
+    webhook: z.string().optional().describe('Only registrations for this webhook')
+  },
+  handler(ctx: McpContext, args: Record<string, unknown>) {
+    // Sorting is the registry's own contract, not re-imposed here — one
+    // ordering, decided in one place, so this listing and mock.registrations()
+    // cannot disagree.
+    return ctx.registrations(args.webhook as string | undefined)
   }
 }
 
@@ -386,5 +497,6 @@ export const READ_TOOLS: McpTool[] = [
   sampleResponse,
   searchOperations,
   listWebhooks,
+  listRegistrations,
   listDeliveries
 ]

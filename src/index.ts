@@ -1,14 +1,16 @@
 import { loadApi } from './spec/load.ts'
 import type { Api } from './spec/types.ts'
 import { createHandler } from './server/handler.ts'
-import type { HandlerOptions, EmitOptions } from './server/handler.ts'
+import type { HandlerOptions, EmitOptions, Capabilities } from './server/handler.ts'
 import { createNodeServer } from './server/node.ts'
 import type { Store } from './runtime/store.ts'
 import { resolveTarget } from './resolve/target.ts'
 import { targetKey, failNextKey, outageKey } from './runtime/failure.ts'
 import { overrideKey, assertSerializable, assertValidOverrideKeys } from './runtime/overrides.ts'
+import { variantKey } from './runtime/variant.ts'
 import type { RuntimeOverride } from './runtime/overrides.ts'
 import type { Delivery } from './webhooks/deliver.ts'
+import type { Registration } from './webhooks/registry.ts'
 import { resolveLlm } from './fixtures/config.ts'
 import type { LlmConfig } from './fixtures/config.ts'
 import { createMemoryFixtureStore } from './fixtures/store.ts'
@@ -58,13 +60,45 @@ export interface Mock {
   override(target: string, value: RuntimeOverride): Promise<void>
   /** No target clears every operation in the document. */
   clearOverrides(target?: string): Promise<void>
+  /**
+   * Stores a union-branch preference for every operation the target resolves
+   * to. A `Prefer: variant=` header on a request outranks it, and a name
+   * matching no branch falls through to the seeded pick. Design section 5.5.
+   */
+  setVariant(target: string, name: string): Promise<void>
+  /** No target clears every operation in the document. */
+  clearVariants(target?: string): Promise<void>
   setSeed(seed: string): Promise<void>
   reset(): Promise<void>
   store: Store
   api: Api
   emit(name: string, opts?: EmitOptions): Promise<Delivery>
+  /**
+   * Re-sends a recorded delivery verbatim — same body, same signature header,
+   * same destination, same `id` (refinements design §7.3). Rejects on an
+   * unknown id, or one that has aged out of the bounded delivery log.
+   */
+  redeliver(id: string): Promise<Delivery>
   deliveries(): Delivery[]
   clearDeliveries(): void
+  /**
+   * Every webhook destination registration this process knows about, sorted by
+   * webhook then scope — refinements design §3.5.
+   */
+  registrations(webhook?: string): Promise<Registration[]>
+  /**
+   * Which operations recall, register or carry an idempotency key — refinements
+   * design §9. What the MCP read tools report; exposed here because a consumer
+   * embedding the mock has the same "will this round-trip?" question an agent
+   * does.
+   */
+  capabilities(): Capabilities
+  /**
+   * Registers a destination imperatively, as a `registerVia` operation would.
+   * An absent scope is the unscoped registration.
+   */
+  register(webhook: string, url: string, scope?: string): Promise<void>
+  unregister(webhook: string, scope?: string): Promise<void>
   settled(): Promise<void>
   /**
    * Prewarms the fixture store by walking every operation the configured llm
@@ -188,6 +222,25 @@ export function createMock(
       }
     },
 
+    async setVariant(target, name) {
+      // `keysFor` resolves through `resolveTarget`, so a typo throws here
+      // rather than silently storing a preference nothing ever reads.
+      for (const key of keysFor(target)) {
+        await handler.store.set(variantKey(key), name)
+      }
+    },
+
+    async clearVariants(target) {
+      // Same reasoning as `clearOverrides`: no enumeration on `Store`, and
+      // `store.clear()` would take idempotency keys and chaos state with it.
+      const keys = target === undefined
+        ? api.operations.map(targetKey)
+        : keysFor(target)
+      for (const key of keys) {
+        await handler.store.delete(variantKey(key))
+      }
+    },
+
     async setSeed(next) {
       handler.setSeed(next)
     },
@@ -202,8 +255,13 @@ export function createMock(
     api,
 
     emit: (name, opts) => handler.emit(name, opts),
+    redeliver: (id) => handler.redeliver(id),
     deliveries: () => handler.deliveries(),
     clearDeliveries: () => handler.clearDeliveries(),
+    registrations: (webhook) => handler.registrations(webhook),
+    capabilities: () => handler.capabilities(),
+    register: (webhook, url, scope) => handler.register(webhook, url, scope),
+    unregister: (webhook, scope) => handler.unregister(webhook, scope),
     settled: () => handler.settled(),
 
     async bake() {
@@ -275,10 +333,18 @@ export function createMock(
 export { loadApi } from './spec/load.ts'
 export type { Api, Operation, Schema } from './spec/types.ts'
 export type { HandlerOptions } from './server/handler.ts'
+export type {
+  Capabilities, OperationCapabilities, IdempotencyKeySource
+} from './server/handler.ts'
 export type { Delivery } from './webhooks/deliver.ts'
-export type { WebhookConfig } from './webhooks/emit.ts'
+export type { WebhookConfig, RegisterVia, UnregisterVia } from './webhooks/emit.ts'
+export type { Registration } from './webhooks/registry.ts'
 export type { LlmConfig } from './fixtures/config.ts'
 export type { RuntimeOverride } from './runtime/overrides.ts'
+
+// `seedTime` arrives through HandlerOptions; the default it falls back to is
+// exported so a caller can offset from it rather than guess at it.
+export { DEFAULT_SEED_TIME } from './generate/clock.ts'
 export type { BakeSummary } from './fixtures/bake.ts'
 
 // The bake-commit-serve loop needs these at the package root. Exporting only
