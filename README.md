@@ -143,6 +143,257 @@ your schema, driven by the seeded PRNG — types, `format` (`uuid`,
 all honored. `pattern` is the one constraint that isn't; see
 [Known limitations](#known-limitations).
 
+**Time-ordered ids.** `format: "uuid7"` (and the spellings `uuidv7` and
+`uuid-v7`) generates RFC 9562 version 7 UUIDs, which sort by creation time —
+the property people reach for the moment they adopt v7. A real clock in a
+generation path would violate determinism outright, so the timestamp comes from
+a **seeded virtual clock**: a per-mock counter starting at `seedTime` and
+advancing one millisecond per v7 generated. Monotonic within a run, identical
+across runs on the same seed. `seedTime` defaults to a fixed epoch constant
+(`2025-01-01T00:00:00Z`), never `Date.now()` — a wall-clock default would make
+baked fixtures unstable across runs, which is the exact failure `seedTime`
+exists to prevent. `reset()` returns the counter to `seedTime`.
+
+If a document can't change `format` without breaking another consumer's
+validation, put `x-mock-format: "uuid7"` beside a plain `format: "uuid"`
+instead; `x-mock-format` wins when both are present.
+
+```ts
+const eventsDoc = {
+  openapi: '3.1.0',
+  info: { title: 'Events', version: '1.0.0' },
+  paths: {
+    '/events': {
+      post: {
+        operationId: 'createEvent',
+        responses: {
+          '201': {
+            description: 'Created',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['id'],
+                  properties: { id: { type: 'string', format: 'uuid7' } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+const idMock = createMock(eventsDoc, { seed: 'readme', seedTime: 1735689600000 })
+const mintedIds: string[] = []
+for (let i = 0; i < 3; i++) {
+  const created = await idMock.fetch(new Request('http://mock/events', { method: 'POST' }))
+  mintedIds.push(((await created.json()) as { id: string }).id)
+}
+
+console.log(JSON.stringify(mintedIds, null, 2))
+console.log(`lexical order is generation order: ${JSON.stringify(mintedIds) === JSON.stringify([...mintedIds].sort())}`)
+
+await idMock.close()
+```
+
+```console
+[
+  "01941f29-7c00-7d48-b6ae-2228a20479a5",
+  "01941f29-7c01-7d48-b6ae-2228a20479a5",
+  "01941f29-7c02-7d48-b6ae-2228a20479a5"
+]
+lexical order is generation order: true
+```
+
+### Union variants
+
+Which branch of a `oneOf`/`anyOf` comes back is a seeded pick by default. Send
+`Prefer: variant=<name>` to ask for a specific one: a branch matches when its
+formal `discriminator` property, or — with no `discriminator` object at all —
+any of its const-valued properties, equals the name you asked for. That second
+rule is what makes the common `outcome: { const: "conflict" }` shape work
+without a discriminator declaration.
+
+`mock.setVariant(target, name)` stores the same preference per operation for
+callers who can't set a header, and `mock.clearVariants(target?)` removes it.
+A `Prefer: variant=` header on a request outranks a stored preference, for the
+same reason `Prefer: status` outranks a configured status: a header is a
+statement about *this* call.
+
+```ts
+const checkoutDoc = {
+  openapi: '3.1.0',
+  info: { title: 'Checkout', version: '1.0.0' },
+  paths: {
+    '/checkout': {
+      post: {
+        operationId: 'checkout',
+        responses: {
+          '200': {
+            description: 'The outcome',
+            content: {
+              'application/json': {
+                schema: {
+                  oneOf: [
+                    {
+                      type: 'object',
+                      required: ['outcome', 'receiptId'],
+                      properties: {
+                        outcome: { const: 'settled' },
+                        receiptId: { type: 'string' }
+                      }
+                    },
+                    {
+                      type: 'object',
+                      required: ['outcome', 'reason'],
+                      properties: {
+                        outcome: { const: 'conflict' },
+                        reason: { type: 'string' }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+const variantMock = createMock(checkoutDoc, { seed: 'readme' })
+
+const preferred = await variantMock.fetch(
+  new Request('http://mock/checkout', { method: 'POST', headers: { prefer: 'variant=conflict' } })
+)
+console.log(JSON.stringify(await preferred.json(), null, 2))
+
+await variantMock.setVariant('checkout', 'settled')
+const stored = await variantMock.fetch(new Request('http://mock/checkout', { method: 'POST' }))
+console.log(JSON.stringify(await stored.json(), null, 2))
+
+const headerWins = await variantMock.fetch(
+  new Request('http://mock/checkout', { method: 'POST', headers: { prefer: 'variant=conflict' } })
+)
+console.log(`header outranks the stored preference: ${((await headerWins.json()) as { outcome: string }).outcome}`)
+
+await variantMock.close()
+```
+
+```console
+{
+  "outcome": "conflict",
+  "reason": "alder"
+}
+{
+  "outcome": "settled",
+  "receiptId": "alder"
+}
+header outranks the stored preference: conflict
+```
+
+A name matching no branch is **not** an error — it falls through to the seeded
+pick, the same way an undeclared `Prefer: status` does. That is deliberate: the
+name arrives in a header, so construction has nothing to validate it against,
+and warning at runtime would fire constantly for the many responses that
+contain no union at all.
+
+The directive applies at every union in the tree; there is no per-union
+targeting syntax. It does not reach webhook payloads or error envelopes — see
+[Known limitations](#known-limitations).
+
+### Response linking
+
+A create-then-read loop is the one shape a purely generative mock can't fake:
+you `POST /payments`, get an id back, `GET /payments/{that id}` — and get an
+unrelated payment. `link` closes exactly that gap and nothing wider.
+
+A rule names the operation that **records** (with an expression extracting the
+key from its response), the operation that **recalls** (with an expression
+extracting the key from its request), and optionally what to remember —
+`remember` defaults to the whole response body. Both targets are control-plane
+targets, resolved at construction, so a typo throws rather than silently never
+linking.
+
+```ts
+const linkMock = createMock(doc, {
+  seed: 'readme',
+  link: [{
+    from: { target: 'createPayment', key: '{$response.body#/id}' },
+    to: { target: 'getPayment', key: '{$request.path.id}' }
+  }]
+})
+
+const createdResponse = await linkMock.fetch(
+  new Request('http://mock/payments', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer test-token' },
+    body: JSON.stringify({ amount: 12.5, currency: 'USD' })
+  })
+)
+const createdPayment = await createdResponse.json() as { id: string }
+
+const readBack = await linkMock.fetch(
+  new Request(`http://mock/payments/${createdPayment.id}`, {
+    headers: { authorization: 'Bearer test-token' }
+  })
+)
+console.log(`the id round-trips: ${JSON.stringify(await readBack.json()) === JSON.stringify(createdPayment)}`)
+
+const strangerResponse = await linkMock.fetch(
+  new Request('http://mock/payments/7c8f1f5e-0d3a-4a1e-9f7a-2b6c1d5e4f30', {
+    headers: { authorization: 'Bearer test-token' }
+  })
+)
+const stranger = await strangerResponse.json() as { id: string }
+console.log(`an id the mock never minted still generates: ${stranger.id !== createdPayment.id}`)
+
+await linkMock.close()
+```
+
+```console
+the id round-trips: true
+an id the mock never minted still generates: true
+```
+
+**This is not stateful CRUD, and it is not becoming stateful CRUD.** Stateful
+persistence is a stated non-goal of the design spec, and this feature does not
+quietly reintroduce it. The claim is deliberately narrow: *an identifier the
+mock itself minted resolves to the thing it minted it for.* There is no
+mutation — a `PUT` or `PATCH` does not update a recorded entity. There is no
+lifecycle — a `DELETE` does not remove one. There is no list endpoint that
+reflects what was created; `GET /payments` still generates a fresh page that
+knows nothing about your `POST`. A read whose key matches replays recorded
+bytes; a read whose key doesn't generates normally. That is the whole feature.
+
+A recalled body behaves exactly like a fixture layer, sitting beneath the
+override layers and above generation:
+
+```txt
+runtime override > config override > link recall > fixture > example > generated
+```
+
+Only a success status recalls — replaying a recorded body into a `404` or a
+`500` would be actively wrong, and failure injection exists precisely so a
+caller can force those.
+
+The recall table is bounded: `ttlMs` defaults to one hour and `max` to 1000
+entries, oldest evicted first. A recall table is unbounded by construction —
+every write mints a new key — so a long-lived mock without both bounds leaks
+until the process dies.
+
+Linking does make a `GET`'s response depend on whether a `POST` ran before it,
+which is worth stating against the determinism guarantee above. The honest form
+of that guarantee is **sequence** determinism: the same sequence of requests
+against a fresh process with the same seed produces byte-identical output at
+every step. That was always the real shape of it — request ordinals, the
+webhook emission counter, idempotency replay, and armed `failNext` failures
+each already make a response depend on what came before it. Linking adds
+another such dependency; it does not introduce the category.
+
 ### Overrides and headers
 
 `operations` in `createMock`'s options lets you pin a status, layer a body
@@ -201,8 +452,10 @@ operation id, the same resolution the MCP write tools share.
 
 ### Idempotency
 
-Declare an `Idempotency-Key` parameter on an operation (or opt a method in
-via `idempotency.methods`) and a replayed request with the same key and the
+Declare an `Idempotency-Key` parameter on an operation (or opt a method in via
+`idempotency.methods`, or point `idempotency.operations` at a body pointer such
+as `'{$request.body#/meta/requestId}'` for documents that carry the key in the
+payload rather than a header) and a replayed request with the same key and the
 same body returns the exact response that was recorded the first time,
 byte-identical, no regeneration involved. A different body under the same
 key is a conflict — `409` by default — because silently serving a different
@@ -216,7 +469,10 @@ an operation's `callbacks` — resolve through the same lookup, fire on an
 explicit `mock.emit()` or an operation-linked trigger, and never affect the
 response that triggered them: a throw while building an emission reaches
 `onError`, never the caller. `captureOnly` makes the whole thing testable
-in-process with no receiver and no network. See
+in-process with no receiver and no network. A **destination registry** covers
+the subscribe-once shape — one operation registers a URL (optionally scoped per
+tenant), every later emission goes there — and every delivery carries a
+deterministic `id` that `mock.redeliver(id)` re-sends byte for byte. See
 [docs/webhooks.md](docs/webhooks.md).
 
 ### Fixtures and LLM content
@@ -231,10 +487,12 @@ available as an optional hosted alternative. See
 
 ### MCP
 
-`mock.mcp()` exposes read tools (list and describe operations, sample a live
-response, inspect webhooks and deliveries) and, behind an explicit
-`--write` flag, write tools that mutate the mock's runtime state (arm a
-failure, reseed, emit a webhook, reset, set or clear a runtime override).
+`mock.mcp()` exposes eight read tools (list and describe operations, sample a
+live response, inspect webhooks, deliveries, and registrations) and, behind an
+explicit `--write` flag, twelve write tools that mutate the mock's runtime
+state (arm a failure, reseed, emit a webhook, reset, set or clear a runtime
+override, pin or clear a union variant, register or unregister a webhook
+destination, redeliver a recorded delivery).
 `sample_response` runs through the exact same `fetch()` every other caller
 uses, so it can't drift from what a real client gets. See
 [docs/mcp.md](docs/mcp.md).
@@ -271,7 +529,7 @@ mockingham mcp ./openapi.json --write
 ```
 
 Serves the MCP tools over stdio. `--seed` and `--fixtures` behave the same
-as the plain server; `--write` exposes the seven tools that mutate runtime
+as the plain server; `--write` exposes the twelve tools that mutate runtime
 state (off by default, since read tools never do).
 
 Every subcommand accepts `--help`/`-h`, and none of them parse YAML — convert
@@ -288,13 +546,44 @@ parsed.
   declared OpenAPI example if a caller needs to see a value that actually
   matches. No startup warning fires for a pattern outside what generation
   can produce, because generation makes no attempt at `pattern` at all.
+  This is worth re-reading now that `uuid7` ships: a UUIDv7 expressed **only**
+  as a `pattern`, with no `format`, still generates a plain word — and because
+  the same `pattern` *is* compiled into the validator, a request carrying that
+  generated value fails the mock's own request validation. `format: "uuid7"` or
+  `x-mock-format: "uuid7"` is required; the pattern route is untouched by that
+  work and stays open deliberately, not by oversight. Closing it means a
+  regex-to-string generator with its own supported-construct subset and its own
+  fresh opportunity for generation and validation to disagree — a design cost,
+  not merely a work cost.
 - **Recursive schemas terminate at a configurable `maxDepth`** rather than
   generating forever, and are excluded from LLM-backed fixture generation
   entirely — structured-output APIs can't express a recursive JSON Schema.
 - **No stateful CRUD.** A `POST` does not change what a later `GET` returns;
   every response is generated (or served from a fixture) independently.
-  Idempotency replay is the one exception, and it replays a stored response
-  rather than modeling state.
+  Idempotency replay and [response linking](#response-linking) are the two
+  exceptions, and both replay stored bytes rather than modeling state — no
+  mutation, no lifecycle, no list endpoint reflecting a write.
+- **Registration enumeration is process-local.** The `Store` holds the
+  authoritative registration values, so a shared Store shares them across
+  processes; the index of *known keys* that `registrations()` enumerates does
+  not cross a process boundary. Identical in kind to the delivery log's own
+  limitation.
+- **The link table is bounded** at 1000 entries and one hour. A sequence
+  exceeding either bound recalls nothing for the evicted keys and falls through
+  to ordinary generation — a silent behavior change from the caller's point of
+  view, not an error.
+- **Redelivery cannot reach a delivery evicted from the 1000-entry log.**
+  `mock.redeliver(id)` throws in that case, naming the bound, rather than
+  succeeding with nothing to send.
+- **`set_variant` and `Prefer: variant=` do not reach webhook payloads or
+  error envelopes.** An emitted webhook has no request and therefore no header,
+  and steering an error envelope's union from a request header is not a
+  behavior to introduce silently. Union selection in both stays seeded.
+- **A `remember` expression addressing a non-scalar via a pointer records
+  nothing.** `remember: '{$response.body}'` and `'{$request.body}'` are
+  special-cased and take the parsed value directly, but a pointer form such as
+  `'{$response.body#/items}'` resolves through a scalar coercion, fails, and
+  records nothing. Point `remember` at a scalar, or leave it at its default.
 - **YAML documents are not parsed.** Convert to JSON first, or parse it
   yourself and pass the object to `createMock()`.
 - **`oneOf`/`anyOf` selection is seeded, not exhaustive.** Which variant

@@ -151,8 +151,194 @@ await subscribeMock.close()
 The URL a request carried is captured at that request and used by a later
 `emit()` — no config needed at all for a callback whose subscribers arrive at
 runtime. Precedence across both shapes, when more than one tier could supply
-a URL, is: an explicit `to:` on `emit()`, then a captured runtime URL, then a
-configured `url`, then nothing (`unresolved`).
+a URL, is:
+
+1. an explicit `to:` on `emit()`
+2. a **registration** for the resolved scope (next section)
+3. a captured runtime URL
+4. a configured `url`
+5. nothing — `unresolved`
+
+A registration sits above a captured callback URL because it is a deliberate,
+persistent statement about where a webhook goes, while a captured URL is
+incidental to whichever request last happened to carry one. A document using
+both is unusual; when it does, the explicit registration wins.
+
+## The destination registry
+
+A callback captures its destination from the request that triggers it. Plenty
+of real APIs do not work that way: you `PUT` a subscription once, naming a URL,
+and every later event goes there — a different operation entirely from the one
+that fires the webhook. That is what a **registration** is.
+
+Configure it under the webhook's own config with `registerVia` (which operation
+registers, and the runtime expression that yields the URL), `unregisterVia`
+(which operation removes it), and an optional `scopeBy` expression partitioning
+registrations — per tenant, per account, per whatever the document keys
+subscriptions on. `registerVia.operationId` is a control-plane target, not
+strictly an operationId: `'PUT /subscriptions/{name}'` and `'* /subs/**'` both
+work, and a target matching nothing throws at construction rather than silently
+never registering.
+
+The example document has no subscription operation, so this uses `createPayment`
+as the registering one and `createRefund` as the unregistering one. Everything
+below is exactly what a real `PUT /subscriptions/...` would do:
+
+```ts
+const registryMock = createMock(doc, {
+  seed: 'docs',
+  captureOnly: true,
+  webhooks: {
+    paymentFailed: {
+      registerVia: { operationId: 'createPayment', url: '{$request.body#/callbackUrl}' },
+      unregisterVia: { operationId: 'createRefund' },
+      scopeBy: '{$request.header.x-tenant-id}'
+    }
+  }
+})
+
+function subscribeAs(tenant: string, callbackUrl: string): Request {
+  return new Request('http://mock/payments', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: 'Bearer test-token',
+      'x-tenant-id': tenant
+    },
+    body: JSON.stringify({ amount: 10, currency: 'USD', callbackUrl })
+  })
+}
+
+await registryMock.fetch(subscribeAs('acme', 'https://acme.test/hooks'))
+await registryMock.fetch(subscribeAs('globex', 'https://globex.test/hooks'))
+
+console.log(JSON.stringify(await registryMock.registrations(), null, 2))
+```
+
+```console
+[
+  {
+    "webhook": "paymentFailed",
+    "url": "https://acme.test/hooks",
+    "scope": "acme"
+  },
+  {
+    "webhook": "paymentFailed",
+    "url": "https://globex.test/hooks",
+    "scope": "globex"
+  }
+]
+```
+
+`registrations(name?)` returns entries **sorted by webhook then scope** — an
+unordered iteration deciding an observable order is exactly what invariant 2
+forbids, and this list is observable from a test, from the API, and from the
+`list_registrations` MCP tool.
+
+Two tenants, two destinations, no overwriting: that is what `scopeBy` buys. It
+looks like a convenience and is not one. Without it both `PUT`s write the same
+key and the second tenant silently redirects the first tenant's webhooks — a
+wrong answer that looks like a working mock. An emission addresses one scope
+with `emit(name, { scope })`, which wins over any configured `scopeBy` the same
+way `to:` wins over any resolved destination:
+
+```ts
+const acmeDelivery = await registryMock.emit('paymentFailed', { scope: 'acme' })
+const globexDelivery = await registryMock.emit('paymentFailed', { scope: 'globex' })
+console.log(`acme: ${acmeDelivery.url}`)
+console.log(`globex: ${globexDelivery.url}`)
+```
+
+```console
+acme: https://acme.test/hooks
+globex: https://globex.test/hooks
+```
+
+An `emit()` with no scope addresses the **unscoped** registration — the one
+stored under the empty scope. Nothing registered there means nothing to send,
+and — invariant 6 again — that is a `Delivery` with `outcome: 'unresolved'`,
+not an error and not a throw:
+
+```ts
+const unscopedEmit = await registryMock.emit('paymentFailed')
+console.log(JSON.stringify({ url: unscopedEmit.url, outcome: unscopedEmit.outcome }, null, 2))
+```
+
+```console
+{
+  "outcome": "unresolved"
+}
+```
+
+This is worth being explicit about, because "nothing was registered" is the
+state a registry spends most of its life in during a test, and it is easy to
+assume it must be an error. It is not: `unresolved` is a distinct outcome from
+a failure, it is recorded in `deliveries()` like any other, and `Delivery.status`
+and `Delivery.error` are both absent for it — so a test can tell "went nowhere"
+from "went somewhere and failed" without any extra machinery.
+
+`unregisterVia` removes one scope's registration, keyed by the same expression
+the registration was written under:
+
+```ts
+const unsubscribe = new Request('http://mock/refunds', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    'x-api-key': 'test-key',
+    'x-tenant-id': 'acme'
+  },
+  body: JSON.stringify({ paymentId: '7c8f1f5e-0d3a-4a1e-9f7a-2b6c1d5e4f30' })
+})
+await registryMock.fetch(unsubscribe)
+
+console.log(JSON.stringify(await registryMock.registrations('paymentFailed'), null, 2))
+```
+
+```console
+[
+  {
+    "webhook": "paymentFailed",
+    "url": "https://globex.test/hooks",
+    "scope": "globex"
+  }
+]
+```
+
+Acme is gone; globex is untouched. A test that wants to skip the request round
+trip entirely can write the same entries directly — `mock.register(webhook,
+url, scope?)` and `mock.unregister(webhook, scope?)` are the imperative form of
+exactly what those two operations do, with an absent scope meaning the unscoped
+registration:
+
+```ts
+await registryMock.register('paymentFailed', 'https://ops.test/hooks')
+const nowResolved = await registryMock.emit('paymentFailed')
+console.log(`unscoped emit now goes to: ${nowResolved.url}`)
+
+await registryMock.unregister('paymentFailed')
+const goneAgain = await registryMock.emit('paymentFailed')
+console.log(`after unregister: ${goneAgain.outcome}`)
+
+await registryMock.close()
+```
+
+```console
+unscoped emit now goes to: https://ops.test/hooks
+after unregister: unresolved
+```
+
+Two notes on the expression syntax and on scope. First, `{$request.body#/url}`
+and the bare `$request.body#/url` resolve identically — OpenAPI's own
+`callbacks` keys are written bare, so a reader coming from the spec will type
+it that way, and the bare form is normalized by wrapping. Second, registrations
+live in the `Store`, alongside `failNext` state and runtime overrides, so
+`reset()` clears them for free and a shared Store shares the values across
+processes. The *enumeration* is process-local: `registrations()` reads values
+through the Store but its list of known keys is an in-process index, identical
+in kind to the delivery log's own limitation. Another process's registration is
+reflected in the value under a key this process knows; a key only that process
+ever wrote will not appear in this one's listing.
 
 ## What triggers a fire
 
@@ -246,6 +432,74 @@ an HTTP response code — is absent by design. Reaching for it here would teach
 an expectation that never holds under capture mode; `captureOnly` is what
 makes a webhook fully testable in-process with no receiver, the same way
 `fetch()` made responses testable without a port.
+
+## Delivery ids and redelivery
+
+`mock.redeliver(id)` sends a recorded delivery again — the same bytes, the same
+signature header, the same destination, and the same `id`. It does **not**
+regenerate the payload and does not re-resolve the destination: the whole point
+of a redelivery is proving your receiver's duplicate handling sees a duplicate,
+and regenerating would defeat it.
+
+The id is keyed on alone, without a webhook name beside it: the name is
+recoverable from the record, and a two-argument form that could disagree with
+itself is a defect surface for no benefit.
+
+```ts
+const redeliverMock = createMock(doc, {
+  seed: 'docs',
+  captureOnly: true,
+  now: () => 1700000000000,
+  webhooks: { paymentFailed: { url: 'https://example.test/hooks', secret: 'whsec_test' } }
+})
+
+const firstDelivery = await redeliverMock.emit('paymentFailed')
+const secondDelivery = await redeliverMock.redeliver(firstDelivery.id)
+
+console.log(`delivery id: ${firstDelivery.id}`)
+console.log(`same id: ${firstDelivery.id === secondDelivery.id}`)
+console.log(`same body: ${firstDelivery.body === secondDelivery.body}`)
+console.log(`same signature: ${firstDelivery.headers['x-mockingham-signature'] === secondDelivery.headers['x-mockingham-signature']}`)
+console.log(`records in the log: ${redeliverMock.deliveries().length}`)
+```
+
+```console
+delivery id: 18684eae
+same id: true
+same body: true
+same signature: true
+records in the log: 2
+```
+
+That id is not random. It is derived from the seed, the webhook name, and the
+per-webhook emission ordinal, so replaying the same sequence of requests in a
+fresh process reproduces it exactly — the same reason nothing else in a
+generation path reaches for a UUID. One id belongs to one **emission**, not to
+one attempt: a retry sequence is a single delivery with `attempts: n` and one
+id, which is what makes "did my receiver see this same event twice?" a question
+with an answer.
+
+The signature is replayed verbatim rather than recomputed. `sign` takes a
+timestamp, so recomputing would produce a different header for identical bytes.
+That is a real behavior in production systems, but it is not what "identical
+bytes, identical id" asks for.
+
+An id that is not in the log throws — including one that has aged out of the
+1000-entry bound. Silently succeeding with nothing to send would be worse:
+
+```ts
+try {
+  await redeliverMock.redeliver('not-a-real-delivery-id')
+} catch (error) {
+  console.log(`unknown id: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+await redeliverMock.close()
+```
+
+```console
+unknown id: mockingham: no delivery with id "not-a-real-delivery-id" is in the delivery log. Redeliver an id returned by emit() or listed by deliveries().
+```
 
 ## Signing
 

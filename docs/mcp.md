@@ -172,12 +172,12 @@ const demoMock = createMock(doc, { seed: 'docs' })
 const demo = demoMock.mcp({ transport: 'http', path: '/mcp' })
 ```
 
-**First: `--write` gates the seven write tools because they change the mock's
-runtime state.** `fail_next`, `outage`, `emit_webhook`, `set_seed`, `reset`,
-`set_override`, and `clear_overrides` all mutate something a second caller
-would observe — an armed failure, a reseeded generator, a cleared store, a
-runtime override. Read tools never do, so only the seven are behind the flag,
-and the flag is off by default.
+**First: `--write` gates all twelve write tools because they change the mock's
+runtime state.** Every one of them mutates something a second caller would
+observe — an armed failure, a reseeded generator, a cleared store, a runtime
+override, a pinned union variant, a registered webhook destination, a second
+copy of a delivery in the log. Read tools never do, so only the twelve are
+behind the flag, and the flag is off by default.
 
 **Second: closing the gate does not hide the tools — it disables them, and
 says so.** An agent that already knows a write tool's name still sees it in
@@ -328,6 +328,148 @@ as `payloadSchema: undefined` instead of the `$comment` placeholder
 (`src/mcp/tools/read.ts`). Neither webhook in `docs/example.json` is
 recursive, so it never appears above — it is worth knowing before you build
 tooling against a document that has one.
+
+## Telling a round-tripping operation from a generating one
+
+An operation that replays something the mock recorded and one that generates a
+fresh response every time look identical from outside — and that difference is
+the difference between an operation a workflow can be built against and one
+that will quietly not round-trip. `describe_operation` answers it directly:
+alongside the contract, every operation reports `linksFrom` and `linksTo` (the
+response-link rule indices it records for and recalls from), `registersWebhook`
+and `unregistersWebhook`, and `idempotencyKey` — a `{ source, value }` pair
+naming a header or a body pointer rather than a bare string, because those are
+not the same kind of thing and a caller that has to guess will guess wrong.
+
+The fields are defaulted rather than left absent: a document with no linking at
+all still answers with `[]` instead of silence, so an agent can read the answer
+without distinguishing "no" from "this server is too old to say".
+
+```ts
+const capabilityMock = createMock(doc, {
+  seed: 'docs',
+  captureOnly: true,
+  link: [{
+    from: { target: 'createPayment', key: '{$response.body#/id}' },
+    to: { target: 'getPayment', key: '{$request.path.id}' }
+  }],
+  webhooks: {
+    paymentFailed: {
+      registerVia: { operationId: 'createPayment', url: '{$request.body#/callbackUrl}' }
+    }
+  }
+})
+const capabilityMount = capabilityMock.mcp({ transport: 'http', path: '/mcp' })
+
+const describeResponse = await capabilityMock.fetch(rpc({
+  jsonrpc: '2.0',
+  id: 5,
+  method: 'tools/call',
+  params: { name: 'describe_operation', arguments: { operationId: 'createPayment' } }
+}))
+const describePayload = await describeResponse.json() as {
+  result: { content: Array<{ text: string }> }
+}
+const described = JSON.parse(describePayload.result.content[0]!.text) as {
+  linksFrom: number[]
+  linksTo: number[]
+  registersWebhook: string[]
+  unregistersWebhook: string[]
+  idempotencyKey?: { source: string; value: string }
+}
+console.log(JSON.stringify({
+  linksFrom: described.linksFrom,
+  linksTo: described.linksTo,
+  registersWebhook: described.registersWebhook,
+  unregistersWebhook: described.unregistersWebhook,
+  idempotencyKey: described.idempotencyKey
+}, null, 2))
+```
+
+```console
+{
+  "linksFrom": [
+    0
+  ],
+  "linksTo": [],
+  "registersWebhook": [
+    "paymentFailed"
+  ],
+  "unregistersWebhook": [],
+  "idempotencyKey": {
+    "source": "header",
+    "value": "Idempotency-Key"
+  }
+}
+```
+
+`createPayment` records for link rule `0`, registers `paymentFailed`, and keys
+idempotency off the `Idempotency-Key` header the example document declares on
+it. `getPayment` would report the mirror image — `linksTo: [0]`, nothing else.
+
+`list_webhooks` answers the same question from the webhook's side, with a
+`registry` field saying whether a registry is configured and how many
+registrations exist right now. It deliberately does **not** return the URLs: a
+registered destination is a consumer's endpoint, and a capability listing is
+something an agent may dump into a log. `list_registrations` returns them,
+because asking for them is a different act from being told:
+
+```ts
+await capabilityMock.register('paymentFailed', 'https://consumer.test/hooks', 'acme')
+
+const registrationsResponse = await capabilityMock.fetch(rpc({
+  jsonrpc: '2.0',
+  id: 6,
+  method: 'tools/call',
+  params: { name: 'list_registrations', arguments: { webhook: 'paymentFailed' } }
+}))
+const registrationsPayload = await registrationsResponse.json() as {
+  result: { content: Array<{ text: string }> }
+}
+console.log(`${registrationsPayload.result.content[0]?.text ?? ''}`)
+
+await capabilityMount.close()
+await capabilityMock.close()
+```
+
+```console
+[
+  {
+    "webhook": "paymentFailed",
+    "url": "https://consumer.test/hooks",
+    "scope": "acme"
+  }
+]
+```
+
+The listing is sorted by webhook then scope, and that ordering is the registry's
+own contract rather than something re-imposed here — one ordering decided in one
+place, so this tool and `mock.registrations()` cannot disagree.
+
+## The write tools that arrived with the registry
+
+Four of the twelve write tools are worth a sentence beyond their bullet, because
+each has a failure mode that is a deliberate choice rather than an accident:
+
+- **`set_variant`** stores a per-operation union-branch preference. A
+  `Prefer: variant=` header on a request outranks it, and a name matching no
+  branch falls through to the seeded pick rather than erroring — the name
+  arrives from a caller, so there is nothing to validate it against, and a
+  runtime warning would fire constantly for the many responses containing no
+  union at all. Like `clear_overrides`, `clear_variants` with no target echoes
+  `null` rather than `'*'`, because a bare `'*'` is not a valid target and
+  echoing it would teach a caller a string that throws on its next call.
+- **`redeliver_webhook`** takes a delivery id alone — the webhook name is
+  recoverable from the record, and a two-argument form that could disagree with
+  itself is a defect surface for no benefit. An unknown id, or one aged out of
+  the 1000-entry log, is an **error**; a redelivery that is attempted and fails
+  is a returned outcome, not an error. Those two cases are different questions
+  and get different answers.
+- **`register_webhook_destination`** and
+  **`unregister_webhook_destination`** write the same registry a document's
+  `registerVia` operation writes, with the same scoping. An emission addressing
+  a scope with nothing registered is `outcome: 'unresolved'` — a recorded
+  delivery with no URL, not a thrown error and not a silent drop.
 
 ## What isn't here yet
 
