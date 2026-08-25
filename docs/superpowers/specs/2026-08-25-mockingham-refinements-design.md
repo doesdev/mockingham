@@ -88,9 +88,15 @@ features cannot drift apart. They share:
   from one would let an unauthenticated caller redirect another tenant's
   webhooks. That reasoning applies verbatim to a registration and to a link
   record.
-- One capture pass over one rule list, so the ordering between a registration
-  write and a link write is defined by config order rather than by which
-  feature's block happens to run first.
+- One capture pass over one rule list, so every capture kind shares one set of
+  preconditions and one error boundary instead of each feature growing its own
+  block. Within that list the order is *feature* order — callbacks, then
+  registry, then link — fixed by the concatenation that builds it, not by the
+  order rules appear in config. That is unobservable as long as the kinds write
+  disjoint key namespaces (`callback|`, `registration|`, `link|`), which they
+  do: no two rules in a single pass can contend for the same key. A future kind
+  that shared a namespace would make the concatenation order load-bearing and
+  would need it decided deliberately.
 
 **Design consequence.** A new module, `src/runtime/capture.ts`, owns the rule
 list and the capture pass. §3 and §4 each contribute rule kinds to it; neither
@@ -618,10 +624,11 @@ A v7 UUID is a 48-bit millisecond timestamp, then version `7`, then 74 bits of
 randomness. The timestamp is the whole point and is also the whole problem:
 reading a real clock inside a generation path violates invariant 2 outright.
 
-**A seeded virtual clock.** A per-mock counter, starting at `seedTime`,
-advancing by a fixed step on each v7 generated. Monotonic within a run,
-identical across runs on the same seed, so ids sort by generation order and
-determinism is preserved rather than traded away.
+**A seeded virtual clock**, starting at `seedTime` and advancing by a fixed
+step per v7 generated. Monotonic within a run, identical across runs on the
+same seed, so ids sort by request order and determinism is preserved rather
+than traded away. How the counter is drawn matters enormously and is amended
+below.
 
 ```ts
 createMock(doc, { seedTime: 1735689600000 })   // 2025-01-01T00:00:00Z
@@ -635,13 +642,51 @@ declared as a named constant beside the generator.
 The step is 1 ms per generated v7. A fixed step rather than a seeded jitter
 keeps "sorts by generation order" exactly true rather than probably true.
 
-**The virtual clock is per-mock, not per-request.** It advances across
-requests, which is what makes ids from successive `POST`s sort correctly — and
-which makes v7 generation another sequence-dependent output under §4.5's
-amended invariant 2. Same sequence, same ids. `reset()` returns the counter to
-`seedTime`, matching how `reset()` treats every other counter.
+**Amended 2026-08-25, during this cycle's whole-branch review — the paragraph
+below replaces "the virtual clock is per-mock, not per-request", which was
+implemented as specified and was WRONG.**
 
-The 74 random bits come from the existing seeded PRNG, unchanged.
+A single per-mock counter drawn at generation time does not satisfy §4.5.
+Generation runs after `readOverride`, `readVariant` and the fixture resolver
+have all awaited, and an emission with `afterMs` generates on a timer — so the
+order draws reached the shared counter was decided by wall-clock timing, not by
+the request sequence. Reproduced with an identical sequence, the same seed, and
+only the caller's wait between two calls varying:
+
+```
+gap=0    post …7c00  get …7c01  hook …7c02
+gap=60   post …7c00  get …7c02  hook …7c01
+```
+
+The `get` there is a caller-visible response body. The random halves were
+byte-identical in both runs — those come from the per-request seeded rng, which
+was never the problem; only the timestamp moved.
+
+**The clock is an allocator.** Each request, and each emission, reserves a
+block of `TICKS_PER_ALLOCATION` (65,536) timestamps **synchronously** — at
+request entry, and at emission *scheduling* rather than firing — and draws
+within its own block thereafter. Reservation order is arrival order, which is
+what "the request sequence" means; completion order stops mattering, and two
+concurrent requests are ordered by which was issued first rather than which
+finished first.
+
+This is the same shape as `requestOrdinals` and the webhook counter, both of
+which were already drawn synchronously per request. The clock was the one piece
+of generation state that was not, which is why it was the one that broke.
+
+The block size bounds how many v7s one request can mint while still sorting
+strictly ahead of the next request's. Beyond it a block spills into its
+successor's range: still deterministic, still unique unless the successor also
+spills, and 65,536 values in one response is far outside what a mock is for.
+
+`seedTime` is validated at construction (a whole number of milliseconds in
+`[0, 2^48)`); `NaN` previously reached the hex encoding and was served as
+`…-0NaN-…`. `reset()` returns the allocator to its start.
+
+The 74 random bits come from the existing seeded PRNG, unchanged. Note that
+they are identical across identically-seeded requests at the same schema
+position — so **uniqueness across requests rests on the clock, not on entropy**
+(deferred item 49). `format: uuid` has the same property today.
 
 ---
 
@@ -715,7 +760,7 @@ Every item, against invariant 2 as amended by §4.5.
 | §5 variant | No | Yes; a pure function of the header and the schema |
 | §6 body-pointer idempotency | Yes — already true of idempotency | Yes; unchanged mechanism, new key source |
 | §7 delivery ids | Yes — ordinal-derived | Yes; `fnv1a` over seed, name, ordinal |
-| §8 uuid7 | Yes — virtual clock advances | Yes; counter is seeded and stepped fixed |
+| §8 uuid7 | Yes — virtual clock advances | Yes, but ONLY because blocks are reserved synchronously. As originally specified — one shared counter drawn at generation time — this row was false; see §8.3's amendment |
 | §9 exposure | No | Read-only |
 
 Two things that would break determinism and are therefore forbidden, stated so

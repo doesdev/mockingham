@@ -147,12 +147,25 @@ all honored. `pattern` is the one constraint that isn't; see
 `uuid-v7`) generates RFC 9562 version 7 UUIDs, which sort by creation time —
 the property people reach for the moment they adopt v7. A real clock in a
 generation path would violate determinism outright, so the timestamp comes from
-a **seeded virtual clock**: a per-mock counter starting at `seedTime` and
-advancing one millisecond per v7 generated. Monotonic within a run, identical
-across runs on the same seed. `seedTime` defaults to a fixed epoch constant
-(`2025-01-01T00:00:00Z`), never `Date.now()` — a wall-clock default would make
-baked fixtures unstable across runs, which is the exact failure `seedTime`
-exists to prevent. `reset()` returns the counter to `seedTime`.
+a **seeded virtual clock** starting at `seedTime`. Each request, and each
+webhook emission, reserves its own block of timestamps at the moment it
+arrives or is scheduled; values within a block advance one millisecond apiece.
+Monotonic within a run, identical across runs on the same seed.
+
+Reserving up front rather than drawing per value is what makes ids ordered by
+*request* order instead of by whichever generation happened to finish first —
+generation runs after overrides, variants and fixtures have all resolved, and a
+webhook with `afterMs` generates on a timer. So a caller who waits between two
+calls gets the same bytes as one who doesn't. The block size caps how many v7s
+one request can mint before it stops sorting strictly ahead of the next
+request's; it is 65,536, which no mock will reach.
+
+`seedTime` defaults to a fixed epoch constant (`2025-01-01T00:00:00Z`), never
+`Date.now()` — a wall-clock default would make baked fixtures unstable across
+runs, which is the exact failure `seedTime` exists to prevent. It must be a
+whole number of milliseconds from 0 up to 2^48, and anything else throws at
+construction rather than generating a malformed id. `reset()` returns the
+clock to `seedTime`.
 
 If a document can't change `format` without breaking another consumer's
 validation, put `x-mock-format: "uuid7"` beside a plain `format: "uuid"`
@@ -201,8 +214,8 @@ await idMock.close()
 ```console
 [
   "01941f29-7c00-7d48-b6ae-2228a20479a5",
-  "01941f29-7c01-7d48-b6ae-2228a20479a5",
-  "01941f29-7c02-7d48-b6ae-2228a20479a5"
+  "01941f2a-7c00-7d48-b6ae-2228a20479a5",
+  "01941f2b-7c00-7d48-b6ae-2228a20479a5"
 ]
 lexical order is generation order: true
 ```
@@ -362,12 +375,25 @@ an id the mock never minted still generates: true
 **This is not stateful CRUD, and it is not becoming stateful CRUD.** Stateful
 persistence is a stated non-goal of the design spec, and this feature does not
 quietly reintroduce it. The claim is deliberately narrow: *an identifier the
-mock itself minted resolves to the thing it minted it for.* There is no
-mutation — a `PUT` or `PATCH` does not update a recorded entity. There is no
-lifecycle — a `DELETE` does not remove one. There is no list endpoint that
-reflects what was created; `GET /payments` still generates a fresh page that
-knows nothing about your `POST`. A read whose key matches replays recorded
-bytes; a read whose key doesn't generates normally. That is the whole feature.
+mock itself minted resolves to the thing it minted it for.* A read whose key
+matches replays recorded bytes; a read whose key doesn't generates normally.
+That is the whole feature.
+
+What the mock supplies no semantics of its own for is mutation and lifecycle.
+It never infers that a `PUT` updates an entity, that a `DELETE` removes one, or
+that a create should cascade into a collection — it has no model of your
+resources to reason about. But **a rule you write is what decides which
+operations record**, and nothing restricts `from` to creates. Point a rule's
+`from` at your `PUT /payments/{id}` and its response is recorded under that key,
+replacing whatever the `POST` recorded there — `record` is a plain write to the
+rule's key, so the last write wins. Point a rule's `to` at `GET /payments` and
+that list replays what was recorded for its key. Those behaviors come from the
+rules in your config, not from the mock inventing a lifecycle; the example above
+has none of them because it declares one create-to-read rule and nothing else.
+
+When several rules recall for the same operation, the loop stops at the first
+one whose key expression resolves to a recorded entry, so **declaration order in
+`link` decides which rule wins** — put the more specific rule first.
 
 A recalled body behaves exactly like a fixture layer, sitting beneath the
 override layers and above generation:
@@ -561,8 +587,11 @@ parsed.
 - **No stateful CRUD.** A `POST` does not change what a later `GET` returns;
   every response is generated (or served from a fixture) independently.
   Idempotency replay and [response linking](#response-linking) are the two
-  exceptions, and both replay stored bytes rather than modeling state — no
-  mutation, no lifecycle, no list endpoint reflecting a write.
+  exceptions, and both replay stored bytes rather than modeling state: the mock
+  supplies no mutation or lifecycle semantics of its own and never infers them
+  from a method. A link rule you write decides which operations record and which
+  replay, and it may name a write operation — see
+  [Response linking](#response-linking).
 - **Registration enumeration is process-local.** The `Store` holds the
   authoritative registration values, so a shared Store shares them across
   processes; the index of *known keys* that `registrations()` enumerates does
@@ -571,10 +600,23 @@ parsed.
 - **The link table is bounded** at 1000 entries and one hour. A sequence
   exceeding either bound recalls nothing for the evicted keys and falls through
   to ordinary generation — a silent behavior change from the caller's point of
-  view, not an error.
+  view, not an error. That entry bound is also **process-local**: the recorded
+  values go through the `Store`, but the eviction index that enforces `max`
+  lives in the process, so N processes sharing one `Store` can leave up to
+  N × `max` entries per rule in it. Identical in kind to the registration and
+  delivery-log limitations above and below; `ttlMs` is the bound that still
+  holds across processes.
 - **Redelivery cannot reach a delivery evicted from the 1000-entry log.**
   `mock.redeliver(id)` throws in that case, naming the bound, rather than
   succeeding with nothing to send.
+- **Only the `uuid7` spellings are matched loosely; every other `format` is
+  exact.** The v7 check trims and lower-cases before comparing, so
+  `format: "UUID7"`, `" uuidv7"` and `"UUID-V7"` all generate a v7. Nothing
+  else works that way — the rest of `format` matching is exact string
+  comparison against the lower-case name, so `format: "UUID"` matches no format
+  at all and generates a plain dictionary word rather than a UUID. Do not read
+  the v7 leniency as a general rule that formats are normalized; write `format`
+  in lower case.
 - **`set_variant` and `Prefer: variant=` do not reach webhook payloads or
   error envelopes.** An emitted webhook has no request and therefore no header,
   and steering an error envelope's union from a request header is not a

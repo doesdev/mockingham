@@ -156,12 +156,14 @@ export interface EmitInput {
   /** Destination tier 1. */
   to?: string
   /**
-   * Destination tier 2 — refinements design §3.7. Optional rather than
-   * required so a caller constructing an `EmitInput` for a document with no
-   * registry configured is not forced to build one; the handler always passes
-   * it, which is what the end-to-end registry test pins.
+   * Destination tier 2 — refinements design §3.7. REQUIRED, and `undefined`
+   * where there is no registry, rather than optional. Optional reads the same
+   * at every existing call site but fails differently at a future one: a caller
+   * who forgets the field compiles, and silently emits to the tier BELOW the
+   * registry — a captured or configured URL in place of the registered one.
+   * Requiring it turns that into a compile error.
    */
-  registry?: Registry
+  registry: Registry | undefined
   /**
    * The scope a registration is looked up under. Empty when absent, which
    * addresses the unscoped registration (design §3.4).

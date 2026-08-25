@@ -448,17 +448,20 @@ place, so this tool and `mock.registrations()` cannot disagree.
 
 ## The write tools that arrived with the registry
 
-Four of the twelve write tools are worth a sentence beyond their bullet, because
-each has a failure mode that is a deliberate choice rather than an accident:
+Five of the twelve write tools arrived with the registry, and each is worth a
+sentence beyond its bullet, because each has a failure mode that is a deliberate
+choice rather than an accident:
 
 - **`set_variant`** stores a per-operation union-branch preference. A
   `Prefer: variant=` header on a request outranks it, and a name matching no
   branch falls through to the seeded pick rather than erroring — the name
   arrives from a caller, so there is nothing to validate it against, and a
   runtime warning would fire constantly for the many responses containing no
-  union at all. Like `clear_overrides`, `clear_variants` with no target echoes
-  `null` rather than `'*'`, because a bare `'*'` is not a valid target and
-  echoing it would teach a caller a string that throws on its next call.
+  union at all.
+- **`clear_variants`** drops those preferences, for one operation or for all of
+  them. Like `clear_overrides`, `clear_variants` with no target echoes `null`
+  rather than `'*'`, because a bare `'*'` is not a valid target and echoing it
+  would teach a caller a string that throws on its next call.
 - **`redeliver_webhook`** takes a delivery id alone — the webhook name is
   recoverable from the record, and a two-argument form that could disagree with
   itself is a defect surface for no benefit. An unknown id, or one aged out of

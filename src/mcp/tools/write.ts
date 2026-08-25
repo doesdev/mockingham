@@ -57,7 +57,10 @@ const emitWebhook: McpTool = {
       .describe(
         'Which registration to deliver to, when destinations are registered ' +
           'per tenant or environment. Omit to address the unscoped one. See ' +
-          'list_registrations for what exists.'
+          'list_registrations for what exists. Ignored when no registry is ' +
+          'configured — the emission then falls through to the captured ' +
+          'callback URL or the configured one, as if no scope were given. ' +
+          'list_webhooks says whether a registry exists.'
       ),
     body: z.unknown().optional().describe('Layered over the generated payload')
   },

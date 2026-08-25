@@ -2,7 +2,7 @@ import type { Schema } from '../spec/types.ts'
 import type { Rng } from './rng.ts'
 import { applyMultipleOf, numberBounds, stringLength } from './constraints.ts'
 import { DEFAULT_SEED_TIME } from './clock.ts'
-import type { VirtualClock } from './clock.ts'
+import type { Ticker } from './clock.ts'
 
 const WORDS = [
   'alder', 'basalt', 'cedar', 'dune', 'ember', 'fjord', 'gale', 'harbor',
@@ -81,7 +81,7 @@ function wantsUuid7(schema: Schema): boolean {
  * value carries the same constant timestamp. Still deterministic, still a
  * well-formed v7; it simply loses the ordering, which is nothing to order.
  */
-function generateUuid7(rng: Rng, clock?: VirtualClock): string {
+function generateUuid7(rng: Rng, clock?: Ticker): string {
   const ms = clock ? clock.next() : DEFAULT_SEED_TIME
   const stamp = ms.toString(16).padStart(12, '0').slice(-12)
   return `${stamp.slice(0, 8)}-${stamp.slice(8, 12)}-7${hex(rng, 3)}-${
@@ -92,7 +92,7 @@ function generateUuid7(rng: Rng, clock?: VirtualClock): string {
 export function generateString(
   schema: Schema,
   rng: Rng,
-  clock?: VirtualClock
+  clock?: Ticker
 ): string {
   if (wantsUuid7(schema)) return generateUuid7(rng, clock)
   switch (schema.format) {

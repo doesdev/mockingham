@@ -1,6 +1,6 @@
 import type { Operation } from '../spec/types.ts'
 import { fnv1aBytes } from '../generate/rng.ts'
-import { resolveExpression } from '../webhooks/expr.ts'
+import { normalizeExpression, resolveExpression } from '../webhooks/expr.ts'
 import { resolveTarget } from '../resolve/target.ts'
 import { targetKey } from './failure.ts'
 import type { Ctx, Fail, Stage } from './types.ts'
@@ -91,9 +91,15 @@ export function resolveIdempotency(
   }
   const operations = new Map<string, string>()
   for (const [target, entry] of Object.entries(config.operations ?? {})) {
-    if (known === undefined) operations.set(target, entry.key)
+    // Normalized here, once, like every other compile site. A bare key
+    // expression matches no token, so `resolveExpression` returns the literal
+    // expression TEXT as an `ok` value — collapsing every request in the
+    // document onto one record key and answering the second one with a
+    // spurious MOCK_IDEMPOTENCY_MISMATCH 409.
+    const key = normalizeExpression(entry.key)
+    if (known === undefined) operations.set(target, key)
     else for (const operation of resolveTarget(target, known)) {
-      operations.set(targetKey(operation), entry.key)
+      operations.set(targetKey(operation), key)
     }
   }
 

@@ -1,5 +1,5 @@
 import type { ExprInput } from '../webhooks/expr.ts'
-import { resolveExpression } from '../webhooks/expr.ts'
+import { normalizeExpression, resolveExpression } from '../webhooks/expr.ts'
 import { callbackKey } from '../webhooks/emit.ts'
 import type { Registry } from '../webhooks/registry.ts'
 import type { Store } from './store.ts'
@@ -61,14 +61,17 @@ export interface CaptureInput {
  *
  * A bare `$response.body` is accepted alongside the braced spelling, because
  * OpenAPI's own `callbacks` keys are written bare and a reader coming from the
- * spec will type it that way.
+ * spec will type it that way. That acceptance is `normalizeExpression`, the one
+ * shared spelling — and the NORMALIZED string is what goes on to
+ * `resolveExpression`, not the original. Passing the original on was the defect:
+ * a bare pointer matched no token, came back `ok` with its own literal text,
+ * and that text was recorded and served as the recalled value.
  */
 function remembered(remember: string, input: CaptureInput): unknown {
-  const trimmed = remember.trim()
-  const normalized = trimmed.startsWith('{') ? trimmed : `{${trimmed}}`
+  const normalized = normalizeExpression(remember)
   if (normalized === REMEMBER_RESPONSE_BODY) return input.responseBody
   if (normalized === REMEMBER_REQUEST_BODY) return input.requestBody
-  const resolved = resolveExpression(remember, input.expr)
+  const resolved = resolveExpression(normalized, input.expr)
   return resolved.ok ? resolved.value : undefined
 }
 

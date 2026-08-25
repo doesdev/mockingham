@@ -2,7 +2,7 @@ import type { Schema } from '../spec/types.ts'
 import { classify, matchesVariant, mergeAllOf } from '../schema/walk.ts'
 import { arrayLength } from './constraints.ts'
 import type { Rng } from './rng.ts'
-import type { VirtualClock } from './clock.ts'
+import type { Ticker } from './clock.ts'
 import type { ResolverLookup } from '../resolve/resolvers.ts'
 import {
   generateBoolean, generateInteger, generateNumber, generateString
@@ -21,10 +21,13 @@ export interface GenerateOptions {
    */
   variant?: string
   /**
-   * The per-mock seeded virtual clock UUIDv7 generation reads. Per-mock rather
-   * than per-request, so ids from successive requests sort correctly.
+   * The block of seeded timestamps UUIDv7 generation draws from. One per
+   * request and one per emission, reserved SYNCHRONOUSLY by
+   * `VirtualClock.allocate()` before any await — so ids still sort by request
+   * order without generation order deciding anything. See `clock.ts` for why a
+   * single shared counter broke invariant 2.
    */
-  clock?: VirtualClock
+  clock?: Ticker
 }
 
 const DEFAULT_MAX_DEPTH = 3

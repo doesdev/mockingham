@@ -54,7 +54,12 @@ const baseInput = {
   ordinal: 1,
   seed: 'plan6',
   generateOptions: { schemaNames: api.schemaNames },
-  now: () => 1_700_000_000
+  now: () => 1_700_000_000,
+  // Written out rather than omitted: `EmitInput.registry` is required, so a
+  // call site that means "no registry" has to say so. These tests exercise the
+  // destination tiers BELOW the registry, and stating it here is what keeps
+  // that deliberate rather than accidental.
+  registry: undefined
 }
 
 test('an unknown webhook name throws, like every other target typo', async () => {

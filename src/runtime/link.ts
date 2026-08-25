@@ -1,5 +1,6 @@
 import type { Operation } from '../spec/types.ts'
 import { resolveTarget } from '../resolve/target.ts'
+import { normalizeExpression } from '../webhooks/expr.ts'
 import type { Store } from './store.ts'
 
 /**
@@ -130,6 +131,12 @@ export interface CompiledLinkRule {
  * Targets are resolved at construction, so a typo throws rather than silently
  * never linking — the same contract every other control-plane target in the
  * system has.
+ *
+ * All three expressions are normalized here, once. Left bare, none of them
+ * matches a token at all: `resolveExpression` reads braced tokens only, so a
+ * bare string comes back `ok` carrying its own literal text. `from.key` would
+ * then record every write under one constant, `to.key` would recall under that
+ * same constant, and `remember` would serve the expression text as the body.
  */
 export function compileLinkRules(
   rules: LinkRule[] | undefined,
@@ -138,10 +145,10 @@ export function compileLinkRules(
   return (rules ?? []).map((rule, index) => ({
     index,
     from: resolveTarget(rule.from.target, operations),
-    fromKey: rule.from.key,
+    fromKey: normalizeExpression(rule.from.key),
     to: resolveTarget(rule.to.target, operations),
-    toKey: rule.to.key,
-    remember: rule.remember ?? REMEMBER_RESPONSE_BODY,
+    toKey: normalizeExpression(rule.to.key),
+    remember: normalizeExpression(rule.remember ?? REMEMBER_RESPONSE_BODY),
     ttlMs: rule.ttlMs ?? LINK_TTL_MS,
     max: rule.max ?? LINK_MAX
   }))

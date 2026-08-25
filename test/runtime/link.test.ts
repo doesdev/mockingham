@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createLinkTable, LINK_MAX } from '../../src/runtime/link.ts'
+import { compileLinkRules, createLinkTable, LINK_MAX } from '../../src/runtime/link.ts'
+import { loadApi } from '../../src/spec/load.ts'
 import { createMemoryStore } from '../../src/runtime/store.ts'
 import { runCapture } from '../../src/runtime/capture.ts'
 import type { CaptureRule } from '../../src/runtime/capture.ts'
@@ -120,6 +121,93 @@ test('a key that does not resolve records nothing', async () => {
   ))
   assert.equal(await table.recall(0, ''), undefined)
   assert.equal(await table.recall(0, 'ord_4'), undefined)
+})
+
+test('compileLinkRules normalizes bare expressions in from, to, and remember', () => {
+  // Left bare, none of these three ever matches a token: `resolveExpression`
+  // reads braced tokens only. `from.key` records under the literal expression
+  // TEXT so every write collides on one entry, `to.key` recalls under that same
+  // constant, and `remember` serves the literal string as the whole body.
+  const api = loadApi({
+    openapi: '3.1.0',
+    paths: {
+      '/orders': {
+        post: { operationId: 'createOrder', responses: { '201': { description: 'ok' } } }
+      },
+      '/orders/{id}': {
+        get: {
+          operationId: 'getOrder',
+          parameters: [
+            { name: 'id', in: 'path', required: true, schema: { type: 'string' } }
+          ],
+          responses: { '200': { description: 'ok' } }
+        }
+      }
+    }
+  })
+  const [compiled] = compileLinkRules(
+    [
+      {
+        from: { target: 'createOrder', key: '$response.body#/id' },
+        to: { target: 'getOrder', key: '$request.path.id' },
+        remember: '$response.body'
+      }
+    ],
+    api.operations
+  )
+  assert.equal(compiled?.fromKey, '{$response.body#/id}')
+  assert.equal(compiled?.toKey, '{$request.path.id}')
+  assert.equal(compiled?.remember, '{$response.body}')
+})
+
+test('a bare pointer remember records the pointed-at value, not the expression text', async () => {
+  // The whole-body forms were already normalized for their two comparisons,
+  // so only a bare POINTER exposes the defect: it was passed on un-normalized
+  // and `resolveExpression` handed back the literal expression text as an
+  // `ok` value. That text was then recorded and served.
+  const table = createLinkTable(createMemoryStore(() => 0), rules)
+  await runCapture(captureInput(
+    {
+      kind: 'link',
+      index: 0,
+      keyExpr: '{$response.body#/id}',
+      remember: '$response.body#/total'
+    },
+    { id: 'ord_bare', total: 3 },
+    table
+  ))
+  assert.equal(await table.recall(0, 'ord_bare'), '3')
+})
+
+test('a bare whole-body remember records the body itself', async () => {
+  const table = createLinkTable(createMemoryStore(() => 0), rules)
+  await runCapture(captureInput(
+    { kind: 'link', index: 0, keyExpr: '{$response.body#/id}', remember: '$response.body' },
+    { id: 'ord_bare2', total: 3 },
+    table
+  ))
+  assert.deepEqual(await table.recall(0, 'ord_bare2'), { id: 'ord_bare2', total: 3 })
+})
+
+test('clear drops the eviction index so a live entry is not evicted after reset', async () => {
+  // `reset()` clears the Store and then calls `clear()`. Without the `clear()`,
+  // the index keeps phantom keys and the next recorded entry evicts a LIVE one
+  // to get back under `max`. Exercised against the index directly, because
+  // through a full mock the effect needs more than `max` records to surface.
+  const store = createMemoryStore(() => 0)
+  const table = createLinkTable(store, [{ ttlMs: 1000, max: 2 }])
+  await table.record(0, 'a', 'A')
+  await table.record(0, 'b', 'B')
+
+  table.clear()
+
+  await table.record(0, 'c', 'C')
+  // With the index dropped, 'c' is the only entry the table knows about, so
+  // nothing is evicted. Leave `clear()` out and the index is ['a','b','c'],
+  // which is over `max` and evicts 'a'.
+  assert.equal(await table.recall(0, 'a'), 'A')
+  assert.equal(await table.recall(0, 'b'), 'B')
+  assert.equal(await table.recall(0, 'c'), 'C')
 })
 
 test('a recalled object is not the stored instance', async () => {

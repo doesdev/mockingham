@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { McpContext, McpTool } from '../context.ts'
 import { createCompiler } from '../../schema/compile.ts'
+import { classify, variantName } from '../../schema/walk.ts'
 import { toJsonSchema } from '../../schema/json-schema.ts'
 import type { Operation, Parameter, Schema } from '../../spec/types.ts'
 import { createRng } from '../../generate/rng.ts'
@@ -72,6 +73,34 @@ function jsonSchemaOf(schema: Schema): Record<string, unknown> {
   }
 }
 
+/**
+ * The names `set_variant` and `Prefer: variant=` answer to for one response
+ * body, or `undefined` when the body is not a union.
+ *
+ * Read through `classify`/`variantName` rather than by inspecting `oneOf`
+ * here: invariant 1 puts schema interpretation in `schema/walk.ts` and nowhere
+ * else, so the names an agent is shown are by construction the names selection
+ * matches. Without this an agent had to infer a variant name from raw JSON
+ * Schema `const`s in the converted output.
+ *
+ * One level only — the union AT the response body, not a walk of the tree.
+ * `variant` applies at every union in the tree, but enumerating nested ones
+ * would produce a flat list of names with no indication of where each applies,
+ * which is more misleading than saying nothing. A branch with no const-valued
+ * property has no name and is unreachable by `set_variant`, so it is omitted
+ * rather than reported as an empty string.
+ */
+function variantNames(schema: Schema): string[] | undefined {
+  const kind = classify(schema)
+  if (kind.kind !== 'union') return undefined
+  const names: string[] = []
+  for (const branch of kind.variants) {
+    const name = variantName(branch, kind.discriminator)
+    if (name !== undefined && !names.includes(name)) names.push(name)
+  }
+  return names.length > 0 ? names : undefined
+}
+
 function contentSchemas(
   content: Record<string, { schema: Schema; example?: unknown }> | undefined
 ): Record<string, unknown> | undefined {
@@ -97,8 +126,9 @@ const describeOperation: McpTool = {
     'examples. Also what the operation does beyond generating a response — ' +
     'which response-link rules it records for (linksFrom) or replays from ' +
     '(linksTo), which webhook destination it registers or unregisters, and ' +
-    'where its idempotency key comes from. Identify it by operationId, or by ' +
-    'method and path.',
+    'where its idempotency key comes from. A response whose body is a union ' +
+    'also lists the branch names set_variant and "Prefer: variant=" accept ' +
+    'for it. Identify it by operationId, or by method and path.',
   inputSchema: {
     operationId: z.string().optional(),
     method: z.string().optional(),
@@ -147,6 +177,12 @@ const describeOperation: McpTool = {
           // media-type key to find it.
           schema: response.content['application/json']
             ? jsonSchemaOf(response.content['application/json']!.schema)
+            : undefined,
+          // The branch names set_variant accepts for this response, when it is
+          // a union. Absent otherwise, so an agent is never told a union
+          // exists where none does.
+          variants: response.content['application/json']
+            ? variantNames(response.content['application/json']!.schema)
             : undefined
         })),
       security: operation.security

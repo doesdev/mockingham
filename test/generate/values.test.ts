@@ -4,7 +4,9 @@ import { createRng } from '../../src/generate/rng.ts'
 import {
   generateBoolean, generateInteger, generateNumber, generateString
 } from '../../src/generate/values.ts'
-import { createVirtualClock, DEFAULT_SEED_TIME } from '../../src/generate/clock.ts'
+import {
+  createVirtualClock, DEFAULT_SEED_TIME, TICKS_PER_ALLOCATION
+} from '../../src/generate/clock.ts'
 
 test('strings respect length bounds', () => {
   const rng = createRng('strings')
@@ -111,7 +113,8 @@ test('booleans are booleans', () => {
 
 const V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
-const clock = () => createVirtualClock()
+// One reserved block, which is what a single request or emission gets.
+const clock = () => createVirtualClock().allocate()
 
 test('format uuid7 produces a well-formed v7', () => {
   const value = generateString({ type: 'string', format: 'uuid7' }, createRng('s'), clock())
@@ -160,14 +163,29 @@ test('plain uuid is still v4', () => {
 
 test('the virtual clock starts at seedTime and reset returns it there', () => {
   const c = createVirtualClock(1735689600000)
-  assert.equal(c.next(), 1735689600000)
-  assert.equal(c.next(), 1735689600001)
+  const first = c.allocate()
+  assert.equal(first.next(), 1735689600000)
+  assert.equal(first.next(), 1735689600001)
   c.reset()
-  assert.equal(c.next(), 1735689600000)
+  assert.equal(c.allocate().next(), 1735689600000)
 })
 
 test('the default seed time is a fixed constant, never the wall clock', () => {
   const c = createVirtualClock()
-  assert.equal(c.next(), DEFAULT_SEED_TIME)
+  assert.equal(c.allocate().next(), DEFAULT_SEED_TIME)
   assert.equal(DEFAULT_SEED_TIME, Date.parse('2025-01-01T00:00:00.000Z'))
+})
+
+test('each allocation gets its own block, in the order allocate was called', () => {
+  // The mechanism the async-ordering fix rests on: a block is fixed when it is
+  // RESERVED, so a ticker allocated first sorts before one allocated second no
+  // matter which one draws first. Drawing out of allocation order here is the
+  // whole point — it models a delayed emission generating after a later
+  // request has already generated.
+  const c = createVirtualClock(0)
+  const first = c.allocate()
+  const second = c.allocate()
+  assert.equal(second.next(), TICKS_PER_ALLOCATION)
+  assert.equal(first.next(), 0)
+  assert.ok(first.next() < second.next(), 'the first block stays below the second')
 })

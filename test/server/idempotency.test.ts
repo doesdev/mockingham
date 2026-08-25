@@ -397,3 +397,50 @@ test('a different body under the same body-pointer key conflicts', async () => {
   const body = (await response.json()) as { error: { code: string } }
   assert.equal(body.error.code, 'MOCK_IDEMPOTENCY_MISMATCH')
 })
+
+test('a bare operation key expression keys on the body, not on its own text', async () => {
+  // Un-normalized, `$request.body#/meta/requestId` matches no token, so
+  // `resolveExpression` hands back the literal expression text as the key.
+  // Every request in the document then collapses onto that one key and the
+  // second one conflicts with a request it shares nothing with.
+  const handle = createHandler(eventsApi, {
+    seed: 'idem',
+    idempotency: { operations: { deliverEvent: { key: '$request.body#/meta/requestId' } } }
+  }).fetch
+  const send = (requestId: string) =>
+    handle(
+      new Request('http://mock/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ meta: { requestId } })
+      })
+    )
+
+  const first = await send('r-bare-1')
+  const second = await send('r-bare-2')
+
+  assert.equal(first.status, 200)
+  // Two distinct request ids are two distinct keys: the second is a first
+  // request of its own, neither a conflict nor a replay.
+  assert.equal(second.status, 200)
+  assert.equal(second.headers.get('idempotent-replay'), null)
+})
+
+test('a bare operation key still replays on the same value', async () => {
+  const handle = createHandler(eventsApi, {
+    seed: 'idem',
+    idempotency: { operations: { deliverEvent: { key: '$request.body#/meta/requestId' } } }
+  }).fetch
+  const send = () =>
+    handle(
+      new Request('http://mock/events', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ meta: { requestId: 'r-bare-3' } })
+      })
+    )
+
+  await send()
+  const second = await send()
+  assert.equal(second.headers.get('idempotent-replay'), 'true')
+})

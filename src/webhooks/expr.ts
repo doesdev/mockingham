@@ -106,6 +106,30 @@ export function isSupported(expression: string): boolean {
   return true
 }
 
+/**
+ * Accepts the bare `$request.body#/url` spelling alongside the braced
+ * `{$request.body#/url}` that `resolveExpression` requires — design §3.3.
+ * OpenAPI's own `callbacks` keys are written bare, so a reader coming from the
+ * spec will type it that way.
+ *
+ * This lives here, beside `resolveExpression`, and there is exactly ONE
+ * spelling of it, for the reason `registrationKey` and `callbackKey` are
+ * shared: two independent spellings of one convention drift silently with both
+ * test suites green. The consequence of a missing call is not a failure but a
+ * WRONG ANSWER — `resolveExpression` matches braced tokens only, so a bare
+ * string matches nothing and comes back `{ ok: true }` carrying the literal
+ * expression text. Every site that compiles a caller-written expression must
+ * call this before storing it.
+ *
+ * A template that already contains a brace is passed through whole rather than
+ * wrapped, because `{$request.body#/host}/hooks` is a legal mixed template and
+ * wrapping it again would produce `{{$request.body#/host}/hooks}`.
+ */
+export function normalizeExpression(expression: string): string {
+  const trimmed = expression.trim()
+  return trimmed.includes('{') ? trimmed : `{${trimmed}}`
+}
+
 export function resolveExpression(expression: string, input: ExprInput): ExprResult {
   let failed: string | undefined
   const value = expression.replace(TOKEN, (_, raw: string) => {

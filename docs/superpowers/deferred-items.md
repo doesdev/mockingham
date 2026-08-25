@@ -462,6 +462,19 @@ not duplicated here.*
     response is well-formed and on-contract, it simply no longer agrees with
     the create that preceded it. A long soak test or a high-cardinality
     sequence is where this will first be felt.
+
+    **And that bound is process-local, so it does not bound a shared store.**
+    The recorded values go through the `Store`, but the insertion-ordered key
+    index that decides what to evict lives in `createLinkTable`, in the
+    process — the same wall item 42 and the delivery log hit, for the same
+    reason: the `Store` interface has no enumeration or key-range primitive.
+    Each process therefore evicts only the keys *it* recorded, so N processes
+    sharing one `Store` can leave up to N × `max` entries per rule resident in
+    it rather than `max`. With the default in-memory per-process store this is
+    invisible; it becomes real exactly when a shared store is adopted to make
+    linking survive a restart or span workers, which is the case that motivates
+    a shared store in the first place. `ttlMs` is the only bound that still
+    holds there, since expiry is the store's own job.
     **Status: documented limitation, plan 11.** See refinements design §13
     limitation 2 and §4.3.
 
@@ -561,6 +574,52 @@ not duplicated here.*
     **Status: documented property, plan 11.** Not a defect and nothing to fix.
     Recorded because "74 bits of randomness" reads as though entropy carries
     uniqueness across requests, and it does not.
+
+50. **A Critical caught by the plan 11 whole-branch review: the seeded virtual
+    clock, as designed and as implemented, broke the very invariant its design
+    section claimed it upheld.** Recorded in full because the *shape* of the
+    mistake is more reusable than the fix.
+    Design §8.3 specified "a per-mock counter, advancing by a fixed step on
+    each v7 generated", and §11's determinism table asserted "Same sequence →
+    same bytes? Yes; counter is seeded and stepped fixed." Both were false. The
+    counter was drawn at GENERATION time — which is after `readOverride`,
+    `readVariant` and the fixture resolver have all awaited — and a webhook
+    with `afterMs` generates its payload on a timer. So the order draws reached
+    the counter was decided by wall-clock timing rather than by the request
+    sequence. A strictly sequential caller doing `POST` then `GET` got a
+    different `GET` **response body** depending only on how long they waited:
+
+        gap=0    post …7c00  get …7c01  hook …7c02
+        gap=60   post …7c00  get …7c02  hook …7c01
+
+    The random halves were byte-identical across both runs, which is what
+    isolated the shared counter as the sole cause — the per-request seeded rng
+    was never involved.
+    **Why nine plans of habit did not prevent it.** Every other
+    sequence-dependent output in this codebase — request ordinals, the webhook
+    counter, `failNext` consumption, idempotency claim — is drawn
+    SYNCHRONOUSLY, per request, before anything can interleave. The clock was
+    the first piece of generation state drawn after an await, and it was
+    introduced by a design that reasoned about determinism carefully and still
+    missed it, because "the counter is seeded and steps by a fixed amount" is
+    true and sounds sufficient. It is not: *what* is drawn was never the
+    problem, *when* it is drawn was.
+    **The fix** (`src/generate/clock.ts`) makes the clock an allocator:
+    `allocate()` reserves a block of `TICKS_PER_ALLOCATION` timestamps
+    synchronously — at request entry, and at emission SCHEDULING rather than
+    firing — and generation draws within its own block whenever it runs.
+    **Status: FIXED, plan 11 fix wave.** Two regression tests
+    (`test/server/handler.test.ts`): a delayed emission not shifting the next
+    request's timestamp, and two concurrent requests ordered by issue rather
+    than completion.
+    **A test-design note worth as much as the fix.** The first draft of the
+    concurrency test was inert twice over, and passed against the very mutation
+    it existed to catch both times: it keyed a Store slowdown on a path
+    parameter when `targetKey` uses the operationId or the route template, and
+    it compared "slow" against "even" when the first-issued request wins every
+    race by default, so the order never changed. Only slowing request A against
+    slowing request B discriminates. Written by the same person who had spent
+    the cycle catching this exact shape in other people's work.
 
 ---
 

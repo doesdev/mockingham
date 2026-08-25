@@ -111,29 +111,25 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
 }
 
 /**
- * The name a union branch answers to, for `Prefer: variant=`.
+ * Every const-valued property on a branch, as strings, in `Object.keys` order.
  *
  * Schema interpretation lives here, beside `classify`, and nowhere else
- * (invariant 1) — generation calls this rather than reading `properties`
- * itself.
- *
- * With a formal `discriminator`, that one property names the branch. Without
- * one, the first const-valued property does, which covers the common
- * `outcome: { const: 'conflict' }` shape that carries no `discriminator`
- * object. Property order is declaration order, so the choice is deterministic
- * (invariant 2). A branch with no const-valued property has no name and can
- * never be selected — the caller falls through to the seeded pick.
- */
-/**
- * Every const-valued property on a branch, as strings, in declaration order.
+ * (invariant 1) — generation calls `matchesVariant` rather than reading
+ * `properties` itself.
  *
  * With a formal `discriminator` only that property is considered — a document
  * that declares one has said which property names its branches, and letting a
  * second const property match anyway would ignore that declaration.
  *
- * Declaration order rather than an unordered walk: invariant 2 forbids letting
- * iteration order decide anything observable, and `variantName` returns the
- * first of these.
+ * On order: this is NOT literal declaration order. `Object.keys` lists
+ * integer-like keys first in ascending numeric order, and after `mergeAllOf`
+ * the `properties` object has been rebuilt as the allOf members' properties
+ * followed by the outer schema's own — so "order" here means merge order, not
+ * the order a reader sees in the document. That is good enough: the order is a
+ * pure function of the schema and so still deterministic across processes
+ * (invariant 2), and the only consumer that depends on it at all is
+ * `variantName`, which takes the first entry. `matchesVariant` — the selection
+ * path — is order-insensitive.
  */
 function constValues(branch: Schema, discriminator?: string): string[] {
   const properties = mergeAllOf(branch).properties

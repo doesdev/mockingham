@@ -55,7 +55,7 @@ test('an unresolvable callback expression stores nothing', async () => {
   assert.equal(await store.get(callbackKey('onOrder')), undefined)
 })
 
-test('the other rule kinds are inert until later tasks fill them in', async () => {
+test('a rule whose collaborator is absent is skipped without stopping the pass', async () => {
   const store = createMemoryStore(() => 0)
   await runCapture({
     rules: [
@@ -69,7 +69,10 @@ test('the other rule kinds are inert until later tasks fill them in', async () =
     responseBody: {},
     requestBody: { hook: 'https://consumer.example/h' }
   })
-  // The unimplemented kinds neither throw nor stop the pass: the callback rule
-  // that follows them still captures.
+  // `register`/`unregister` need a `registry` and `link` needs a `link` table;
+  // neither was passed here. Those three rules must be no-ops rather than
+  // throws, because a throw would fail the whole capture pass — and with it
+  // every other rule at this exit. The callback rule that FOLLOWS them still
+  // captures, which is the only way to observe that the pass kept going.
   assert.equal(await store.get(callbackKey('onOrder')), 'https://consumer.example/h')
 })

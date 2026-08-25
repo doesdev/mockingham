@@ -93,14 +93,3 @@ export function createRegistry(store: Store): Registry {
     }
   }
 }
-
-/**
- * Accepts the bare `$request.body#/url` spelling alongside the braced
- * `{$request.body#/url}` that `resolveExpression` requires — design §3.3.
- * OpenAPI's own `callbacks` keys are written bare, so a reader coming from the
- * spec will type it that way, and a silently-never-resolving expression is the
- * worst possible response to that.
- */
-export function normalizeExpression(expression: string): string {
-  return expression.includes('{') ? expression : `{${expression}}`
-}

@@ -486,3 +486,134 @@ test('a non-recursive webhook payload schema is still converted', async () => {
   const entry = (await webhooks(ctx)).find((candidate) => candidate.name === 'orderCreated')
   assert.deepEqual(entry?.payloadSchema?.required, ['id'])
 })
+
+// --- deferred item L6: a union response advertises its branch names ---------
+
+/**
+ * An agent choosing a `set_variant` name had to infer it from raw JSON Schema
+ * `const`s buried in a `oneOf`. `describe_operation` names them instead, using
+ * `variantName` — the same module `Prefer: variant=` selection reads, so the
+ * names an agent is shown are the names the mock answers to.
+ */
+const variantDoc = {
+  openapi: '3.1.0',
+  info: { title: 'Payments', version: '1.0.0' },
+  paths: {
+    '/payments': {
+      post: {
+        operationId: 'createPayment',
+        responses: {
+          '200': {
+            description: 'Settled, held, or something the schema does not name',
+            content: {
+              'application/json': {
+                schema: {
+                  oneOf: [
+                    {
+                      type: 'object',
+                      properties: {
+                        outcome: { const: 'settled' },
+                        id: { type: 'string' }
+                      }
+                    },
+                    {
+                      type: 'object',
+                      properties: {
+                        outcome: { const: 'held' },
+                        reason: { type: 'string' }
+                      }
+                    },
+                    // No const-valued property: unnameable, and so unreachable
+                    // by `set_variant`. It must not appear in the list.
+                    { type: 'object', properties: { id: { type: 'string' } } }
+                  ]
+                }
+              }
+            }
+          },
+          '404': {
+            description: 'Not found',
+            content: {
+              'application/json': {
+                schema: { type: 'object', properties: { message: { type: 'string' } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+interface DescribedResponse {
+  status: number
+  variants?: string[]
+}
+
+async function describedResponses(
+  doc: Record<string, unknown>,
+  operationId: string
+): Promise<DescribedResponse[]> {
+  const mock = createMock(doc, {})
+  const described = (await toolNamed('describe_operation').handler(
+    contextForMock(mock, {}), { operationId }
+  )) as { responses: DescribedResponse[] }
+  return described.responses
+}
+
+test('describe_operation names the variants of a union response', async () => {
+  const responses = await describedResponses(variantDoc, 'createPayment')
+  const ok = responses.find((response) => response.status === 200)
+  assert.deepEqual(ok?.variants, ['settled', 'held'])
+})
+
+test('describe_operation reports no variants for a response that is not a union', async () => {
+  // The other half of the pair. Without this, `variants` could be populated
+  // unconditionally — an empty array on every object response would teach an
+  // agent that `set_variant` applies where it does not.
+  const responses = await describedResponses(variantDoc, 'createPayment')
+  const notFound = responses.find((response) => response.status === 404)
+  assert.equal(notFound?.variants, undefined)
+})
+
+test('describe_operation names variants by a formal discriminator when one is declared', async () => {
+  const doc = {
+    openapi: '3.1.0',
+    info: { title: 'Events', version: '1.0.0' },
+    paths: {
+      '/events': {
+        get: {
+          operationId: 'getEvent',
+          responses: {
+            '200': {
+              description: 'An event',
+              content: {
+                'application/json': {
+                  schema: {
+                    oneOf: [
+                      {
+                        type: 'object',
+                        properties: {
+                          kind: { const: 'refund' },
+                          // A second const property. With `kind` declared as
+                          // the discriminator only `kind` may name the branch,
+                          // so a naive "first const wins" would report
+                          // `pending` here and this assertion would catch it.
+                          status: { const: 'pending' }
+                        }
+                      },
+                      { type: 'object', properties: { kind: { const: 'charge' } } }
+                    ],
+                    discriminator: { propertyName: 'kind' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  const responses = await describedResponses(doc, 'getEvent')
+  assert.deepEqual(responses[0]?.variants, ['refund', 'charge'])
+})
