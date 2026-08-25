@@ -7,8 +7,9 @@ import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
 import type { Counters } from '../runtime/context.ts'
 import type { Ctx, EmitCtx, Fail, OverrideNode, Resolvers, Stage } from '../runtime/types.ts'
-import { isSupported, resolveExpression } from '../webhooks/expr.ts'
-import { callbackKey } from '../webhooks/emit.ts'
+import { isSupported } from '../webhooks/expr.ts'
+import { runCapture } from '../runtime/capture.ts'
+import type { CaptureRule } from '../runtime/capture.ts'
 import { compileConfigs, resolveConfigs } from '../runtime/config.ts'
 import type { EmitConfig, OperationConfig, StatusConfig } from '../runtime/config.ts'
 import { preferred } from '../runtime/select.ts'
@@ -192,9 +193,8 @@ export function createHandler(
   // Compiled once. An expression outside the documented subset warns here
   // rather than silently never firing — the same reasoning as `compileTarget`
   // throwing on a target that matches nothing.
-  const callbacks = api.operations.map((operation) => ({
-    operation,
-    specs: operation.callbacks.filter((callback) => {
+  const callbacks = api.operations.map((operation) => {
+    const specs = operation.callbacks.filter((callback) => {
       if (isSupported(callback.expression)) return true
       warn(
         `mockingham: callback "${callback.name}" on ` +
@@ -204,7 +204,17 @@ export function createHandler(
       )
       return false
     })
-  }))
+    // The document's `callbacks` entries become capture rules here, once, not
+    // per request. The tier-2 block at the single exit then runs them through
+    // the same pass the registry and response linking use, so the existing
+    // behavior travels through the new path rather than sitting beside it.
+    const rules: CaptureRule[] = specs.map((callback) => ({
+      kind: 'callback',
+      name: callback.name,
+      expression: callback.expression
+    }))
+    return { operation, specs, rules }
+  })
 
   const webhookConfigs = new Map<string, ResolvedWebhook>()
   for (const [name, config] of Object.entries(options.webhooks ?? {})) {
@@ -799,7 +809,8 @@ export function createHandler(
     if (trace.operation !== undefined && response.status < 400) {
       try {
         const entry = callbacks.find((candidate) => candidate.operation === trace.operation)
-        if (entry !== undefined && entry.specs.length > 0) {
+        if (entry !== undefined && entry.rules.length > 0) {
+          const responseBody = parseBodyText(captured, response)
           const exprInput = {
             request,
             url: new URL(request.url),
@@ -809,13 +820,16 @@ export function createHandler(
             result: {
               status: response.status,
               headers: headersOf(response),
-              body: parseBodyText(captured, response)
+              body: responseBody
             }
           }
-          for (const callback of entry.specs) {
-            const resolved = resolveExpression(callback.expression, exprInput)
-            if (resolved.ok) await store.set(callbackKey(callback.name), resolved.value)
-          }
+          await runCapture({
+            rules: entry.rules,
+            expr: exprInput,
+            store,
+            responseBody,
+            requestBody: trace.ctx?.body
+          })
         }
       } catch (error) {
         reportError(options.onError, error, trace.ctx)
