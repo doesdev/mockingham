@@ -1,6 +1,7 @@
 import { createRouter } from '../spec/routes.ts'
 import type { Api, Operation } from '../spec/types.ts'
 import { createRng, fnv1a } from '../generate/rng.ts'
+import { createVirtualClock } from '../generate/clock.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
 import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
@@ -114,6 +115,13 @@ export interface HandlerOptions {
    * else.
    */
   now?: () => number
+  /**
+   * The starting timestamp of the seeded virtual clock UUIDv7 generation reads
+   * — NOT a wall clock, and deliberately not defaulted to one. Defaults to
+   * `DEFAULT_SEED_TIME`, a fixed epoch, so a baked fixture holding a v7 is
+   * stable across runs. See `src/generate/clock.ts`.
+   */
+  seedTime?: number
   onLog?: LogSink
   onError?: ErrorSink
   /**
@@ -165,6 +173,11 @@ export function createHandler(
 
   const counters: Counters = createCounters()
 
+  // Per-mock, not per-request: it advances across requests, which is what makes
+  // ids from successive POSTs sort correctly. That also makes v7 generation a
+  // sequence-dependent output — same request sequence, same ids.
+  const virtualClock = createVirtualClock(options.seedTime)
+
   const now = options.now ?? (() => Date.now())
   // One clock for the store and the log, so a fake clock in a test drives both.
   const store = options.store ?? createMemoryStore(now)
@@ -177,7 +190,7 @@ export function createHandler(
     now,
     onError: (error) => reportError(options.onError, error)
   })
-  const idempotency = resolveIdempotency(options.idempotency)
+  const idempotency = resolveIdempotency(options.idempotency, api.operations)
   const policies = compilePolicies(options.failure, api.operations)
   const chaosSeed = options.chaosSeed ?? seed
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
@@ -283,6 +296,10 @@ export function createHandler(
     name: string,
     opts: { to?: string; body?: OverrideNode; ctx?: unknown } = {}
   ): Promise<Delivery> {
+    // Drawn ONCE and used twice: the payload rng and the delivery id both key
+    // off this ordinal. Calling `counters.next` twice would advance it between
+    // the two and silently decouple an emission's payload from its identity.
+    const ordinal = counters.next(`webhook|${name}`)
     const delivery = await emitWebhook({
       name,
       api,
@@ -290,12 +307,14 @@ export function createHandler(
       store,
       captureOnly: options.captureOnly === true,
       seed,
-      rng: createRng(`${seed}|webhook|${name}|${counters.next(`webhook|${name}`)}`),
+      ordinal,
+      rng: createRng(`${seed}|webhook|${name}|${ordinal}`),
       generateOptions: {
         maxDepth: options.maxDepth,
         preferExamples: options.preferExamples,
         resolvers,
-        schemaNames: api.schemaNames
+        schemaNames: api.schemaNames,
+        clock: virtualClock
       },
       fetch: doFetch,
       sleep,
@@ -329,7 +348,8 @@ export function createHandler(
           maxDepth: options.maxDepth,
           preferExamples: options.preferExamples,
           resolvers,
-          schemaNames: api.schemaNames
+          schemaNames: api.schemaNames,
+          clock: virtualClock
         },
         debugHeaders: options.debugHeaders
       })
@@ -454,7 +474,8 @@ export function createHandler(
         maxDepth: options.maxDepth,
         preferExamples: options.preferExamples,
         resolvers,
-        schemaNames: api.schemaNames
+        schemaNames: api.schemaNames,
+        clock: virtualClock
       },
       // ctx is declared just below; this getter is only invoked later (inside
       // generateValue, at generation time), by which point the assignment has
@@ -913,6 +934,7 @@ export function createHandler(
     async reset() {
       seed = options.seed ?? 'mockingham'
       counters.reset()
+      virtualClock.reset()
       chaosCounts.clear()
       requestOrdinals.clear()
       generation += 1

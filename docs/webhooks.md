@@ -235,8 +235,12 @@ captured so far: 2
 after clear: 0
 ```
 
-`Delivery` (`src/webhooks/deliver.ts`) is `{ webhook, url?, body, headers,
-outcome, status?, attempts, error? }`. Print `outcome`, not `status`: under
+`Delivery` (`src/webhooks/deliver.ts`) is `{ id, webhook, url?, body, headers,
+outcome, status?, attempts, error? }`. The `id` is one per emission, not per
+attempt — a retry sequence is a single delivery with `attempts: n` and one id
+— and it is derived from the seed, the webhook name and the emission ordinal
+rather than being random, so replaying a sequence reproduces it. Print
+`outcome`, not `status`: under
 `captureOnly: true` nothing is actually sent over the network, so `status` —
 an HTTP response code — is absent by design. Reaching for it here would teach
 an expectation that never holds under capture mode; `captureOnly` is what

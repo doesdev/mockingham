@@ -9,6 +9,15 @@ export type DeliveryOutcome = 'delivered' | 'failed' | 'captured' | 'unresolved'
  * type, not merely of the implementation.
  */
 export interface Delivery {
+  /**
+   * Stable identity for one emission — NOT one attempt. A retry sequence is a
+   * single `Delivery` with `attempts: n` and one id, which is what makes a
+   * redelivery observably the same delivery as the first send. Derived from the
+   * seed, the webhook name and the per-webhook ordinal (see `emitWebhook`), so
+   * invariant 2 holds: the same emission sequence produces the same ids in
+   * another process. Never a UUID for exactly that reason.
+   */
+  id: string
   webhook: string
   /** Absent when nothing resolved a destination. */
   url?: string
@@ -75,6 +84,8 @@ export function backoffFor(input: {
 }
 
 export interface DeliverInput {
+  /** See `Delivery.id`. Built by the caller, once per emission. */
+  id: string
   webhook: string
   url?: string
   /** The declared webhook method, uppercased. Defaults to `'POST'` when absent. */
@@ -90,6 +101,7 @@ export interface DeliverInput {
 
 export async function deliver(input: DeliverInput): Promise<Delivery> {
   const record: Delivery = {
+    id: input.id,
     webhook: input.webhook,
     url: input.url,
     body: input.body,

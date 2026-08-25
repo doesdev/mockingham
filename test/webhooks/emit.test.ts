@@ -49,6 +49,9 @@ function harness(status = 200) {
 const baseInput = {
   api,
   captureOnly: false,
+  // The per-webhook emission ordinal, which the handler draws from its
+  // counters. Fixed here because these tests call `emitWebhook` directly.
+  ordinal: 1,
   seed: 'plan6',
   generateOptions: { schemaNames: api.schemaNames },
   now: () => 1_700_000_000
@@ -246,7 +249,12 @@ test('a configured header beats a declared one of the same name', async () => {
 test('the delivery log is bounded and drops oldest first', () => {
   const log = createDeliveryLog(2)
   const make = (webhook: string) => ({
-    webhook, body: '', headers: {}, outcome: 'captured' as const, attempts: 0
+    id: `id-${webhook}`,
+    webhook,
+    body: '',
+    headers: {},
+    outcome: 'captured' as const,
+    attempts: 0
   })
   log.record(make('a'))
   log.record(make('b'))

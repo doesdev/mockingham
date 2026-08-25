@@ -1,6 +1,7 @@
 import { generateValue } from '../generate/generate.ts'
 import type { GenerateOptions } from '../generate/generate.ts'
 import { applyOverrides } from '../resolve/layer.ts'
+import { fnv1a } from '../generate/rng.ts'
 import type { Rng } from '../generate/rng.ts'
 import type { Api } from '../spec/types.ts'
 import type { Store } from '../runtime/store.ts'
@@ -43,6 +44,17 @@ export function callbackKey(name: string): string {
   return `callback|${name}`
 }
 
+/**
+ * Delivery identity — refinements design §7.2. Derived, never random:
+ * invariant 2 requires that replaying a request sequence in another process
+ * produce the same ids, which rules out a UUID. Deliberately NOT exported: a
+ * test that derives its expected id by calling this would move both sides of
+ * its assertion under a mutation and could never fail.
+ */
+function deliveryId(seed: string, webhook: string, ordinal: number): string {
+  return fnv1a(`${seed}|delivery|${webhook}|${ordinal}`).toString(16)
+}
+
 /** Design §2.6. A documented constant rather than a config knob. */
 export const MAX_DELIVERIES = 1000
 
@@ -81,6 +93,14 @@ export interface EmitInput {
   store: Store
   captureOnly: boolean
   seed: string
+  /**
+   * The per-webhook emission ordinal — the same counter value that seeds
+   * `rng`. Passed in rather than derived here because the counter lives with
+   * the handler, and because the id and the payload rng must key off the same
+   * number: two independent counters would drift the moment either grew a
+   * caller the other did not have.
+   */
+  ordinal: number
   rng: Rng
   generateOptions: GenerateOptions
   fetch: typeof fetch
@@ -141,6 +161,9 @@ export async function emitWebhook(input: EmitInput): Promise<Delivery> {
   }
 
   return await deliver({
+    // One id for the whole emission, built before the attempt loop, so a
+    // retry sequence stays one delivery with one identity.
+    id: deliveryId(input.seed, input.name, input.ordinal),
     webhook: input.name,
     url,
     method: spec.method.toUpperCase(),

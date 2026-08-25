@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   backoffFor, deliver, resolveRetry, shouldRetry
 } from '../../src/webhooks/deliver.ts'
+import { createMock } from '../../src/index.ts'
 
 const retry = resolveRetry({ attempts: 3, baseMs: 250, maxDelayMs: 10_000 })
 
@@ -20,6 +21,7 @@ function harness(responses: Array<Response | Error>) {
 }
 
 const base = {
+  id: 'deadbeef',
   webhook: 'onOrderShipped',
   url: 'http://hooks.test/x',
   body: '{"id":1}',
@@ -27,6 +29,32 @@ const base = {
   captureOnly: false,
   retry,
   seed: 'plan6'
+}
+
+// Always fails, so retry runs its full attempt budget.
+const failingFetch: typeof fetch = async () => new Response('no', { status: 500 })
+
+const idDoc = {
+  openapi: '3.1.0',
+  webhooks: {
+    w: {
+      post: {
+        requestBody: {
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['orderId'],
+                properties: { orderId: { type: 'string' } }
+              }
+            }
+          }
+        },
+        responses: { '200': { description: 'ok' } }
+      }
+    }
+  },
+  paths: {}
 }
 
 test('resolveRetry fills the documented defaults', () => {
@@ -153,4 +181,57 @@ test('GET and HEAD never carry a body — undici throws otherwise', async () => 
     assert.equal('body' in inits[0]!, false, method)
     assert.equal(inits[0]!.method, method)
   }
+})
+
+test('every outcome carries the id it was given, not just a delivered one', async () => {
+  // `unresolved` and `captured` return before the attempt loop, so they are
+  // the two shapes an id most easily falls out of.
+  const h = harness([new Response('', { status: 200 })])
+  const unresolved = await deliver({ ...base, url: undefined, fetch: h.fetch, sleep: h.sleep })
+  assert.equal(unresolved.outcome, 'unresolved')
+  assert.equal(unresolved.id, 'deadbeef')
+
+  const captured = await deliver({ ...base, captureOnly: true, fetch: h.fetch, sleep: h.sleep })
+  assert.equal(captured.outcome, 'captured')
+  assert.equal(captured.id, 'deadbeef')
+
+  const failed = await deliver({
+    ...base, fetch: (async () => new Response('', { status: 404 })) as typeof fetch, sleep: h.sleep
+  })
+  assert.equal(failed.outcome, 'failed')
+  assert.equal(failed.id, 'deadbeef')
+})
+
+test('a delivery carries a deterministic id', async () => {
+  // Two independently constructed mocks, so a mutation to the id formula moves
+  // both sides together only if the formula stopped depending on its inputs.
+  const a = createMock(idDoc, { seed: 'fixed', captureOnly: true })
+  const b = createMock(idDoc, { seed: 'fixed', captureOnly: true })
+  const one = await a.emit('w')
+  const two = await b.emit('w')
+  assert.equal(one.id, two.id)
+  // A different seed must not land on the same id.
+  const c = createMock(idDoc, { seed: 'other', captureOnly: true })
+  assert.notEqual((await c.emit('w')).id, one.id)
+})
+
+test('successive emissions of one webhook get different ids', async () => {
+  const mock = createMock(idDoc, { seed: 'fixed', captureOnly: true })
+  const first = await mock.emit('w')
+  const second = await mock.emit('w')
+  assert.notEqual(first.id, second.id)
+})
+
+test('a retry sequence is one delivery with one id', async () => {
+  // attempts > 1 and a single id: the property the redelivery feature exists
+  // to make observable.
+  const mock = createMock(idDoc, {
+    seed: 'fixed',
+    fetch: failingFetch,
+    sleep: async () => {},
+    webhooks: { w: { url: 'https://x.example/h', retry: { attempts: 3 } } }
+  })
+  const delivery = await mock.emit('w')
+  assert.equal(delivery.attempts, 3)
+  assert.equal(mock.deliveries().filter((d) => d.id === delivery.id).length, 1)
 })
