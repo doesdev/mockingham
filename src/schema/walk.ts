@@ -124,29 +124,66 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
  * (invariant 2). A branch with no const-valued property has no name and can
  * never be selected — the caller falls through to the seeded pick.
  */
-export function variantName(
-  branch: Schema,
-  discriminator?: string
-): string | undefined {
-  const merged = mergeAllOf(branch)
-  const properties = merged.properties
-  if (!properties) return undefined
+/**
+ * Every const-valued property on a branch, as strings, in declaration order.
+ *
+ * With a formal `discriminator` only that property is considered — a document
+ * that declares one has said which property names its branches, and letting a
+ * second const property match anyway would ignore that declaration.
+ *
+ * Declaration order rather than an unordered walk: invariant 2 forbids letting
+ * iteration order decide anything observable, and `variantName` returns the
+ * first of these.
+ */
+function constValues(branch: Schema, discriminator?: string): string[] {
+  const properties = mergeAllOf(branch).properties
+  if (!properties) return []
 
   const names =
     discriminator === undefined ? Object.keys(properties) : [discriminator]
 
+  const values: string[] = []
   for (const name of names) {
     const property = properties[name]
     if (property === undefined) continue
     const kind = classify(property)
     if (kind.kind !== 'const') continue
-    if (typeof kind.value === 'string') return kind.value
-    if (typeof kind.value === 'number' || typeof kind.value === 'boolean') {
-      return String(kind.value)
+    if (
+      typeof kind.value === 'string' ||
+      typeof kind.value === 'number' ||
+      typeof kind.value === 'boolean'
+    ) {
+      values.push(String(kind.value))
     }
   }
+  return values
+}
 
-  return undefined
+/**
+ * The name a branch is known by — its first const-valued property, or its
+ * discriminator property when one is declared. For describing a union to a
+ * reader; SELECTION uses `matchesVariant`, which is not the same question when
+ * a branch carries more than one const property.
+ */
+export function variantName(
+  branch: Schema,
+  discriminator?: string
+): string | undefined {
+  return constValues(branch, discriminator)[0]
+}
+
+/**
+ * Whether a branch answers to `name`. Design section 5.1: with no formal
+ * discriminator a branch matches when ANY of its const-valued properties
+ * equals the requested name, so `{ kind: 'refund', status: 'pending' }` is
+ * reachable by either. `variantName` alone would reach only the first.
+ */
+export function matchesVariant(
+  branch: Schema,
+  discriminator: string | undefined,
+  name: string
+): boolean {
+  return constValues(branch, discriminator).includes(name)
 }
 
 export function classify(input: Schema): SchemaKind {

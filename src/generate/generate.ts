@@ -1,5 +1,5 @@
 import type { Schema } from '../spec/types.ts'
-import { classify, mergeAllOf, variantName } from '../schema/walk.ts'
+import { classify, matchesVariant, mergeAllOf } from '../schema/walk.ts'
 import { arrayLength } from './constraints.ts'
 import type { Rng } from './rng.ts'
 import type { VirtualClock } from './clock.ts'
@@ -89,7 +89,7 @@ export function generateValue(
           requested === undefined
             ? undefined
             : kind.variants.find(
-                (branch) => variantName(branch, kind.discriminator) === requested
+                (branch) => matchesVariant(branch, kind.discriminator, requested)
               )
         // An unmatched name falls through to the seeded pick rather than
         // failing, matching `Prefer: status` (src/runtime/select.ts).
