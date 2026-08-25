@@ -171,3 +171,65 @@ test('decisions are populated by the time a response callback runs', async () =>
   // a real outcome, not a missing one.
   assert.deepEqual(body, { auth: 'anonymous', validation: 'ok', failure: 'ok' })
 })
+
+const uuid7Doc = {
+  openapi: '3.1.0',
+  info: { title: 'ids', version: '1' },
+  paths: {
+    '/things/{id}': {
+      get: {
+        operationId: 'getThing',
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'string' } }
+        ],
+        responses: {
+          '200': {
+            description: 'ok',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: { id: { type: 'string', format: 'uuid7' } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+test('the virtual clock is per-mock, so ids across requests sort by order', async () => {
+  const handle = createHandler(loadApi(uuid7Doc), { seed: 'v7' }).fetch
+  const ids: string[] = []
+  for (const id of ['a', 'b', 'c', 'd', 'e']) {
+    const body = (await (await handle(new Request(`http://x/things/${id}`))).json()) as any
+    ids.push(body.id)
+  }
+  assert.equal(ids.length, 5)
+  assert.deepEqual([...ids].sort(), ids)
+})
+
+test('reset returns the virtual clock to seedTime', async () => {
+  const mock = createHandler(loadApi(uuid7Doc), { seed: 'v7' })
+  const read = async () =>
+    ((await (await mock.fetch(new Request('http://x/things/a'))).json()) as any).id
+
+  const first = await read()
+  const second = await read()
+  assert.notEqual(first, second, 'the clock must advance between requests')
+
+  await mock.reset()
+  assert.equal(await read(), first)
+})
+
+test('seedTime places the timestamp where the caller asked', async () => {
+  const handle = createHandler(loadApi(uuid7Doc), {
+    seed: 'v7',
+    seedTime: 1735689600000
+  }).fetch
+  const body = (await (await handle(new Request('http://x/things/a'))).json()) as any
+  const stamp = Number.parseInt(String(body.id).slice(0, 13).replace('-', ''), 16)
+  assert.equal(stamp, 1735689600000)
+})
