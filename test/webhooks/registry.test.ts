@@ -326,6 +326,31 @@ test('a registerVia url reading the RESPONSE body still registers', async () => 
   assert.equal((await mock.emit('orderStatusChanged')).url, body.url)
 })
 
+test('registering an undeclared webhook name throws', async () => {
+  // `emit` already throws on a name the document does not declare, because
+  // that is a typo rather than a destination question. Registering one is the
+  // same typo: it stores a destination nothing can ever deliver to, silently.
+  // This codebase refuses that class elsewhere in the same words —
+  // `assertValidOverrideKeys` rejects a key that "can never be read back and
+  // would silently do nothing".
+  const mock = createMock(doc, { captureOnly: true })
+  await assert.rejects(
+    () => mock.register('orderStatusChangd', 'https://typo.example/hook'),
+    /no webhook named "orderStatusChangd" is declared/
+  )
+  // And the store is untouched, so the typo left nothing behind to confuse a
+  // later `registrations()` reader.
+  assert.deepEqual(await mock.registrations(), [])
+})
+
+test('unregistering an undeclared webhook name throws', async () => {
+  const mock = createMock(doc, { captureOnly: true })
+  await assert.rejects(
+    () => mock.unregister('nosuchhook'),
+    /no webhook named "nosuchhook" is declared/
+  )
+})
+
 test('a registerVia target matching no operation throws at construction', async () => {
   assert.throws(
     () => createMock(doc, {

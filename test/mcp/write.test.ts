@@ -103,6 +103,40 @@ test('emit_webhook returns an unresolved delivery rather than erroring', async (
   assert.equal(delivery.outcome, 'unresolved')
 })
 
+test('emit_webhook can address a scoped registration', async () => {
+  // Without a scope argument an agent can register scoped destinations through
+  // register_webhook_destination and then never reach them, which leaves the
+  // scoped registry half-exposed over the surface it was built for.
+  const mock = createMock(mcpDoc)
+  const ctx = contextForMock(mock)
+
+  await toolNamed('register_webhook_destination', { write: true }).handler(ctx, {
+    webhook: 'orderCreated', url: 'http://hooks.test/tenant-a', scope: 'tenant-a'
+  })
+  await toolNamed('register_webhook_destination', { write: true }).handler(ctx, {
+    webhook: 'orderCreated', url: 'http://hooks.test/tenant-b', scope: 'tenant-b'
+  })
+
+  // Two scopes in the fixture: with one, a tool that ignored `scope` entirely
+  // would still deliver to the only registration and the test would pass.
+  const toA = await toolNamed('emit_webhook', { write: true }).handler(ctx, {
+    webhook: 'orderCreated', scope: 'tenant-a'
+  }) as { url?: string }
+  const toB = await toolNamed('emit_webhook', { write: true }).handler(ctx, {
+    webhook: 'orderCreated', scope: 'tenant-b'
+  }) as { url?: string }
+
+  assert.equal(toA.url, 'http://hooks.test/tenant-a')
+  assert.equal(toB.url, 'http://hooks.test/tenant-b')
+
+  // And no scope still addresses the unscoped registration, of which there is
+  // none — so it is unresolved rather than silently picking a tenant.
+  const unscoped = await toolNamed('emit_webhook', { write: true }).handler(ctx, {
+    webhook: 'orderCreated'
+  }) as { outcome: string }
+  assert.equal(unscoped.outcome, 'unresolved')
+})
+
 test('set_seed and reset take effect through the tools', async () => {
   const mock = createMock(mcpDoc, { seed: 'first' })
   const ctx = contextForMock(mock)

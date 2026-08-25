@@ -51,6 +51,14 @@ const emitWebhook: McpTool = {
   inputSchema: {
     webhook: z.string(),
     to: z.string().optional().describe('Destination URL; wins over any configured one'),
+    scope: z
+      .string()
+      .optional()
+      .describe(
+        'Which registration to deliver to, when destinations are registered ' +
+          'per tenant or environment. Omit to address the unscoped one. See ' +
+          'list_registrations for what exists.'
+      ),
     body: z.unknown().optional().describe('Layered over the generated payload')
   },
   async handler(ctx: McpContext, args: Record<string, unknown>) {
@@ -58,6 +66,7 @@ const emitWebhook: McpTool = {
     // never an error, and must not be converted into one here.
     return ctx.emit(String(args.webhook), {
       to: args.to as string | undefined,
+      scope: args.scope as string | undefined,
       body: args.body as never
     })
   }

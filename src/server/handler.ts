@@ -358,6 +358,26 @@ export function createHandler(
   // operation their target resolves to — exactly as the callback rules above
   // are. `resolveTarget` throws on a target matching nothing, so a typo fails
   // loudly at construction rather than silently never registering.
+  //
+  /**
+   * A registration for a webhook the document never declares can never be
+   * delivered to, so it is a typo rather than a destination question —
+   * the same judgment `emitWebhook` already makes for an undeclared name,
+   * and the same one `assertValidOverrideKeys` makes for an override key
+   * that can never be read back. Imperative `register`/`unregister` go
+   * through this; the config-driven `registerVia` path cannot reach it,
+   * because those rules are keyed by a name taken from `options.webhooks`
+   * and a name absent from the document simply never fires.
+   */
+  function assertDeclaredWebhook(webhook: string): void {
+    if (api.webhooks[webhook] !== undefined) return
+    throw new Error(
+      `mockingham: no webhook named "${webhook}" is declared in the document. ` +
+        'Declare it under the top-level `webhooks`, or as an operation ' +
+        '`callbacks` entry.'
+    )
+  }
+
   const registryRules = new Map<Operation, CaptureRule[]>()
   const scopeExpressions = new Map<string, string>()
   for (const [name, config] of Object.entries(options.webhooks ?? {})) {
@@ -1302,8 +1322,14 @@ export function createHandler(
     clearDeliveries: () => deliveryLog.clear(),
     registrations: (webhook) => registry.all(webhook),
     capabilities: () => capabilities,
-    register: (webhook, url, scope) => registry.register(webhook, url, scope),
-    unregister: (webhook, scope) => registry.unregister(webhook, scope),
+    register: async (webhook, url, scope) => {
+      assertDeclaredWebhook(webhook)
+      await registry.register(webhook, url, scope)
+    },
+    unregister: async (webhook, scope) => {
+      assertDeclaredWebhook(webhook)
+      await registry.unregister(webhook, scope)
+    },
     settled,
     async close() {
       closed = true
