@@ -167,6 +167,40 @@ export function createCompiler(): Compiler {
         return z.union(variants as never) as ZodType
       }
       case 'array': {
+        // A tuple is checked position by position rather than with `z.tuple`,
+        // which requires every position to be present. `prefixItems` does not:
+        // it constrains a position only when the array reaches it, and
+        // `minItems` is what makes a position mandatory. Compiling to a tuple
+        // would reject `[1]` against a two-position schema that permits it.
+        if (kind.prefix.length > 0) {
+          const positions = kind.prefix.map((position) => compile(position))
+          const tail = kind.closed ? undefined : compile(kind.items)
+          let tuple = z.array(z.unknown())
+          if (merged.minItems !== undefined) tuple = tuple.min(merged.minItems)
+          if (merged.maxItems !== undefined) tuple = tuple.max(merged.maxItems)
+          return tuple.superRefine((value, context) => {
+            value.forEach((entry, index) => {
+              const at = positions[index] ?? tail
+              if (at === undefined) {
+                context.addIssue({
+                  code: 'custom',
+                  path: [index],
+                  message: `Expected at most ${positions.length} items`
+                })
+                return
+              }
+              const result = at.safeParse(entry)
+              if (result.success) return
+              for (const issue of result.error.issues) {
+                context.addIssue({
+                  code: 'custom',
+                  path: [index, ...issue.path],
+                  message: issue.message
+                })
+              }
+            })
+          }) as ZodType
+        }
         let out = z.array(compile(kind.items))
         if (merged.minItems !== undefined) out = out.min(merged.minItems)
         if (merged.maxItems !== undefined) out = out.max(merged.maxItems)

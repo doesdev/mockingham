@@ -85,8 +85,11 @@ export function validateRequest(
     const kind = classify(parameter.schema)
     const value =
       kind.kind === 'array'
-        ? (Array.isArray(source) ? source : [source]).map((entry) =>
-            coerce(entry, kind.items)
+        ? (Array.isArray(source) ? source : [source]).map((entry, index) =>
+            // A tuple position is coerced against ITS schema, so `?point=1`
+            // meets the `number` the document declared at index 0 rather than
+            // the unconstrained tail.
+            coerce(entry, kind.prefix[index] ?? kind.items)
           )
         : Array.isArray(source)
           ? source.map((entry) => coerce(entry, parameter.schema))

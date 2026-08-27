@@ -225,7 +225,9 @@ Producers for: `date-time`, `date`, `time`, `duration`, `uuid`, `email`, `uri`,
 `hostname`, `ipv4`, `ipv6`, `byte`, `binary`, `password`, plus `int32`/`int64`/
 `float`/`double` numerics. Constraints honored: `minLength`, `maxLength`,
 `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`,
-`minItems`, `maxItems`, `uniqueItems`, `enum`, `const`, `nullable`,
+`minItems`, `maxItems`, `uniqueItems`, `prefixItems` (tuple positions, with
+`items` - or `items: false` - governing anything past them), `enum`, `const`,
+`nullable`,
 `oneOf`/`anyOf` (seeded pick, discriminator-aware), `allOf` (merged).
 
 **Defined limitation - `pattern`.** A minimal regex generator covers literals,

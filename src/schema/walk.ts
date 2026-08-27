@@ -7,7 +7,23 @@ export type SchemaKind =
       required: string[]
       additional: Schema | false
     }
-  | { kind: 'array'; items: Schema }
+  | {
+      kind: 'array'
+      /**
+       * The schema for every position past `prefix`. `{}` when the document
+       * declares nothing there - including when `items` is `false`, which
+       * `closed` records instead.
+       */
+      items: Schema
+      /**
+       * `prefixItems`, the tuple positions: `prefix[i]` governs index `i`.
+       * Empty for an ordinary list. Both generation and compilation read this,
+       * so a tuple cannot be generated one way and validated another.
+       */
+      prefix: Schema[]
+      /** `items: false` - no position past the tuple is allowed at all. */
+      closed: boolean
+    }
   | { kind: 'string' }
   | { kind: 'number' }
   | { kind: 'integer' }
@@ -221,8 +237,19 @@ export function classify(input: Schema): SchemaKind {
     }
   }
 
-  if (primary === 'array' || (primary === undefined && schema.items)) {
-    return { kind: 'array', items: schema.items ?? {} }
+  const prefixItems = Array.isArray(schema.prefixItems) ? schema.prefixItems : []
+  if (
+    primary === 'array' ||
+    (primary === undefined && (schema.items || prefixItems.length > 0))
+  ) {
+    return {
+      kind: 'array',
+      items: schema.items === false || schema.items === undefined
+        ? {}
+        : schema.items,
+      prefix: prefixItems,
+      closed: schema.items === false
+    }
   }
 
   if (primary === 'string') return { kind: 'string' }

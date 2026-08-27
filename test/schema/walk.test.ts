@@ -121,6 +121,61 @@ test('infers array from items when type is absent', () => {
   assert.equal(classify({ items: { type: 'string' } }).kind, 'array')
 })
 
+test('carries prefixItems as the tuple positions of an array', () => {
+  const kind = classify({
+    type: 'array',
+    minItems: 2,
+    maxItems: 2,
+    prefixItems: [{ type: 'number' }, { type: 'number' }]
+  })
+  assert.equal(kind.kind, 'array')
+  if (kind.kind === 'array') {
+    assert.equal(kind.prefix.length, 2)
+    assert.equal(kind.prefix[0]?.type, 'number')
+    assert.equal(kind.prefix[1]?.type, 'number')
+    // No `items`, so nothing is declared about a position past the tuple.
+    assert.deepEqual(kind.items, {})
+    assert.equal(kind.closed, false)
+  }
+})
+
+test('a tuple keeps its tail schema alongside the positions', () => {
+  const kind = classify({
+    type: 'array',
+    prefixItems: [{ type: 'string' }],
+    items: { type: 'integer' }
+  })
+  assert.equal(kind.kind, 'array')
+  if (kind.kind === 'array') {
+    assert.equal(kind.prefix.length, 1)
+    assert.equal(kind.items.type, 'integer')
+    assert.equal(kind.closed, false)
+  }
+})
+
+test('items: false closes a tuple against further positions', () => {
+  const kind = classify({
+    type: 'array',
+    prefixItems: [{ type: 'string' }],
+    items: false
+  })
+  assert.equal(kind.kind, 'array')
+  if (kind.kind === 'array') assert.equal(kind.closed, true)
+})
+
+test('infers array from prefixItems when type and items are absent', () => {
+  assert.equal(classify({ prefixItems: [{ type: 'string' }] }).kind, 'array')
+})
+
+test('a plain array reports no tuple positions', () => {
+  const kind = classify({ type: 'array', items: { type: 'string' } })
+  assert.equal(kind.kind, 'array')
+  if (kind.kind === 'array') {
+    assert.deepEqual(kind.prefix, [])
+    assert.equal(kind.closed, false)
+  }
+})
+
 test('classifies oneOf and anyOf as a union, carrying the discriminator', () => {
   const kind = classify({
     oneOf: [{ type: 'string' }, { type: 'number' }],
