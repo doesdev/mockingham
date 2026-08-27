@@ -319,13 +319,39 @@ export function generateValue(
         // inventing unconstrained values past a tuple only produces nulls.
         const tupleLength = kind.prefix.length
         const open = !kind.closed && Object.keys(kind.items).length > 0
-        const low =
-          tupleLength > 0 ? Math.min(Math.max(min, tupleLength), max) : min
-        const high = tupleLength > 0 && !open ? low : Math.max(low, max)
+        const contains = kind.contains
+        // How many members are drawn specifically to MATCH `contains`.
+        //
+        // `maxContains` wins when a document declares the pair crossed
+        // (`minContains: 3, maxContains: 1`, which nothing can satisfy):
+        // overshooting a declared ceiling puts members in the body the document
+        // forbids outright, where falling short of the floor leaves it merely
+        // incomplete. `minContains: 0` asks for nothing in particular, which is
+        // what makes `contains` vacuous there.
+        const wanted =
+          contains === undefined
+            ? 0
+            : contains.max === undefined
+              ? contains.min
+              : Math.min(contains.min, contains.max)
+        // A closed tuple has no position past its own to put a contains member
+        // in, so its floor stays at the tuple length and a tuple position
+        // carries the member instead - see `schemaAt`.
+        const floor = kind.closed ? tupleLength : tupleLength + wanted
+        const low = floor > 0 ? Math.min(Math.max(min, floor), max) : min
+        // `maxContains` also pins the length: every extra member drawn from
+        // `items` is another chance to match `contains` incidentally, and the
+        // shortest array that still clears `minContains` is the one least
+        // likely to overshoot the ceiling.
+        const high =
+          (tupleLength > 0 && !open) || contains?.max !== undefined
+            ? low
+            : Math.max(low, max)
         if (depth >= maxDepth) {
           // `low`, not `min`: a tuple with no `minItems` still declares its
-          // positions, so truncating one drops declared content and is worth
-          // reporting exactly as a `minItems` array is.
+          // positions, and a `contains` floor still declares members, so
+          // truncating either drops declared content and is worth reporting
+          // exactly as a `minItems` array is.
           if (low > 0) options.onDepthExhausted?.(`${path}[]`)
           return []
         }
@@ -335,6 +361,36 @@ export function generateValue(
         // `[]` for every position would silence all but the first.
         const pathAt = (index: number): string =>
           index < tupleLength ? `${path}[${index}]` : `${path}[]`
+        // The positions drawn to match `contains`: the LAST `wanted` of them.
+        // Taking them from the end puts every carrier past the tuple whenever
+        // the array reaches that far - which `floor` arranges unless the tuple
+        // is closed or `maxItems` leaves no room - so a declared tuple position
+        // is only ever pressed into service when nothing else can be.
+        const carrierFrom = wanted > 0 ? count - wanted : count
+        // Merged once per array, not once per member: `mergeAllOf` returns a
+        // fresh object, and a new identity on every draw would defeat the
+        // compiler's identity cache and `conditionalOf`'s. Probed by key and
+        // never iterated, so no unordered traversal enters a generation path.
+        const carriers = new Map<Schema, Schema>()
+        const baseAt = (index: number): Schema => kind.prefix[index] ?? kind.items
+        const schemaAt = (index: number): Schema => {
+          const base = baseAt(index)
+          if (contains === undefined || index < carrierFrom) return base
+          const member = normalizeNode(contains.schema)
+          // `contains: false` is satisfied by no member at all. Serving the
+          // position's own schema is wrong on one keyword; refusing to serve is
+          // wrong on every request - invariant 4's reasoning, that a schema we
+          // cannot fully satisfy is not an error.
+          if (member === 'never') return base
+          const cached = carriers.get(base)
+          if (cached) return cached
+          // Both constrain the same member and so both must hold: a contains
+          // member still has to satisfy `items`, or its tuple position. Folded
+          // by the same `allOf` merge every other composition goes through.
+          const both = mergeAllOf({ allOf: [base, member] })
+          carriers.set(base, both)
+          return both
+        }
         const items: unknown[] = []
         if (merged.uniqueItems === true) {
           // Drawn WITHOUT replacement. `seen` is only ever probed with `.has`
@@ -347,25 +403,36 @@ export function generateValue(
           // - two enum members for a three-slot array - yields as many as it
           // can rather than looping forever.
           const attempts = count * 8 + 16
+          // Positions whose `contains` draw collided with a member already in
+          // the array. A collision means an identical member is ALREADY there,
+          // and an identical member matches `contains` by construction - so the
+          // count is met without this position, and redrawing the carrier
+          // schema forever (a `contains` with one possible value would do
+          // exactly that) would only cost the array its length. Probed with
+          // `.has`, never iterated.
+          const met = new Set<number>()
           for (let i = 0; i < attempts && items.length < count; i++) {
             // Keyed on the position being FILLED, not the attempt number, so a
             // rejected duplicate redraws from the same tuple position rather
             // than sliding down the tuple.
             const position = items.length
-            const at = kind.prefix[position] ?? kind.items
+            const at = met.has(position) ? baseAt(position) : schemaAt(position)
             const item = walk(
               at, depth + 1, propertyName, containerName, undefined,
               pathAt(position)
             )
             const key = canonicalKey(item)
-            if (seen.has(key)) continue
+            if (seen.has(key)) {
+              met.add(position)
+              continue
+            }
             seen.add(key)
             items.push(item)
           }
           return items
         }
         for (let i = 0; i < count; i++) {
-          const at = kind.prefix[i] ?? kind.items
+          const at = schemaAt(i)
           items.push(
             walk(
               at, depth + 1, propertyName, containerName, undefined, pathAt(i)

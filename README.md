@@ -610,9 +610,9 @@ parsed.
 
 ## Known limitations
 
-- **Eight schema keywords are not read at all: `contains`, `minContains`,
-  `maxContains`, `propertyNames`, `patternProperties`, `not`,
-  `dependentRequired`, and `dependentSchemas`.** A document declaring one of
+- **Five schema keywords are not read at all: `propertyNames`,
+  `patternProperties`, `not`, `dependentRequired`, and `dependentSchemas`.**
+  A document declaring one of
   them is served and validated as though it were absent - generated bodies may
   violate it, and an incoming request that violates it is accepted. Nothing
   warns. Every other keyword named in this README is read by both generation
@@ -622,6 +622,21 @@ parsed.
   that satisfies it, and a request violating the branch it lands in is a 400.
   A conditional nested directly inside a `then` or `else` subschema is not
   applied. A conditional on a nested *property* is, at any depth.
+- **`contains` yields to the array's own bounds when they conflict.**
+  Generation draws `minContains` members (default 1) from the `contains`
+  schema intersected with `items` or the tuple position they land on, so the
+  generated array satisfies the keyword alongside `items`, `prefixItems`,
+  `minItems` and `uniqueItems`. Where the constraints cannot all hold the
+  array's own bounds win: `maxItems` caps the length even when that leaves
+  fewer matching members than `minContains`, a crossed `minContains` /
+  `maxContains` pair resolves to `maxContains`, a closed tuple satisfies
+  `contains` from a tuple position rather than growing, and a `uniqueItems`
+  draw that collides falls back to the plain item schema (the colliding member
+  is already present, so it already matches). A member drawn from `items` that
+  happens to match `contains` can still push the count past `maxContains`;
+  declaring `maxContains` pins the generated length to the minimum to keep
+  that unlikely. Validation is exact either way - a count outside
+  `minContains`..`maxContains` is a 400.
 - **`uniqueItems` yields as many distinct members as the item schema has.**
   An array asking for three unique members from a two-member `enum` generates
   two rather than repeating one or failing to serve; `minItems` loses to
