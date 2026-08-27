@@ -1,5 +1,15 @@
 import type { Schema } from '../spec/types.ts'
-import { classify, matchesVariant, mergeAllOf } from '../schema/walk.ts'
+import {
+  classify, conditionalOf, matchesVariant, mergeAllOf, normalizeNode
+} from '../schema/walk.ts'
+import type { Conditional } from '../schema/walk.ts'
+// Not a second interpretation: `compileSchema` is `classify` wearing zod, and
+// it is the only thing in the project that can answer "does this value satisfy
+// this schema". Asking it is what keeps the branch generation TOOK and the
+// branch validation SEES the same branch. Pure - zod pulls in no Node API, so
+// invariant 3 is untouched.
+import { compileSchema } from '../schema/compile.ts'
+import { canonicalKey } from '../schema/equal.ts'
 import { arrayLength } from './constraints.ts'
 import type { Rng } from './rng.ts'
 import type { Ticker } from './clock.ts'
@@ -62,6 +72,71 @@ export function generateValue(
     if (preferExamples && current.example !== undefined) return current.example
     if (current.default !== undefined) return current.default
 
+    const conditional = conditionalOf(current)
+    if (conditional !== undefined) {
+      return branch(conditional, current, depth, propertyName, containerName)
+    }
+    return shape(current, current, depth, propertyName, containerName)
+  }
+
+  /**
+   * Generates a value for a schema carrying `if`/`then`/`else`.
+   *
+   * Which branch to aim for is a seeded coin, so a conditional document still
+   * produces both shapes across seeds rather than one forever. Merging `if`
+   * into the `then` branch's effective schema is what makes that branch
+   * reachable - but merging `else` in cannot make a value MISS `if`, since the
+   * property `if` tests still draws from its own declared values. So the aim
+   * is CHECKED against `if` and a miss falls through to the other branch,
+   * whose effective schema the value was then generated against by
+   * construction.
+   *
+   * The check runs through `compileSchema`, the same reading of `if` that
+   * request validation uses - "did this take the then branch" is asked once,
+   * in one place, by both halves.
+   *
+   * One level deep: the effective schema is generated through `shape`, which
+   * does not re-enter here, so a conditional nested directly inside a `then`
+   * is not applied. A conditional on a nested PROPERTY is, because properties
+   * go back through `walk`.
+   */
+  function branch(
+    conditional: Conditional,
+    origin: Schema,
+    depth: number,
+    propertyName?: string,
+    containerName?: string
+  ): unknown {
+    const takeThen = rng.bool()
+    const when = compileSchema(conditional.when)
+
+    const first = takeThen ? conditional.whenTrue : conditional.whenFalse
+    const candidate = shape(first, origin, depth, propertyName, containerName)
+    if (when.safeParse(candidate).success === takeThen) return candidate
+
+    const second = takeThen ? conditional.whenFalse : conditional.whenTrue
+    const retry = shape(second, origin, depth, propertyName, containerName)
+    if (when.safeParse(retry).success !== takeThen) return retry
+
+    // Neither aim landed: a document whose `if` can be neither hit nor missed
+    // from the values it declares. Serving the first candidate is wrong on one
+    // keyword; refusing to serve is wrong on every request (invariant 4's
+    // reasoning - a schema we cannot fully satisfy is not an error).
+    return candidate
+  }
+
+  /**
+   * Everything below the conditional: the schema's own shape. `origin` is the
+   * schema as the document declared it, kept separate because `current` may be
+   * a merged effective schema a `schemaNames` lookup would never match.
+   */
+  function shape(
+    current: Schema,
+    origin: Schema,
+    depth: number,
+    propertyName?: string,
+    containerName?: string
+  ): unknown {
     const kind = classify(current)
     // `classify` merges `allOf` internally to decide the shape, but the
     // constraint readers below (`generateString`, `generateInteger`, ...)
@@ -111,6 +186,26 @@ export function generateValue(
         const { min, max } = arrayLength(merged)
         const count = rng.int(min, max)
         const items: unknown[] = []
+        if (merged.uniqueItems === true) {
+          // Drawn WITHOUT replacement. `seen` is only ever probed with `.has`
+          // and never iterated, so no unordered traversal enters a generation
+          // path (invariant 2) - the emitted order is `items`' own insertion
+          // order, and the draws themselves come from the seeded rng, so the
+          // result is byte-identical for a given seed.
+          const seen = new Set<string>()
+          // Bounded, so an item schema with fewer distinct values than `count`
+          // - two enum members for a three-slot array - yields as many as it
+          // can rather than looping forever.
+          const attempts = count * 8 + 16
+          for (let i = 0; i < attempts && items.length < count; i++) {
+            const item = walk(kind.items, depth + 1, propertyName, containerName)
+            const key = canonicalKey(item)
+            if (seen.has(key)) continue
+            seen.add(key)
+            items.push(item)
+          }
+          return items
+        }
         for (let i = 0; i < count; i++) {
           items.push(walk(kind.items, depth + 1, propertyName, containerName))
         }
@@ -121,9 +216,14 @@ export function generateValue(
         const out: Record<string, unknown> = {}
         // The container name is this schema's own component name, so a
         // bySchema entry for `User` addresses the properties declared on User.
-        const name = options.schemaNames?.get(current)
-        for (const [property, schema] of Object.entries(kind.properties)) {
-          out[property] = walk(schema, depth + 1, property, name)
+        const name = options.schemaNames?.get(origin)
+        for (const [property, node] of Object.entries(kind.properties)) {
+          const child = normalizeNode(node)
+          // `false` forbids the key outright - `else: { properties: { x:
+          // false } }` is how a branch says "x must be absent" - so it is
+          // omitted rather than emitted with some placeholder.
+          if (child === 'never') continue
+          out[property] = walk(child, depth + 1, property, name)
         }
         return out
       }

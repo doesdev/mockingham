@@ -1,9 +1,16 @@
 import type { Schema } from '../spec/types.ts'
 
+/**
+ * A schema position that may hold a boolean instead of an object. JSON Schema
+ * allows one anywhere a schema is expected; `properties` is where it actually
+ * turns up in practice, spelled `false` to forbid a key.
+ */
+export type SchemaNode = Schema | boolean
+
 export type SchemaKind =
   | {
       kind: 'object'
-      properties: Record<string, Schema>
+      properties: Record<string, SchemaNode>
       required: string[]
       additional: Schema | false
     }
@@ -21,7 +28,20 @@ export type SchemaKind =
       mode: 'one' | 'any'
       discriminator?: string
     }
+  | { kind: 'never' }
   | { kind: 'unknown' }
+
+/**
+ * The one reading of a boolean schema position. `true` allows anything and so
+ * reads as `{}`; `false` allows nothing and has no `Schema` equivalent, so it
+ * is reported as the literal `'never'`. Generation skips a `'never'` property,
+ * validation rejects one - both from this single answer (invariant 1).
+ */
+export function normalizeNode(node: SchemaNode): Schema | 'never' {
+  if (node === true) return {}
+  if (node === false) return 'never'
+  return node
+}
 
 function typeNames(schema: Schema): string[] {
   if (Array.isArray(schema.type)) return schema.type
@@ -75,7 +95,7 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
   delete own['allOf']
 
   const merged: Record<string, unknown> = {}
-  const properties: Record<string, Schema> = {}
+  const properties: Record<string, SchemaNode> = {}
   const required = new Set<string>()
 
   const absorb = (source: Record<string, unknown>): void => {
@@ -84,7 +104,7 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
       merged[key] = value
     }
     const sourceProps = source['properties'] as
-      | Record<string, Schema>
+      | Record<string, SchemaNode>
       | undefined
     for (const [name, prop] of Object.entries(sourceProps ?? {})) {
       properties[name] = prop
@@ -182,8 +202,89 @@ export function matchesVariant(
   return constValues(branch, discriminator).includes(name)
 }
 
-export function classify(input: Schema): SchemaKind {
+/**
+ * How `if`/`then`/`else` is expressed in the shared interpretation.
+ *
+ * The keywords cannot become a `SchemaKind`: a conditional applies BESIDE a
+ * type rather than instead of one - the reproduction schema is still an object
+ * - so folding it into `classify` would have to erase the object-ness to say
+ * so. It is a separate question about the same schema, asked here and answered
+ * once, the way `matchesVariant` is.
+ *
+ * Both halves read the same four fields, each taking what it needs from them:
+ *
+ * - Validation (`src/schema/compile.ts`) reads `when`, `onTrue` and `onFalse`
+ *   and applies the JSON Schema rule directly: a value satisfying `when` must
+ *   satisfy `onTrue`, one that does not must satisfy `onFalse`.
+ * - Generation (`src/generate/generate.ts`) reads `whenTrue`/`whenFalse`, the
+ *   two effective schemas a value on each branch must conform to, and then
+ *   CHECKS the value it produced against `when` with that same compiler. So
+ *   the branch decision and the branch check are the one reading too - there
+ *   is no second notion of "did this take the then branch" anywhere.
+ */
+export interface Conditional {
+  /** The `if` subschema, exactly as declared. */
+  when: Schema
+  /** The `then` subschema, when the document declares one. */
+  onTrue?: Schema
+  /** The `else` subschema, when the document declares one. */
+  onFalse?: Schema
+  /**
+   * base ∧ if ∧ then - everything a value that takes the `then` branch must
+   * satisfy, folded together by the same `allOf` merge every other composition
+   * goes through.
+   */
+  whenTrue: Schema
+  /** base ∧ else - the same for a value that takes the `else` branch. */
+  whenFalse: Schema
+}
+
+// Keyed on the schema's identity so the two effective schemas are built once
+// and keep a stable identity of their own - which is what lets the compiler's
+// own WeakMap cache them, and what keeps generation from re-merging on every
+// request. `null` records "asked, and this schema has no conditional".
+const conditionals = new WeakMap<Schema, Conditional | null>()
+
+export function conditionalOf(input: Schema): Conditional | undefined {
+  const cached = conditionals.get(input)
+  if (cached !== undefined) return cached ?? undefined
+
   const schema = mergeAllOf(input)
+  const when = schema.if
+  const onTrue = schema.then
+  const onFalse = schema.else
+  // `if` alone constrains nothing: with neither branch declared, both outcomes
+  // are vacuously satisfied.
+  if (when === undefined || (onTrue === undefined && onFalse === undefined)) {
+    conditionals.set(input, null)
+    return undefined
+  }
+
+  const base: Record<string, unknown> = { ...schema }
+  delete base['if']
+  delete base['then']
+  delete base['else']
+  const stripped = base as Schema
+
+  const conditional: Conditional = {
+    when,
+    onTrue,
+    onFalse,
+    whenTrue: mergeAllOf({
+      allOf: onTrue === undefined ? [stripped, when] : [stripped, when, onTrue]
+    }),
+    whenFalse: mergeAllOf({
+      allOf: onFalse === undefined ? [stripped] : [stripped, onFalse]
+    })
+  }
+  conditionals.set(input, conditional)
+  return conditional
+}
+
+export function classify(input: SchemaNode): SchemaKind {
+  const node = normalizeNode(input)
+  if (node === 'never') return { kind: 'never' }
+  const schema = mergeAllOf(node)
 
   if (schema.const !== undefined) return { kind: 'const', value: schema.const }
   if (Array.isArray(schema.enum) && schema.enum.length > 0) {
@@ -206,7 +307,13 @@ export function classify(input: Schema): SchemaKind {
   const names = typeNames(schema).filter((name) => name !== 'null')
   const primary = names[0]
 
-  if (primary === 'object' || (primary === undefined && schema.properties)) {
+  // A bare `required` with no `properties` and no `type` is still an object
+  // schema - `then: { required: ['reason'] }` is the common way to write one -
+  // and reading it as `unknown` made such a branch vacuously satisfiable.
+  if (
+    primary === 'object' ||
+    (primary === undefined && (schema.properties || schema.required))
+  ) {
     const additional =
       schema.additionalProperties === false
         ? false

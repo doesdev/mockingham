@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { loadApi } from '../../src/spec/load.ts'
 import { petstore } from '../fixtures/petstore.ts'
+import type { Schema } from '../../src/spec/types.ts'
 
 test('extracts every operation', () => {
   const api = loadApi(petstore)
@@ -25,7 +26,7 @@ test('resolves refs inside response schemas', () => {
   const op = api.operations.find((o) => o.operationId === 'showPetById')
   const schema = op?.responses[0]?.content['application/json']?.schema
   assert.equal(schema?.type, 'object')
-  assert.equal(schema?.properties?.name?.type, 'string')
+  assert.equal((schema?.properties?.name as Schema).type, 'string')
 })
 
 test('parses response status codes as numbers, in ascending order', () => {

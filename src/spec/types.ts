@@ -8,7 +8,12 @@ export type HttpMethod = (typeof HTTP_METHODS)[number]
 export interface Schema {
   type?: string | string[]
   format?: string
-  properties?: Record<string, Schema>
+  /**
+   * A property position may hold a boolean schema: `true` allows anything,
+   * `false` allows nothing - which is how `else: { properties: { x: false } }`
+   * says "x must be absent on this branch".
+   */
+  properties?: Record<string, Schema | boolean>
   required?: string[]
   items?: Schema
   enum?: unknown[]
@@ -17,6 +22,14 @@ export interface Schema {
   example?: unknown
   nullable?: boolean
   allOf?: Schema[]
+  /**
+   * `if`/`then`/`else` conditional application. Read through
+   * `conditionalOf()` in `src/schema/walk.ts` - the one place either half of
+   * the mock interprets them.
+   */
+  if?: Schema
+  then?: Schema
+  else?: Schema
   oneOf?: Schema[]
   anyOf?: Schema[]
   discriminator?: { propertyName: string; mapping?: Record<string, string> }

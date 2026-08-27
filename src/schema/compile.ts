@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import type { ZodType } from 'zod'
 import type { Schema } from '../spec/types.ts'
-import { classify, isNullable, mergeAllOf } from './walk.ts'
+import type { SchemaNode } from './walk.ts'
+import { classify, conditionalOf, isNullable, mergeAllOf, normalizeNode } from './walk.ts'
+import { canonicalKey } from './equal.ts'
 
 /**
  * Compiles an OpenAPI schema to a zod schema THROUGH `classify()` - the same
@@ -9,7 +11,7 @@ import { classify, isNullable, mergeAllOf } from './walk.ts'
  * what we generate and what we validate can never disagree about a schema.
  */
 export interface Compiler {
-  compile(schema: Schema): ZodType
+  compile(schema: SchemaNode): ZodType
 }
 
 /**
@@ -62,7 +64,7 @@ function withNumberRules(schema: Schema, integer: boolean): ZodType {
  * (`const` or `enum`). zod 4 requires exactly this shape and does not check
  * it until first parse, so it must be checked here at compile time instead.
  */
-function usable(variant: Schema, key: string): boolean {
+function usable(variant: SchemaNode, key: string): boolean {
   const kind = classify(variant)
   if (kind.kind !== 'object') return false
   const property = kind.properties[key]
@@ -80,7 +82,13 @@ export function createCompiler(): Compiler {
   // still mid-compilation, and z.lazy defers that edge until parse time.
   const active = new Set<Schema>()
 
-  function compile(schema: Schema): ZodType {
+  function compile(node: SchemaNode): ZodType {
+    // A boolean schema carries no keywords and cannot key a WeakMap, so it is
+    // answered before the cache. `false` is the shape nothing satisfies.
+    const normalized = normalizeNode(node)
+    if (normalized === 'never') return z.never()
+    const schema = normalized
+
     const cached = cache.get(schema)
     if (cached) return cached
     if (active.has(schema)) {
@@ -113,7 +121,36 @@ export function createCompiler(): Compiler {
     return final
   }
 
+  /**
+   * `if`/`then`/`else`, applied on top of whatever the schema is otherwise.
+   * Straight from the JSON Schema rule: a value that satisfies `if` must
+   * satisfy `then`, one that does not must satisfy `else`, and a branch the
+   * document does not declare constrains nothing.
+   */
   function build(schema: Schema): ZodType {
+    const base = buildBase(schema)
+    const conditional = conditionalOf(schema)
+    if (conditional === undefined) return base
+
+    const when = compile(conditional.when)
+    const onTrue =
+      conditional.onTrue === undefined ? undefined : compile(conditional.onTrue)
+    const onFalse =
+      conditional.onFalse === undefined ? undefined : compile(conditional.onFalse)
+
+    return base.superRefine((value, context) => {
+      const took = when.safeParse(value).success
+      const branch = took ? onTrue : onFalse
+      if (branch === undefined) return
+      if (branch.safeParse(value).success) return
+      context.addIssue({
+        code: 'custom',
+        message: `Value does not satisfy the schema's \`${took ? 'then' : 'else'}\` branch`
+      })
+    }) as ZodType
+  }
+
+  function buildBase(schema: Schema): ZodType {
     const kind = classify(schema)
     // `classify` merges `allOf` internally to decide the shape, but
     // constraint keywords (`minLength`, `minimum`, `minItems`, ...) still need
@@ -170,7 +207,26 @@ export function createCompiler(): Compiler {
         let out = z.array(compile(kind.items))
         if (merged.minItems !== undefined) out = out.min(merged.minItems)
         if (merged.maxItems !== undefined) out = out.max(merged.maxItems)
-        return out
+        if (merged.uniqueItems !== true) return out
+        // Members compare through `canonicalKey`, the same identity generation
+        // draws against - so an array this rejects is an array generation
+        // would never have produced. `seen` is probed, never iterated, so it
+        // brings no unordered traversal with it.
+        return out.superRefine((items, context) => {
+          const seen = new Set<string>()
+          for (let index = 0; index < items.length; index++) {
+            const key = canonicalKey(items[index])
+            if (seen.has(key)) {
+              context.addIssue({
+                code: 'custom',
+                message: 'Array items must be unique',
+                path: [index]
+              })
+              return
+            }
+            seen.add(key)
+          }
+        }) as ZodType
       }
       case 'object': {
         const shape: Record<string, ZodType> = {}
@@ -178,14 +234,36 @@ export function createCompiler(): Compiler {
           const compiled = compile(property)
           shape[name] = kind.required.includes(name) ? compiled : compiled.optional()
         }
-        if (kind.additional === false) return z.strictObject(shape)
-        // An `additionalProperties` SCHEMA constrains unknown keys rather than
-        // merely allowing them, so it becomes a catchall.
-        if (Object.keys(kind.additional).length > 0) {
-          return z.object(shape).catchall(compile(kind.additional))
-        }
-        return z.looseObject(shape)
+        // A `required` name with no declared property still has to be PRESENT,
+        // and zod reads an unconstrained key as optional - so presence is
+        // checked on its own. `then: { required: ['reason'] }` is exactly this
+        // shape, and without the check it constrained nothing.
+        const undeclared = kind.required.filter(
+          (name) => !Object.hasOwn(kind.properties, name)
+        )
+        const object =
+          kind.additional === false
+            ? z.strictObject(shape)
+            : // An `additionalProperties` SCHEMA constrains unknown keys rather
+              // than merely allowing them, so it becomes a catchall.
+              Object.keys(kind.additional).length > 0
+              ? z.object(shape).catchall(compile(kind.additional))
+              : z.looseObject(shape)
+        if (undeclared.length === 0) return object
+        return object.superRefine((value, context) => {
+          if (typeof value !== 'object' || value === null) return
+          for (const name of undeclared) {
+            if (name in value) continue
+            context.addIssue({
+              code: 'custom',
+              message: `Missing required property "${name}"`,
+              path: [name]
+            })
+          }
+        }) as ZodType
       }
+      case 'never':
+        return z.never()
       default:
         return z.unknown()
     }
@@ -196,6 +274,6 @@ export function createCompiler(): Compiler {
 
 const shared = createCompiler()
 
-export function compileSchema(schema: Schema): ZodType {
+export function compileSchema(schema: SchemaNode): ZodType {
   return shared.compile(schema)
 }

@@ -109,7 +109,7 @@ test('classifies objects with required and additionalProperties', () => {
   if (kind.kind === 'object') {
     assert.deepEqual(kind.required, ['a'])
     assert.equal(kind.additional, false)
-    assert.equal(kind.properties.a?.type, 'string')
+    assert.equal((kind.properties.a as Schema).type, 'string')
   }
 })
 
@@ -152,8 +152,8 @@ test('mergeAllOf combines properties and required', () => {
   })
   assert.equal(merged.type, 'object')
   assert.deepEqual(merged.required?.sort(), ['a', 'b'])
-  assert.equal(merged.properties?.a?.type, 'string')
-  assert.equal(merged.properties?.b?.type, 'integer')
+  assert.equal((merged.properties?.a as Schema).type, 'string')
+  assert.equal((merged.properties?.b as Schema).type, 'integer')
 })
 
 test('classify merges allOf before classifying', () => {

@@ -156,7 +156,10 @@ Every value mockingham generates comes from `schema/walk.ts`'s traversal of
 your schema, driven by the seeded PRNG - types, `format` (`uuid`,
 `date-time`, `email`, and friends), and numeric/string constraints
 (`minimum`, `maximum`, `multipleOf`, `minLength`, `maxLength`, `enum`) are
-all honored. `pattern` is honored for a documented subset of regex, and
+all honored. So are `uniqueItems`, which draws array members without
+replacement, and `if`/`then`/`else`, which picks a branch and generates a body
+that actually satisfies it. `pattern` is honored for a documented subset of
+regex, and
 outranks both a conflicting `format` and a conflicting length bound; see
 [Known limitations](#known-limitations) for the constructs outside that subset.
 
@@ -606,6 +609,23 @@ parsed.
 
 ## Known limitations
 
+- **Four schema keywords are not read at all: `contains`, `minContains`,
+  `maxContains`, and `propertyNames`.** A document declaring one of them is
+  served and validated as though it were absent - generated bodies may violate
+  it, and an incoming request that violates it is accepted. Nothing warns.
+  This list is the whole of what mockingham ignores in a schema; every other
+  keyword named in this README is read by both generation and validation, from
+  the one traversal in `src/schema/walk.ts`.
+- **`if`/`then`/`else` applies one level deep.** A conditional on a schema is
+  honored - generation picks a branch with the seeded PRNG and produces a body
+  that satisfies it, and a request violating the branch it lands in is a 400.
+  A conditional nested directly inside a `then` or `else` subschema is not
+  applied. A conditional on a nested *property* is, at any depth.
+- **`uniqueItems` yields as many distinct members as the item schema has.**
+  An array asking for three unique members from a two-member `enum` generates
+  two rather than repeating one or failing to serve; `minItems` loses to
+  `uniqueItems` where the two cannot both hold. Validation is exact either
+  way - a repeated member is a 400.
 - **`pattern` is honored for a documented subset only.** Generation covers
   literals, character classes, shorthand escapes (`\d`, `\w`, `\s` and their
   negations), anchors, alternation, groups, and quantifiers - the quickstart's
