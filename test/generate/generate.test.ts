@@ -582,3 +582,71 @@ test('a union beside an object shape costs no level of the depth budget', () => 
     )
   }
 })
+
+/**
+ * The array counterpart of the envelope above. A sibling shape on the ARRAY
+ * branch reaches generation through its own code path, so the object test says
+ * nothing about it - and walking the array base at `depth + 1` would truncate a
+ * level earlier than the identical document without the union, which is finding
+ * 7 reintroduced a third time.
+ *
+ * Verified by mutation: walking the array base at `depth + 1` fails this at
+ * maxDepth 3 with `[] vs [{}]`.
+ */
+const siblingArrayEnvelope: Schema = {
+  type: 'object',
+  required: ['result'],
+  properties: {
+    result: {
+      type: 'object',
+      required: ['payload'],
+      properties: {
+        payload: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 1,
+          items: {
+            type: 'object',
+            required: ['sku'],
+            properties: { sku: { type: 'string' } }
+          },
+          // Both branches say the same thing, so the branch chosen cannot
+          // change the shape - only the code path taken to reach it does.
+          anyOf: [{ minItems: 1 }, { minItems: 1 }]
+        }
+      }
+    }
+  }
+}
+
+test('a union beside an array shape costs no level of the depth budget', () => {
+  const control = structuredClone(siblingArrayEnvelope)
+  const payload = (control.properties?.result as Schema).properties
+    ?.payload as Schema
+  delete payload.anyOf
+
+  for (const maxDepth of [3, 4, 5, 12]) {
+    const withUnion = generateValue(siblingArrayEnvelope, createRng('repro'), {
+      maxDepth
+    })
+    const without = generateValue(control, createRng('repro'), { maxDepth })
+    assert.deepEqual(
+      shapeOf(withUnion),
+      shapeOf(without),
+      `maxDepth ${maxDepth}: ${JSON.stringify(withUnion)} vs ${JSON.stringify(without)}`
+    )
+  }
+})
+
+test('a union beside an array shape generates the declared items', () => {
+  const schema: Schema = {
+    type: 'array',
+    items: { type: 'string' },
+    minItems: 2,
+    anyOf: [{ maxItems: 4 }, { maxItems: 4 }]
+  }
+  const value = generateValue(schema, createRng('repro')) as unknown[]
+  assert.ok(Array.isArray(value), `expected an array, got ${JSON.stringify(value)}`)
+  assert.ok(value.length >= 2)
+  for (const item of value) assert.equal(typeof item, 'string')
+})

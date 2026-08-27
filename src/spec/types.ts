@@ -47,6 +47,13 @@ export interface Schema {
   if?: Schema
   then?: Schema
   else?: Schema
+  /**
+   * The negation: a value satisfying this subschema does NOT satisfy the
+   * schema. Like `if`/`then`/`else` it sits BESIDE a type rather than instead
+   * of one, so it is read through `negationOf()` in `src/schema/walk.ts` -
+   * again the one place either half of the mock interprets it.
+   */
+  not?: Schema
   oneOf?: Schema[]
   anyOf?: Schema[]
   discriminator?: { propertyName: string; mapping?: Record<string, string> }

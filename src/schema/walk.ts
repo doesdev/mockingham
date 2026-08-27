@@ -97,9 +97,12 @@ export type SchemaKind =
        * The shape the schema declares BESIDE its union, when it declares one -
        * the same schema with `oneOf`/`anyOf` removed. Under JSON Schema those
        * are constraints on the same instance, so `type: object` + `properties`
-       * beside an `anyOf` still describes the object; consumers apply the base
-       * and the chosen branch together. `undefined` for the purely alternative
-       * union, which is the common case.
+       * beside an `anyOf` still describes the object, and `type: array` +
+       * `items` beside one still describes the array; consumers apply the base
+       * and the chosen branch together. Only a container shape - object or
+       * array - is recognized, by exactly the tests `classify` uses for each.
+       * `undefined` for the purely alternative union, which is the common case
+       * and the one whose bytes must never move.
        */
       base?: Schema
     }
@@ -122,6 +125,42 @@ function typeNames(schema: Schema): string[] {
   if (Array.isArray(schema.type)) return schema.type
   if (typeof schema.type === 'string') return [schema.type]
   return []
+}
+
+/**
+ * Whether a schema describes an object WITHOUT saying `type: object`.
+ *
+ * Each of these keywords is an object constraint and nothing else, so a schema
+ * whose only keyword is one of them describes an object - `then: { required:
+ * ['reason'] }` is the common way to write one. Reading such a schema as
+ * `unknown` made it vacuous in validation and generated `null` where the
+ * document plainly meant a map.
+ *
+ * `classify` and `siblingBase` BOTH call this, and that is the point. They ask
+ * the same question - is this an object? - and when they were widened
+ * separately they drifted: a schema whose only object evidence was
+ * `patternProperties` classified as an object but had its sibling shape
+ * discarded beside a union. Two readings of one question is the invariant-1
+ * failure in miniature.
+ */
+function objectEvidence(schema: Schema): boolean {
+  return (
+    schema.properties !== undefined ||
+    schema.required !== undefined ||
+    schema.patternProperties !== undefined ||
+    schema.propertyNames !== undefined ||
+    schema.dependentRequired !== undefined ||
+    schema.dependentSchemas !== undefined
+  )
+}
+
+/** The array counterpart of `objectEvidence`, shared for the same reason. */
+function arrayEvidence(schema: Schema): boolean {
+  return (
+    schema.items !== undefined ||
+    (Array.isArray(schema.prefixItems) && schema.prefixItems.length > 0) ||
+    schema.contains !== undefined
+  )
 }
 
 export function isNullable(schema: Schema): boolean {
@@ -402,6 +441,33 @@ export function conditionalOf(input: Schema): Conditional | undefined {
 }
 
 /**
+ * The `not` subschema, when the schema declares one.
+ *
+ * A negation is the same kind of thing a conditional is - a constraint BESIDE
+ * a type rather than instead of one. `{ type: 'string', not: { const: 'x' } }`
+ * is still a string, so folding `not` into `classify` would have to erase the
+ * string-ness to say so. It is a separate question about the same schema,
+ * asked here and answered once, the way `conditionalOf` is.
+ *
+ * Both halves read this one answer:
+ *
+ * - Validation (`src/schema/compile.ts`) compiles it and rejects any value it
+ *   accepts, which is the JSON Schema rule exactly.
+ * - Generation (`src/generate/generate.ts`) compiles it with that same
+ *   compiler and redraws a bounded number of times when the value it produced
+ *   lands inside it. Where it cannot escape, it serves the value anyway
+ *   (invariant 4) - a schema we cannot fully satisfy is not an error.
+ *
+ * The merged view is read, so a negation declared on an `allOf` member counts.
+ * `mergeAllOf`'s uniform precedence applies: with `not` on two members the
+ * later one wins rather than the two conjoining, the same way every other
+ * keyword behaves there.
+ */
+export function negationOf(input: Schema): Schema | undefined {
+  return mergeAllOf(input).not
+}
+
+/**
  * Cached so the base is the SAME object every time a schema is classified.
  * The compiler caches compiled schemas on identity and guards recursion the
  * same way, both of which a freshly built base would defeat.
@@ -412,22 +478,34 @@ const bases = new WeakMap<Schema, Schema>()
  * The sibling shape of a schema that declares one alongside its union, or
  * `undefined` when the union is purely alternative.
  *
- * Only an object shape counts today - `type: object` or bare `properties` -
- * which is the form documents actually write (`anyOf: [{required: [email]},
- * {required: [phone]}]` beside the properties it constrains). Stripping the
- * union keywords is all that is needed: what remains classifies as the object
- * it always was.
+ * Either container shape counts, recognized by exactly the tests `classify`
+ * itself uses further down - an object (`type: object`, bare `properties`, or
+ * bare `required`) or an array (`type: array`, bare `items`, or bare
+ * `prefixItems`). Both are forms documents actually write: `anyOf:
+ * [{required: [email]}, {required: [phone]}]` beside the properties it
+ * constrains, and `anyOf: [{minItems: 2}, {maxItems: 0}]` beside the `items`
+ * it constrains. Stripping the union keywords is all that is needed: what
+ * remains classifies as the container it always was.
  *
- * A bare `required` counts too, for the reason given in `classify`: it is how
+ * A bare `required` counts for the reason given in `classify`: it is how
  * `anyOf: [{ required: ['email'] }]` beside a schema that declares only
- * `required` is written, and reading it as `unknown` made it vacuous.
+ * `required` is written, and reading it as `unknown` made it vacuous. A bare
+ * `items` counts for the same reason on the other branch - a union branch
+ * declaring only `minItems` classifies as `unknown` and constrains nothing, so
+ * discarding the array shape made the whole schema accept anything at all.
+ *
+ * A schema declaring neither - a scalar, or nothing at all beside its union -
+ * has no sibling shape, and that purely alternative union is the common case.
  */
 function siblingBase(schema: Schema, key: Schema): Schema | undefined {
+  // The same two questions `classify` asks, from the same two helpers. Widening
+  // one without the other is how a schema ends up classified as a container
+  // whose sibling shape is silently discarded.
   const declaresObject =
-    typeNames(schema).includes('object') ||
-    schema.properties !== undefined ||
-    schema.required !== undefined
-  if (!declaresObject) return undefined
+    typeNames(schema).includes('object') || objectEvidence(schema)
+  const declaresArray =
+    typeNames(schema).includes('array') || arrayEvidence(schema)
+  if (!declaresObject && !declaresArray) return undefined
 
   // Keyed on the schema as WRITTEN, not the merged view: `mergeAllOf` returns
   // a fresh object for an allOf schema, which would never hit the cache.
@@ -496,6 +574,44 @@ function containsOf(schema: Schema): ArrayContains | undefined {
   return { schema: node, min, ...(max === undefined ? {} : { max }) }
 }
 
+/**
+ * Two levels of WeakMap so the folded schema is the SAME object every time a
+ * (base, branch) pair is asked for - the compiler caches on identity and
+ * `conditionalOf` keys its own cache the same way, both of which a freshly
+ * merged object would defeat on every request.
+ */
+const foldedBranches = new WeakMap<Schema, WeakMap<Schema, Schema>>()
+
+/**
+ * base ∧ branch: everything a value taking `variant` of a union must satisfy
+ * when the schema declares a shape beside that union.
+ *
+ * Needed only where the branch cannot be applied ON TOP of a generated value.
+ * An OBJECT branch contributes properties, so generation lays it over the base
+ * and validation intersects the two - and a branch declaring only `required`
+ * classifies as an object anyway, so nothing is lost. An ARRAY branch is not
+ * like that: `anyOf: [{minItems: 2}, {maxItems: 0}]` declares bounds and no
+ * content, classifies as `unknown` on its own, and so constrains nothing at
+ * all until it is read against the array it sits beside. Folding is what gives
+ * it something to constrain.
+ *
+ * Both halves call THIS, through the same `allOf` merge `conditionalOf` builds
+ * its effective schemas with - so a bound generation honors is a bound
+ * validation enforces, which is the whole of invariant 1.
+ */
+export function foldBranch(base: Schema, variant: Schema): Schema {
+  let byVariant = foldedBranches.get(base)
+  if (byVariant === undefined) {
+    byVariant = new WeakMap()
+    foldedBranches.set(base, byVariant)
+  }
+  const cached = byVariant.get(variant)
+  if (cached) return cached
+  const folded = mergeAllOf({ allOf: [base, variant] })
+  byVariant.set(variant, folded)
+  return folded
+}
+
 export function classify(input: SchemaNode): SchemaKind {
   const node = normalizeNode(input)
   if (node === 'never') return { kind: 'never' }
@@ -526,25 +642,7 @@ export function classify(input: SchemaNode): SchemaKind {
   const names = typeNames(schema).filter((name) => name !== 'null')
   const primary = names[0]
 
-  // A bare `required` with no `properties` and no `type` is still an object
-  // schema - `then: { required: ['reason'] }` is the common way to write one -
-  // and reading it as `unknown` made such a branch vacuously satisfiable.
-  // `patternProperties`, `propertyNames`, `dependentRequired` and
-  // `dependentSchemas` join `properties` and `required` here for the same
-  // reason: each is an object constraint and nothing else, so a schema whose
-  // only keyword is one of them describes an object. Reading it as `unknown`
-  // made it vacuous in validation and generated `null` where the document
-  // plainly meant a map.
-  if (
-    primary === 'object' ||
-    (primary === undefined &&
-      (schema.properties ||
-        schema.required ||
-        schema.patternProperties ||
-        schema.propertyNames !== undefined ||
-        schema.dependentRequired ||
-        schema.dependentSchemas))
-  ) {
+  if (primary === 'object' || (primary === undefined && objectEvidence(schema))) {
     const additional =
       schema.additionalProperties === false
         ? false
@@ -566,14 +664,7 @@ export function classify(input: SchemaNode): SchemaKind {
   }
 
   const prefixItems = Array.isArray(schema.prefixItems) ? schema.prefixItems : []
-  if (
-    primary === 'array' ||
-    // A bare `contains` is an array constraint with no other spelling, exactly
-    // as a bare `items` or `prefixItems` is - reading it as `unknown` would
-    // leave the keyword unenforced in both directions.
-    (primary === undefined &&
-      (schema.items || prefixItems.length > 0 || schema.contains !== undefined))
-  ) {
+  if (primary === 'array' || (primary === undefined && arrayEvidence(schema))) {
     const contains = containsOf(schema)
     return {
       kind: 'array',
