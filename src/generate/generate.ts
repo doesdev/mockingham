@@ -1,6 +1,7 @@
 import type { Schema } from '../spec/types.ts'
 import {
-  classify, conditionalOf, matchesVariant, mergeAllOf, normalizeNode
+  classify, conditionalOf, foldBranch, matchesVariant, mergeAllOf, negationOf,
+  normalizeNode
 } from '../schema/walk.ts'
 import type { Conditional } from '../schema/walk.ts'
 // Not a second interpretation: `compileSchema` is `classify` wearing zod, and
@@ -86,6 +87,21 @@ export const DEFAULT_MAX_DEPTH = 12
  */
 const MAX_UNION_HOPS = 32
 
+/**
+ * How many times generation redraws when the value it produced lands inside a
+ * schema's `not` subschema.
+ *
+ * A bounded effort by design. Generation draws from what the schema DECLARES,
+ * so a negation it can escape - one enum member forbidden of several, one
+ * const forbidden of a range - is escaped within a draw or two, and one it
+ * cannot escape (`{ const: 'x', not: { const: 'x' } }`, or a `not` over a
+ * property no declared value can dodge) would never be escaped by any number
+ * of redraws. Twelve clears the first kind and gives up quickly on the second,
+ * which is served anyway rather than raised (invariant 4). Validation is exact
+ * either way: a value inside the negation is a 400.
+ */
+const MAX_NEGATION_REDRAWS = 12
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -133,14 +149,39 @@ export function generateValue(
     // document actually declared.
     const origin = identity ?? current
     const conditional = conditionalOf(current)
-    if (conditional !== undefined) {
-      return branch(
-        conditional, origin, depth, propertyName, containerName, path, unionHops
-      )
+    const produce = (): unknown =>
+      conditional === undefined
+        ? shape(
+            current, origin, depth, propertyName, containerName, path, unionHops
+          )
+        : branch(
+            conditional, origin, depth, propertyName, containerName, path,
+            unionHops
+          )
+
+    // The overwhelmingly common case: no negation, and the bytes are exactly
+    // what they were before `not` was read at all.
+    const negation = negationOf(current)
+    if (negation === undefined) return produce()
+
+    // A bounded redraw, through the same compiled reading of `not` that
+    // request validation uses - "does this value satisfy the negation" is
+    // asked once, in one place, by both halves (invariant 1). Every redraw
+    // draws from the seeded rng in sequence, so the result is byte-identical
+    // for a given seed (invariant 2).
+    const forbidden = compileSchema(negation)
+    let candidate = produce()
+    for (
+      let attempt = 0;
+      attempt < MAX_NEGATION_REDRAWS && forbidden.safeParse(candidate).success;
+      attempt++
+    ) {
+      candidate = produce()
     }
-    return shape(
-      current, origin, depth, propertyName, containerName, path, unionHops
-    )
+    // Still inside the negation: a document whose `not` forbids the only
+    // values it declares. Serving the candidate is wrong on one keyword;
+    // refusing to serve is wrong on every request (invariant 4).
+    return candidate
   }
 
   /**
@@ -270,6 +311,33 @@ export function generateValue(
         // `depth`, NOT `depth + 1`: spending a level here made an otherwise
         // identical document truncate one level earlier whenever a union
         // appeared in it.
+        // An ARRAY sibling shape cannot take the object path's overlay below:
+        // there is nothing to spread one array over another with, and the
+        // branches that make this idiom worth supporting (`anyOf: [{minItems:
+        // 2}, {maxItems: 0}]`) declare bounds rather than content. So base and
+        // branch are folded into one effective schema through `foldBranch`,
+        // the same fold the compiler applies to an array base's branches - so
+        // a bound generation honors here is a bound validation enforces there
+        // (invariant 1) - and generated once.
+        //
+        // `depth`, NOT `depth + 1`, for the same reason the object path uses
+        // `depth`: resolving a union is a decision about what this node is,
+        // not a step down the tree. Spending a level here would truncate an
+        // array-with-union one level earlier than the identical document
+        // without one. `identity` keeps bySchema resolvers pointed at the
+        // component, whose name the folded schema is not registered under.
+        if (base !== undefined && classify(base).kind !== 'object') {
+          return walk(
+            foldBranch(base, variant),
+            depth,
+            propertyName,
+            containerName,
+            current,
+            path,
+            unionHops + 1
+          )
+        }
+
         if (base === undefined) {
           return walk(
             variant,

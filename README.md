@@ -249,6 +249,16 @@ any of its const-valued properties, equals the name you asked for. That second
 rule is what makes the common `outcome: { const: "conflict" }` shape work
 without a discriminator declaration.
 
+A shape declared *beside* a union constrains the same instance rather than
+being an alternative to it, and both container shapes are honored. `type:
+object` with `properties` beside an `anyOf: [{required: [email]}, {required:
+[phone]}]` still describes the object, and the "at least one of these" rule is
+enforced; `type: array` with `items` beside an `anyOf: [{minItems: 2},
+{maxItems: 0}]` still describes the array, and the bounds are enforced against
+it. Generation and validation read the sibling shape from the same place, so a
+document cannot be generated one way and validated another. Resolving the
+union costs no level of the [depth budget](#known-limitations) either way.
+
 `mock.setVariant(target, name)` stores the same preference per operation for
 callers who can't set a header, and `mock.clearVariants(target?)` removes it.
 A `Prefer: variant=` header on a request outranks a stored preference, for the
@@ -610,13 +620,24 @@ parsed.
 
 ## Known limitations
 
-- **Eight schema keywords are not read at all: `contains`, `minContains`,
-  `maxContains`, `propertyNames`, `patternProperties`, `not`,
-  `dependentRequired`, and `dependentSchemas`.** A document declaring one of
-  them is served and validated as though it were absent - generated bodies may
-  violate it, and an incoming request that violates it is accepted. Nothing
-  warns. Every other keyword named in this README is read by both generation
-  and validation, from the one traversal in `src/schema/walk.ts`.
+- **Seven schema keywords are not read at all: `contains`, `minContains`,
+  `maxContains`, `propertyNames`, `patternProperties`, `dependentRequired`,
+  and `dependentSchemas`.** A document declaring one of them is served and
+  validated as though it were absent - generated bodies may violate it, and an
+  incoming request that violates it is accepted. Nothing warns. Every other
+  keyword named in this README is read by both generation and validation, from
+  the one traversal in `src/schema/walk.ts`.
+- **`not` is enforced by validation and approximated by generation.** A
+  request whose value satisfies the `not` subschema is a 400, exactly as JSON
+  Schema says. Generation draws from what the schema *declares* and redraws up
+  to twelve times when the value it produced lands inside the negation, so a
+  negation it can escape - one `enum` member forbidden of several, a `const`
+  forbidden on a property with other values available - is escaped. A negation
+  no declared value can dodge (`{"const": "x", "not": {"const": "x"}}`) is
+  served anyway rather than raised: a schema the mock cannot fully satisfy is
+  not an error. `not` on an `allOf` member follows the same
+  later-member-wins precedence every other keyword there does, so two `not`s
+  across members do not conjoin.
 - **`if`/`then`/`else` applies one level deep.** A conditional on a schema is
   honored - generation picks a branch with the seeded PRNG and produces a body
   that satisfies it, and a request violating the branch it lands in is a 400.

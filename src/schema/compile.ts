@@ -2,7 +2,10 @@ import { z } from 'zod'
 import type { ZodType } from 'zod'
 import type { Schema } from '../spec/types.ts'
 import type { SchemaKind, SchemaNode } from './walk.ts'
-import { classify, conditionalOf, isNullable, mergeAllOf, normalizeNode } from './walk.ts'
+import {
+  classify, conditionalOf, foldBranch, isNullable, mergeAllOf, negationOf,
+  normalizeNode
+} from './walk.ts'
 import { canonicalKey } from './equal.ts'
 
 /**
@@ -121,15 +124,24 @@ export function createCompiler(): Compiler {
     return final
   }
 
-  /** The union itself, before any sibling shape is intersected with it. */
-  function buildUnion(kind: Extract<SchemaKind, { kind: 'union' }>): ZodType {
-    const variants = kind.variants.map((variant) => compile(variant))
+  /**
+   * The union itself, before any sibling shape is intersected with it.
+   *
+   * `branches` is `kind.variants` for every union but one: an ARRAY sibling
+   * base folds itself into each branch first, so the bound a branch declares
+   * has an array to bind. See `foldBranch` in `src/schema/walk.ts`.
+   */
+  function buildUnion(
+    kind: Extract<SchemaKind, { kind: 'union' }>,
+    branches: Schema[]
+  ): ZodType {
+    const variants = branches.map((variant) => compile(variant))
     const key = kind.discriminator
     // zod 4 does not validate discriminated-union variants at
     // construction - it throws on first parse instead. So the shape must
     // be checked here, or a document zod cannot model that way becomes a
     // crash at request time rather than a slower plain union.
-    if (key !== undefined && kind.variants.every((variant) => usable(variant, key))) {
+    if (key !== undefined && branches.every((variant) => usable(variant, key))) {
       // A discriminator already guarantees at most one match.
       return z.discriminatedUnion(key, variants as never) as ZodType
     }
@@ -157,8 +169,27 @@ export function createCompiler(): Compiler {
    * satisfy `then`, one that does not must satisfy `else`, and a branch the
    * document does not declare constrains nothing.
    */
+  /**
+   * `not`, applied on top of whatever the schema is otherwise - it is a
+   * constraint BESIDE the type, not instead of it, so the shape below still
+   * has to hold as well. Straight from the JSON Schema rule: a value that
+   * satisfies the subschema does not satisfy this schema.
+   */
+  function withNegation(schema: Schema, built: ZodType): ZodType {
+    const negation = negationOf(schema)
+    if (negation === undefined) return built
+    const forbidden = compile(negation)
+    return built.superRefine((value, context) => {
+      if (!forbidden.safeParse(value).success) return
+      context.addIssue({
+        code: 'custom',
+        message: "Value must not satisfy the schema's `not` subschema"
+      })
+    }) as ZodType
+  }
+
   function build(schema: Schema): ZodType {
-    const base = buildBase(schema)
+    const base = withNegation(schema, buildBase(schema))
     const conditional = conditionalOf(schema)
     if (conditional === undefined) return base
 
@@ -206,12 +237,27 @@ export function createCompiler(): Compiler {
       case 'null':
         return z.null()
       case 'union': {
-        const union = buildUnion(kind)
+        const base = kind.base
+        // The common case: nothing is declared beside the union, so the union
+        // of the branches as written is the whole answer.
+        if (base === undefined) return buildUnion(kind, kind.variants)
         // A shape declared beside the union constrains the same instance, so
         // both must hold. Without this the declared properties went unchecked
         // - `classify` handed validation a bare union of the branches.
-        if (kind.base === undefined) return union
-        return z.intersection(compile(kind.base), union)
+        //
+        // An ARRAY base additionally folds itself into each branch, because an
+        // array branch declaring only `minItems`/`maxItems` classifies as
+        // `unknown` and so constrains nothing until it has an array to bind
+        // to. Generation folds the same way through the same `foldBranch`, so
+        // the two cannot drift. An OBJECT base does not need this and does not
+        // get it: an object branch contributes properties of its own, a bare
+        // `required` branch already classifies as an object, and folding would
+        // move bytes on the path the object fix already settled.
+        const branches =
+          classify(base).kind === 'object'
+            ? kind.variants
+            : kind.variants.map((variant) => foldBranch(base, variant))
+        return z.intersection(compile(base), buildUnion(kind, branches))
       }
       case 'array': {
         // Shared by the tuple and list branches alike. It used to live only in
