@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "declaration": true,
+    // Both maps are what preserves the reason 0.2.0 shipped source in the
+    // first place: Node loads dist/*.js, and a debugger following these lands
+    // in the original TypeScript. `src` stays in `files` so they resolve.
+    "declarationMap": true,
+    "sourceMap": true,
+    // Every internal import is written with a `.ts` extension, which is what
+    // lets Node run the tree directly. This rewrites them to `.js` on the way
+    // out so the emitted tree resolves too - without it the compiled output
+    // would import files that do not exist.
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -3,53 +3,71 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 /**
- * The `exports` map, asserted through real module resolution rather than by
- * reading package.json back to itself.
+ * What the manifest PROMISES a consumer. What it DELIVERS is asserted by
+ * `scripts/check-install.ts`, which packs, installs into an empty directory,
+ * imports by name and runs the bin.
  *
- * Node lets a package import itself by name ONLY when it declares `exports`,
- * so a self-referencing import is a genuine end-to-end check of the map: if
- * `exports` were removed, the first test here stops resolving. The rest of the
- * suite cannot cover this - every other test reaches into `src/` by relative
- * path, which `exports` does not govern, and the docs harness rewrites
- * `from 'mockingham'` to a relative path before running a document.
+ * That split is the lesson from 0.2.0. This file used to open with a
+ * self-referencing `import('mockingham')`, on the reasoning that Node resolves
+ * a package's own name through its `exports` map and so the import is a
+ * genuine end-to-end check. It is a genuine check of the MAP, and it passed
+ * for a package that could not be imported by anyone: self-reference resolves
+ * into the working tree, where `.ts` entry points strip types happily, while
+ * the same files under a consumer's `node_modules` throw
+ * ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING. No test that runs inside this
+ * repository can tell those two cases apart, so the check that matters had to
+ * leave the repository, and did.
  *
  * Deferred item 27.
  */
 
-test('the package resolves by name, through its exports map', async () => {
-  const entry = await import('mockingham')
-  assert.equal(typeof entry.createMock, 'function')
-  assert.equal(typeof entry.loadApi, 'function')
-})
+const manifest = async (): Promise<Record<string, unknown>> =>
+  JSON.parse(
+    await readFile(new URL('../package.json', import.meta.url), 'utf8')
+  ) as Record<string, unknown>
 
-test('a deep import into src is not resolvable through the package name', async () => {
-  // The whole point of the strict map: `src/` is an implementation detail, and
-  // an internal path someone discovers today becomes a compatibility
-  // obligation tomorrow.
-  // Built rather than written literally: the specifier is meant NOT to
-  // resolve, and a literal one is a type error before it is ever a runtime
-  // assertion.
-  const deep = ['mockingham', 'src', 'runtime', 'store.ts'].join('/')
-  await assert.rejects(
-    () => import(deep),
-    (error: NodeJS.ErrnoException) => {
-      assert.equal(error.code, 'ERR_PACKAGE_PATH_NOT_EXPORTED')
-      return true
-    }
-  )
+test('every advertised entry point is JavaScript, not TypeScript', async () => {
+  // The 0.2.0 defect, stated as an assertion. Node's refusal to strip types
+  // under node_modules is a documented restriction rather than a flag, so a
+  // `.ts` entry point is unloadable on every install, on every Node version.
+  const pkg = await manifest()
+  const bin = pkg['bin'] as Record<string, string>
+  const exports = pkg['exports'] as Record<string, Record<string, string>>
+
+  assert.equal(pkg['main'], './dist/index.js')
+  assert.equal(pkg['types'], './dist/index.d.ts')
+  assert.equal(bin['mockingham'], './dist/server/cli.js')
+  assert.equal(exports['.']?.['default'], './dist/index.js')
+  assert.equal(exports['.']?.['types'], './dist/index.d.ts')
 })
 
 test('package.json stays reachable, because tooling reads it', async () => {
-  const manifest = await import('mockingham/package.json', { with: { type: 'json' } })
-  assert.equal((manifest.default as { name: string }).name, 'mockingham')
+  const pkg = await manifest()
+  const exports = pkg['exports'] as Record<string, unknown>
+  assert.equal(exports['./package.json'], './package.json')
 })
 
-test('the published file list carries src and nothing else', async () => {
-  // There was no `files` field at all, so a publish shipped test/, docs/, and
-  // every scratch file in the tree. npm always includes README and LICENSE on
-  // its own, so neither needs listing here.
-  const manifest = JSON.parse(
-    await readFile(new URL('../package.json', import.meta.url), 'utf8')
-  ) as { files?: string[] }
-  assert.deepEqual(manifest.files, ['src'])
+test('no subpath exposes the implementation tree', async () => {
+  // `src` and `dist` both ship - `src` only so the declaration and source maps
+  // resolve - but neither is addressable through the package name. An internal
+  // path someone discovers today is a compatibility obligation tomorrow.
+  const pkg = await manifest()
+  const subpaths = Object.keys(pkg['exports'] as Record<string, unknown>)
+  assert.deepEqual(subpaths, ['.', './package.json'])
+})
+
+test('the published file list carries dist and src, and nothing else', async () => {
+  // There was no `files` field at all once, so a publish shipped test/, docs/,
+  // and every scratch file in the tree. npm always includes README and LICENSE
+  // on its own, so neither needs listing here.
+  const pkg = await manifest()
+  assert.deepEqual(pkg['files'], ['dist', 'src'])
+})
+
+test('packing builds first, so dist cannot go stale or missing', async () => {
+  // Without this, `npm publish` from a tree that has never been built ships a
+  // manifest pointing at files the tarball does not contain.
+  const scripts = (await manifest())['scripts'] as Record<string, string>
+  assert.equal(scripts['prepack'], 'npm run build')
+  assert.equal(scripts['build'], 'tsc -p tsconfig.build.json')
 })

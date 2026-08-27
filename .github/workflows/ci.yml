@@ -61,8 +61,17 @@ jobs:
       # break silently later - a stray include ships someone's scratch file,
       # and a wrong `exports` breaks every consumer's import while every test
       # here keeps passing on relative paths.
-      - name: Published tarball carries src and nothing else
+      - name: Published tarball carries dist and src and nothing else
         run: npm run check:package
+
+      # The check that 0.2.0 did not have. Every test in this repository reaches
+      # into the tree by relative path, and even a self-referencing
+      # `import 'mockingham'` resolves to the working copy - so a package whose
+      # entry points are unloadable once installed passes the entire suite. This
+      # is the only check that leaves the repository: it packs, installs the
+      # tarball into an empty directory, imports by name, and runs the bin.
+      - name: Installed package imports by name and its bin runs
+        run: npm run check:install
 
   # Not required to pass. Native type stripping is a Node feature this package
   # is built directly on, so a break in an unreleased line is worth seeing

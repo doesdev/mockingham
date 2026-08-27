@@ -10,6 +10,7 @@
  * Run by CI and by `npm run check:package`.
  */
 import { execFileSync, execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 
 /** Everything npm includes on its own, regardless of `files`. */
 const ALWAYS_INCLUDED = new Set(['package.json', 'README.md', 'LICENSE'])
@@ -46,12 +47,15 @@ if (result === undefined) {
 
 const paths = result.files.map((file) => file.path).sort()
 const unexpected = paths.filter(
-  (path) => !path.startsWith('src/') && !ALWAYS_INCLUDED.has(path)
+  (path) =>
+    !path.startsWith('src/') &&
+    !path.startsWith('dist/') &&
+    !ALWAYS_INCLUDED.has(path)
 )
 
 if (unexpected.length > 0) {
   console.error(
-    'mockingham: the published tarball would carry files outside src/:\n' +
+    'mockingham: the published tarball would carry files outside dist/ and src/:\n' +
       unexpected.map((path) => `  ${path}`).join('\n') +
       '\n\nAdjust the `files` field in package.json, or add the path to ' +
       'ALWAYS_INCLUDED in this script if it genuinely belongs in the package.'
@@ -67,6 +71,48 @@ if (sourceFiles.length === 0) {
   process.exit(1)
 }
 
+// What a consumer actually loads. `src` rides along only so the declaration
+// and source maps in `dist` resolve to real files - it is no longer an entry
+// point, and shipping it without `dist` is the 0.2.0 defect exactly.
+const ENTRY_POINTS = [
+  'dist/index.js',
+  'dist/index.d.ts',
+  'dist/server/cli.js'
+] as const
+
+for (const entry of ENTRY_POINTS) {
+  if (!paths.includes(entry)) {
+    console.error(
+      `mockingham: the tarball is missing ${entry}, which package.json ` +
+        'advertises. Did `prepack` run?'
+    )
+    process.exit(1)
+  }
+}
+
+// The published entry points must be JavaScript. Node refuses to strip types
+// under node_modules, so a `.ts` entry point is unloadable on every install -
+// this asserts the shape of the manifest, `check-install.ts` asserts it works.
+const manifest = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+) as Record<string, unknown>
+
+const entryTargets = [
+  manifest['main'],
+  ((manifest['bin'] as Record<string, string>) ?? {})['mockingham']
+]
+for (const target of entryTargets) {
+  if (typeof target === 'string' && target.endsWith('.ts')) {
+    console.error(
+      `mockingham: ${target} is a TypeScript entry point. Node cannot strip ` +
+        'types under node_modules, so this is unloadable once installed.'
+    )
+    process.exit(1)
+  }
+}
+
+const distFiles = paths.filter((path) => path.startsWith('dist/'))
+
 for (const required of ALWAYS_INCLUDED) {
   if (!paths.includes(required)) {
     console.error(`mockingham: the tarball is missing ${required}`)
@@ -75,6 +121,7 @@ for (const required of ALWAYS_INCLUDED) {
 }
 
 console.log(
-  `mockingham: tarball carries ${sourceFiles.length} source files, ` +
+  `mockingham: tarball carries ${distFiles.length} built files, ` +
+    `${sourceFiles.length} source files (for the maps), ` +
     `${[...ALWAYS_INCLUDED].sort().join(', ')}, and nothing else`
 )

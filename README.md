@@ -42,11 +42,19 @@ things as contracts, not happy accidents:
 
 ## Requirements and install
 
-Node >= 24.2.0. There is no build step, and that's deliberate: the package
-you install is the TypeScript source, stripped of types by Node itself at
-run time. There is no compiled `dist/` standing between what shipped and what
-you're debugging - the stack trace you get points at the same line you'd set
-a breakpoint on.
+Node >= 24.2.0. The package installs as compiled JavaScript with type
+declarations, and the TypeScript source ships alongside it purely so the
+declaration and source maps resolve: your debugger still lands on the same
+line of `.ts` you'd set a breakpoint on, while Node loads `.js`.
+
+Through 0.2.0 the package shipped source as its entry points, on the
+reasoning that Node strips types itself. It does - except under
+`node_modules`, where stripping is refused by a documented restriction that
+no flag turns off. Every install of 0.2.0 therefore failed on
+`import 'mockingham'` and on the `mockingham` bin alike. 0.2.1 compiles.
+`npm run check:install` packs, installs into an empty directory, imports by
+name and runs the bin; CI runs it, because no test inside this repository can
+see that class of defect.
 
 `zod` is the only runtime dependency. `@anthropic-ai/sdk` (for baking
 fixtures against Claude) and `@modelcontextprotocol/sdk` (for the MCP

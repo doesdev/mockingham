@@ -1,6 +1,6 @@
 {
   "name": "mockingham",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenAPI driven HTTP mock server",
   "homepage": "https://github.com/doesdev/mockingham#readme",
   "bugs": {
@@ -13,16 +13,21 @@
   "license": "MIT",
   "author": "Andrew Carpenter",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
+    "dist",
     "src"
   ],
   "bin": {
-    "mockingham": "src/server/cli.ts"
+    "mockingham": "./dist/server/cli.js"
   },
   "engines": {
     "node": ">=24.2.0"
@@ -30,7 +35,10 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "check:package": "node scripts/check-package.ts",
+    "check:install": "node scripts/check-install.ts",
     "determinism": "node scripts/determinism.ts"
   },
   "dependencies": {
