@@ -214,6 +214,33 @@ export function createCompiler(): Compiler {
         return z.intersection(compile(kind.base), union)
       }
       case 'array': {
+        // Shared by the tuple and list branches alike. It used to live only in
+        // the list branch, which meant `uniqueItems` on a tuple was silently
+        // unenforced - the tuple branch returns before ever reaching it.
+        //
+        // Members compare through `canonicalKey`, the same identity generation
+        // draws against - so an array this rejects is an array generation would
+        // never have produced. `seen` is probed, never iterated, so it brings no
+        // unordered traversal with it.
+        const checkUnique = (
+          items: unknown[],
+          context: z.RefinementCtx<unknown[]>
+        ): void => {
+          const seen = new Set<string>()
+          for (let index = 0; index < items.length; index++) {
+            const key = canonicalKey(items[index])
+            if (seen.has(key)) {
+              context.addIssue({
+                code: 'custom',
+                message: 'Array items must be unique',
+                path: [index]
+              })
+              return
+            }
+            seen.add(key)
+          }
+        }
+
         // A tuple is checked position by position rather than with `z.tuple`,
         // which requires every position to be present. `prefixItems` does not:
         // it constrains a position only when the array reaches it, and
@@ -226,6 +253,7 @@ export function createCompiler(): Compiler {
           if (merged.minItems !== undefined) tuple = tuple.min(merged.minItems)
           if (merged.maxItems !== undefined) tuple = tuple.max(merged.maxItems)
           return tuple.superRefine((value, context) => {
+            if (merged.uniqueItems === true) checkUnique(value, context)
             value.forEach((entry, index) => {
               const at = positions[index] ?? tail
               if (at === undefined) {
@@ -252,25 +280,7 @@ export function createCompiler(): Compiler {
         if (merged.minItems !== undefined) out = out.min(merged.minItems)
         if (merged.maxItems !== undefined) out = out.max(merged.maxItems)
         if (merged.uniqueItems !== true) return out
-        // Members compare through `canonicalKey`, the same identity generation
-        // draws against - so an array this rejects is an array generation
-        // would never have produced. `seen` is probed, never iterated, so it
-        // brings no unordered traversal with it.
-        return out.superRefine((items, context) => {
-          const seen = new Set<string>()
-          for (let index = 0; index < items.length; index++) {
-            const key = canonicalKey(items[index])
-            if (seen.has(key)) {
-              context.addIssue({
-                code: 'custom',
-                message: 'Array items must be unique',
-                path: [index]
-              })
-              return
-            }
-            seen.add(key)
-          }
-        }) as ZodType
+        return out.superRefine(checkUnique) as ZodType
       }
       case 'object': {
         const shape: Record<string, ZodType> = {}

@@ -112,3 +112,58 @@ test('uniqueItems false leaves an array alone', () => {
   assert.equal(parse(schema, ['bulk', 'bulk']).success, true)
   assert.deepEqual(generate(schema, 'dup'), ['bulk', 'bulk'])
 })
+
+/**
+ * `uniqueItems` and `prefixItems` were fixed by two people at once, and neither
+ * could see this: both directions handle a tuple on a code path that returns
+ * BEFORE the uniqueness handling. Generation drew every position from the tail
+ * schema, so a tuple's declared positions were ignored outright; validation
+ * skipped the uniqueness refinement entirely. Exactly the matched pair invariant
+ * 1 predicts, produced by the integration rather than by either change.
+ */
+const pair: Schema = {
+  type: 'array',
+  minItems: 2,
+  maxItems: 2,
+  uniqueItems: true,
+  prefixItems: [
+    { type: 'string', enum: ['bulk', 'fragile'] },
+    { type: 'string', enum: ['bulk', 'fragile'] }
+  ]
+}
+
+test('a unique tuple generates each position from its own schema', () => {
+  for (const seed of SEEDS) {
+    const value = generate(pair, seed)
+    assert.equal(value.length, 2, `seed ${seed}: ${JSON.stringify(value)}`)
+    for (const [index, entry] of value.entries()) {
+      assert.equal(
+        typeof entry,
+        'string',
+        `seed ${seed}: position ${index} of ${JSON.stringify(value)}`
+      )
+    }
+  }
+})
+
+test('a unique tuple draws its positions without replacement', () => {
+  for (const seed of SEEDS) {
+    const value = generate(pair, seed)
+    assert.equal(
+      hasDuplicate(value),
+      false,
+      `seed ${seed}: ${JSON.stringify(value)}`
+    )
+  }
+})
+
+test('validation rejects a repeated member of a tuple', () => {
+  assert.equal(parse(pair, ['bulk', 'fragile']).success, true)
+  assert.equal(parse(pair, ['bulk', 'bulk']).success, false)
+})
+
+test('a unique tuple still validates each position against its own schema', () => {
+  // The uniqueness fix must not cost the per-position checking that finding 4
+  // added: these two differ, so uniqueness alone would accept them.
+  assert.equal(parse(pair, ['bulk', 'crated']).success, false)
+})

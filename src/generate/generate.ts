@@ -247,7 +247,11 @@ export function generateValue(
           // can rather than looping forever.
           const attempts = count * 8 + 16
           for (let i = 0; i < attempts && items.length < count; i++) {
-            const item = walk(kind.items, depth + 1, propertyName, containerName)
+            // Keyed on the position being FILLED, not the attempt number, so a
+            // rejected duplicate redraws from the same tuple position rather
+            // than sliding down the tuple.
+            const at = kind.prefix[items.length] ?? kind.items
+            const item = walk(at, depth + 1, propertyName, containerName)
             const key = canonicalKey(item)
             if (seen.has(key)) continue
             seen.add(key)
