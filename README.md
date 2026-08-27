@@ -610,13 +610,13 @@ parsed.
 
 ## Known limitations
 
-- **Four schema keywords are not read at all: `contains`, `minContains`,
-  `maxContains`, and `propertyNames`.** A document declaring one of them is
-  served and validated as though it were absent - generated bodies may violate
-  it, and an incoming request that violates it is accepted. Nothing warns.
-  This list is the whole of what mockingham ignores in a schema; every other
-  keyword named in this README is read by both generation and validation, from
-  the one traversal in `src/schema/walk.ts`.
+- **Eight schema keywords are not read at all: `contains`, `minContains`,
+  `maxContains`, `propertyNames`, `patternProperties`, `not`,
+  `dependentRequired`, and `dependentSchemas`.** A document declaring one of
+  them is served and validated as though it were absent - generated bodies may
+  violate it, and an incoming request that violates it is accepted. Nothing
+  warns. Every other keyword named in this README is read by both generation
+  and validation, from the one traversal in `src/schema/walk.ts`.
 - **`if`/`then`/`else` applies one level deep.** A conditional on a schema is
   honored - generation picks a branch with the seeded PRNG and produces a body
   that satisfies it, and a request violating the branch it lands in is a 400.

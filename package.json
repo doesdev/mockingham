@@ -1,6 +1,6 @@
 {
   "name": "mockingham",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "OpenAPI driven HTTP mock server",
   "homepage": "https://github.com/doesdev/mockingham#readme",
   "bugs": {
