@@ -170,6 +170,173 @@ test('sorted key order keeps narrowed object serialization deterministic', () =>
   assert.deepEqual(Object.keys(result as object), ['alpha', 'mu', 'zeta'])
 })
 
+test('byName reaches a property inside a oneOf branch', () => {
+  const payment: Schema = {
+    oneOf: [
+      { type: 'object', properties: { kind: { const: 'card' }, bio: { type: 'string' } } },
+      { type: 'object', properties: { kind: { const: 'bank' }, note: { type: 'string' } } }
+    ]
+  }
+  const value = { kind: 'card', bio: 'hello' }
+  assert.deepEqual(narrow(value, payment, { byName: ['bio'] }, new Map()), { bio: 'hello' })
+})
+
+test('a discriminated union narrows through the branch the value names', () => {
+  const cardBranch: Schema = {
+    type: 'object',
+    properties: { kind: { const: 'card' }, label: { type: 'string' } }
+  }
+  const bankBranch: Schema = {
+    type: 'object',
+    properties: { kind: { const: 'bank' }, label: { type: 'string' } }
+  }
+  const payment: Schema = {
+    oneOf: [cardBranch, bankBranch],
+    discriminator: { propertyName: 'kind' }
+  }
+  // `Bank` is in scope but the value is a card, so nothing may be claimed
+  // wholesale off the branch the value is not.
+  const names = new Map<Schema, string>([[bankBranch, 'Bank']])
+  const value = { kind: 'card', label: 'visa' }
+  assert.equal(narrow(value, payment, { bySchema: ['Bank'] }, names), undefined)
+  assert.deepEqual(
+    narrow(value, payment, { byName: ['label'] }, names),
+    { label: 'visa' }
+  )
+})
+
+test('bySchema claims a whole union branch', () => {
+  const address: Schema = { type: 'object', properties: { city: { type: 'string' } } }
+  const either: Schema = { anyOf: [address, { type: 'string' }] }
+  const names = new Map<Schema, string>([[address, 'Address']])
+  assert.deepEqual(
+    narrow({ city: 'Leeds' }, either, { bySchema: ['Address'] }, names),
+    { city: 'Leeds' }
+  )
+})
+
+test('a union carrying a sibling base narrows through the base too', () => {
+  // `type: object` + `properties` declared BESIDE an anyOf - the two constrain
+  // the same instance, so the base shape is as much part of the reading as the
+  // chosen branch is.
+  const contact: Schema = {
+    type: 'object',
+    properties: { bio: { type: 'string' }, email: { type: 'string' } },
+    anyOf: [{ required: ['email'] }, { required: ['phone'] }]
+  }
+  const value = { bio: 'hello', email: 'a@b.c' }
+  assert.deepEqual(narrow(value, contact, { byName: ['bio'] }, new Map()), { bio: 'hello' })
+})
+
+test('byName reaches a property at a specific tuple position', () => {
+  const pair: Schema = {
+    type: 'array',
+    prefixItems: [
+      { type: 'object', properties: { bio: { type: 'string' } } },
+      { type: 'object', properties: { other: { type: 'string' } } }
+    ],
+    items: false
+  }
+  const value = [{ bio: 'hello' }, { other: 'x' }]
+  assert.deepEqual(narrow(value, pair, { byName: ['bio'] }, new Map()), {
+    '0': { bio: 'hello' }
+  })
+})
+
+test('a position past a closed tuple is out of contract and claims nothing', () => {
+  const pair: Schema = {
+    type: 'array',
+    prefixItems: [{ type: 'object', properties: { bio: { type: 'string' } } }],
+    items: false
+  }
+  const value = [{ bio: 'hello' }, { bio: 'extra' }]
+  assert.deepEqual(narrow(value, pair, { byName: ['bio'] }, new Map()), {
+    '0': { bio: 'hello' }
+  })
+})
+
+test('a tuple with an open tail still narrows the tail through items', () => {
+  const list: Schema = {
+    type: 'array',
+    prefixItems: [{ type: 'object', properties: { head: { type: 'string' } } }],
+    items: { type: 'object', properties: { bio: { type: 'string' } } }
+  }
+  const value = [{ head: 'h' }, { bio: 'a' }, { bio: 'b' }]
+  assert.deepEqual(narrow(value, list, { byName: ['bio', 'head'] }, new Map()), {
+    '0': { head: 'h' },
+    '1': { bio: 'a' },
+    '2': { bio: 'b' }
+  })
+})
+
+test('claims from the base and from a branch combine into one narrowed value', () => {
+  // The base and the chosen branch constrain the SAME instance, so a scoped
+  // field on each has to survive together - keeping only one of the two would
+  // silently drop half the fixture.
+  const contact: Schema = {
+    type: 'object',
+    properties: {
+      bio: { type: 'string' },
+      home: { type: 'object', properties: { city: { type: 'string' } } }
+    },
+    anyOf: [
+      {
+        type: 'object',
+        properties: {
+          note: { type: 'string' },
+          home: { type: 'object', properties: { street: { type: 'string' } } }
+        }
+      }
+    ]
+  }
+  const value = { bio: 'b', note: 'n', home: { city: 'Leeds', street: 'Kirkgate' } }
+  const result = narrow(value, contact, { byName: ['bio', 'note', 'city', 'street'] }, new Map())
+  assert.deepEqual(result, {
+    bio: 'b',
+    home: { city: 'Leeds', street: 'Kirkgate' },
+    note: 'n'
+  })
+  // Sorted throughout, including inside the merged nested claim, so the
+  // narrowed value serializes identically across processes.
+  assert.deepEqual(Object.keys(result as object), ['bio', 'home', 'note'])
+  assert.deepEqual(
+    Object.keys((result as { home: object }).home),
+    ['city', 'street']
+  )
+})
+
+test('a value matching no union branch narrows to nothing rather than throwing', () => {
+  // Invariant 4: a fixture that does not fit the schema is a miss, which the
+  // bake path counts as `failed` and the serve path answers from seeded
+  // generation. It must never throw.
+  const either: Schema = {
+    oneOf: [
+      { type: 'object', properties: { bio: { type: 'string' } } },
+      { type: 'string' }
+    ],
+    discriminator: { propertyName: 'kind' }
+  }
+  assert.equal(narrow(42, either, { byName: ['bio'] }, new Map()), undefined)
+  assert.equal(narrow(null, either, { byName: ['bio'] }, new Map()), undefined)
+  assert.equal(narrow([1, 2], either, { byName: ['bio'] }, new Map()), undefined)
+  assert.equal(
+    narrow({ kind: 'nope', other: 1 }, either, { byName: ['bio'] }, new Map()),
+    undefined
+  )
+})
+
+test('a union recursive through its sibling base does not spin', () => {
+  const node: Schema = {
+    type: 'object',
+    properties: {},
+    anyOf: [{ required: ['self'] }, { required: ['label'] }]
+  }
+  node.properties = { self: node, label: { type: 'string' } }
+  const value: Record<string, unknown> = { label: 'root' }
+  value['self'] = value
+  assert.deepEqual(narrow(value, node, { byName: ['label'] }, new Map()), { label: 'root' })
+})
+
 test('a self-referencing schema does not recurse forever', () => {
   const node: Schema = { type: 'object', properties: {} }
   ;(node.properties as Record<string, Schema>)['child'] = node

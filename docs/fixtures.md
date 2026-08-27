@@ -234,6 +234,28 @@ help and the rest of the body is fine seeded:
 Everything outside the scope stays seeded and fast; only the named parts come
 from the store.
 
+A scope reaches through every shape the response schema can take, not just
+plain objects and lists:
+
+- **Through a `oneOf`/`anyOf`.** A scoped field living on a union branch is
+  found. Where the document declares a `discriminator`, only the branch the
+  value actually names is consulted, so `bySchema` cannot claim a branch the
+  response is not; without one, every branch is offered the value and only
+  what it genuinely finds there is kept.
+- **Beside a union.** A schema that declares `type: object` and `properties`
+  *alongside* an `anyOf` is constrained by both at once, so a scoped field on
+  either the declared shape or the branch survives, and the two combine into
+  one narrowed value.
+- **Into a tuple position.** With `prefixItems`, each index is narrowed
+  against the schema that governs that index. A position past the end of a
+  closed tuple (`items: false`) is outside the contract and contributes
+  nothing.
+
+None of this changes the guarantee at the top of this guide: a value that does
+not fit the schema, or one where the scope finds nothing at all, is a **miss**.
+It is counted as `failed` by `bake`, no fixture is written, and the response is
+served from the seeded generator exactly as if the scope had never been set.
+
 `llm.persona` is a short domain hint included in every prompt - the kind of
 detail that buys coherence no amount of seeded randomness produces on its own
 (a B2B logistics domain, European customers, that sort of thing).

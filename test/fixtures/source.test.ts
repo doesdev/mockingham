@@ -76,6 +76,30 @@ test('a cycle expressed through an allOf member is still recursive', () => {
   assert.equal(isRecursive(outer), true)
 })
 
+test('a cycle expressed through a tuple position is recursive', () => {
+  // `prefixItems` is a schema-bearing branch like `items` is. A walk that
+  // follows only the tail would build a request whose JSON Schema contains a
+  // live self-reference, which is exactly what isRecursive exists to prevent.
+  const node: Schema = { type: 'object', properties: {} }
+  node.properties = {
+    pair: { type: 'array', prefixItems: [{ type: 'string' }, node], items: false }
+  }
+  assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through a union sibling base is recursive', () => {
+  // `type: object` + `properties` declared beside an anyOf classifies as a
+  // union carrying a `base`. The cyclic edge lives on the base's properties,
+  // which no variant mentions at all.
+  const node: Schema = {
+    type: 'object',
+    properties: {},
+    anyOf: [{ required: ['self'] }, { required: ['label'] }]
+  }
+  node.properties = { self: node, label: { type: 'string' } }
+  assert.equal(isRecursive(node), true)
+})
+
 function baseOperation() {
   return {
     method: 'get' as const,
