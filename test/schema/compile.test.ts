@@ -233,6 +233,38 @@ test('anyOf accepts a value matching several variants', () => {
   assert.equal(parse(schema, { a: 'x', b: 'y' }).success, true)
 })
 
+test('a union declared beside an object shape still validates the object', () => {
+  // Same defect as the generation side, through the same `classify`: a
+  // sibling union used to discard the shape, so `name` was not type-checked.
+  const contact: Schema = {
+    type: 'object',
+    required: ['name'],
+    properties: {
+      name: { type: 'string' },
+      email: { type: 'string' },
+      phone: { type: 'string' }
+    },
+    anyOf: [{ required: ['email'] }, { required: ['phone'] }]
+  }
+  assert.equal(parse(contact, { name: 'ada', email: 'a@b.c' }).success, true)
+  assert.equal(parse(contact, { name: 42, email: 'a@b.c' }).success, false)
+  assert.equal(parse(contact, { email: 'a@b.c' }).success, false)
+})
+
+test('a sibling union still enforces its branches', () => {
+  const schema: Schema = {
+    type: 'object',
+    properties: { id: { type: 'string' } },
+    oneOf: [
+      { type: 'object', required: ['kind'], properties: { kind: { const: 'card' } } },
+      { type: 'object', required: ['kind'], properties: { kind: { const: 'bank' } } }
+    ]
+  }
+  assert.equal(parse(schema, { id: 'x', kind: 'card' }).success, true)
+  assert.equal(parse(schema, { id: 'x', kind: 'wire' }).success, false)
+  assert.equal(parse(schema, { id: 1, kind: 'card' }).success, false)
+})
+
 test('oneOf still accepts a value matching exactly one variant', () => {
   const schema: Schema = { oneOf: [{ type: 'string' }, { type: 'integer' }] }
   assert.equal(parse(schema, 'x').success, true)

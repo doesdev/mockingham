@@ -27,6 +27,15 @@ export type SchemaKind =
       variants: Schema[]
       mode: 'one' | 'any'
       discriminator?: string
+      /**
+       * The shape the schema declares BESIDE its union, when it declares one -
+       * the same schema with `oneOf`/`anyOf` removed. Under JSON Schema those
+       * are constraints on the same instance, so `type: object` + `properties`
+       * beside an `anyOf` still describes the object; consumers apply the base
+       * and the chosen branch together. `undefined` for the purely alternative
+       * union, which is the common case.
+       */
+      base?: Schema
     }
   | { kind: 'never' }
   | { kind: 'unknown' }
@@ -281,6 +290,48 @@ export function conditionalOf(input: Schema): Conditional | undefined {
   return conditional
 }
 
+/**
+ * Cached so the base is the SAME object every time a schema is classified.
+ * The compiler caches compiled schemas on identity and guards recursion the
+ * same way, both of which a freshly built base would defeat.
+ */
+const bases = new WeakMap<Schema, Schema>()
+
+/**
+ * The sibling shape of a schema that declares one alongside its union, or
+ * `undefined` when the union is purely alternative.
+ *
+ * Only an object shape counts today - `type: object` or bare `properties` -
+ * which is the form documents actually write (`anyOf: [{required: [email]},
+ * {required: [phone]}]` beside the properties it constrains). Stripping the
+ * union keywords is all that is needed: what remains classifies as the object
+ * it always was.
+ *
+ * A bare `required` counts too, for the reason given in `classify`: it is how
+ * `anyOf: [{ required: ['email'] }]` beside a schema that declares only
+ * `required` is written, and reading it as `unknown` made it vacuous.
+ */
+function siblingBase(schema: Schema, key: Schema): Schema | undefined {
+  const declaresObject =
+    typeNames(schema).includes('object') ||
+    schema.properties !== undefined ||
+    schema.required !== undefined
+  if (!declaresObject) return undefined
+
+  // Keyed on the schema as WRITTEN, not the merged view: `mergeAllOf` returns
+  // a fresh object for an allOf schema, which would never hit the cache.
+  const cached = bases.get(key)
+  if (cached) return cached
+
+  const base: Record<string, unknown> = { ...schema }
+  delete base['oneOf']
+  delete base['anyOf']
+  delete base['discriminator']
+  const result = base as Schema
+  bases.set(key, result)
+  return result
+}
+
 export function classify(input: SchemaNode): SchemaKind {
   const node = normalizeNode(input)
   if (node === 'never') return { kind: 'never' }
@@ -296,11 +347,15 @@ export function classify(input: SchemaNode): SchemaKind {
   // it - a validator built on `classify` cannot recover it any other way.
   const variants = schema.oneOf ?? schema.anyOf
   if (Array.isArray(variants) && variants.length > 0) {
+    // A shape declared BESIDE the union is not an alternative to it: both
+    // constrain the same instance. Discarding it collapsed the whole subtree.
+    const base = siblingBase(schema, node)
     return {
       kind: 'union',
       variants,
       mode: schema.oneOf ? 'one' : 'any',
-      discriminator: schema.discriminator?.propertyName
+      discriminator: schema.discriminator?.propertyName,
+      ...(base === undefined ? {} : { base })
     }
   }
 

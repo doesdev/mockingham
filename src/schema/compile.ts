@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { ZodType } from 'zod'
 import type { Schema } from '../spec/types.ts'
-import type { SchemaNode } from './walk.ts'
+import type { SchemaKind, SchemaNode } from './walk.ts'
 import { classify, conditionalOf, isNullable, mergeAllOf, normalizeNode } from './walk.ts'
 import { canonicalKey } from './equal.ts'
 
@@ -121,6 +121,36 @@ export function createCompiler(): Compiler {
     return final
   }
 
+  /** The union itself, before any sibling shape is intersected with it. */
+  function buildUnion(kind: Extract<SchemaKind, { kind: 'union' }>): ZodType {
+    const variants = kind.variants.map((variant) => compile(variant))
+    const key = kind.discriminator
+    // zod 4 does not validate discriminated-union variants at
+    // construction - it throws on first parse instead. So the shape must
+    // be checked here, or a document zod cannot model that way becomes a
+    // crash at request time rather than a slower plain union.
+    if (key !== undefined && kind.variants.every((variant) => usable(variant, key))) {
+      // A discriminator already guarantees at most one match.
+      return z.discriminatedUnion(key, variants as never) as ZodType
+    }
+    if (kind.mode === 'one') {
+      // oneOf means EXACTLY one variant matches; a plain union means at
+      // least one, which is anyOf's rule.
+      return z.unknown().superRefine((value, context) => {
+        const matched = variants.filter(
+          (variant) => variant.safeParse(value).success
+        ).length
+        if (matched !== 1) {
+          context.addIssue({
+            code: 'custom',
+            message: `Expected exactly one oneOf variant to match, ${matched} did`
+          })
+        }
+      }) as ZodType
+    }
+    return z.union(variants as never) as ZodType
+  }
+
   /**
    * `if`/`then`/`else`, applied on top of whatever the schema is otherwise.
    * Straight from the JSON Schema rule: a value that satisfies `if` must
@@ -176,32 +206,12 @@ export function createCompiler(): Compiler {
       case 'null':
         return z.null()
       case 'union': {
-        const variants = kind.variants.map((variant) => compile(variant))
-        const key = kind.discriminator
-        // zod 4 does not validate discriminated-union variants at
-        // construction - it throws on first parse instead. So the shape must
-        // be checked here, or a document zod cannot model that way becomes a
-        // crash at request time rather than a slower plain union.
-        if (key !== undefined && kind.variants.every((variant) => usable(variant, key))) {
-          // A discriminator already guarantees at most one match.
-          return z.discriminatedUnion(key, variants as never) as ZodType
-        }
-        if (kind.mode === 'one') {
-          // oneOf means EXACTLY one variant matches; a plain union means at
-          // least one, which is anyOf's rule.
-          return z.unknown().superRefine((value, context) => {
-            const matched = variants.filter(
-              (variant) => variant.safeParse(value).success
-            ).length
-            if (matched !== 1) {
-              context.addIssue({
-                code: 'custom',
-                message: `Expected exactly one oneOf variant to match, ${matched} did`
-              })
-            }
-          }) as ZodType
-        }
-        return z.union(variants as never) as ZodType
+        const union = buildUnion(kind)
+        // A shape declared beside the union constrains the same instance, so
+        // both must hold. Without this the declared properties went unchecked
+        // - `classify` handed validation a bare union of the branches.
+        if (kind.base === undefined) return union
+        return z.intersection(compile(kind.base), union)
       }
       case 'array': {
         let out = z.array(compile(kind.items))
