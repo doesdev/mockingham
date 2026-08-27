@@ -83,13 +83,26 @@ function describeConstraint(keyword: string, value: unknown): string {
 //   (a property name, a regex, a def id - author-chosen, never a keyword)
 //   to a schema. Only the VALUES are schema nodes; the keys are copied
 //   through untouched and never checked against the strip set.
-// - VALUE: `items`, `additionalProperties`, `not` - a single nested schema
-//   (`additionalProperties` may also be a plain boolean, which the walk
-//   below passes through unchanged).
+// - VALUE: `items`, `additionalProperties`, `not`, `contains`,
+//   `propertyNames` - a single nested schema (`additionalProperties`,
+//   `contains` and `propertyNames` may also be a plain boolean, which the
+//   walk below passes through unchanged).
 // - LIST: `allOf`, `anyOf`, `oneOf`, `prefixItems` - an array whose
 //   elements are schemas.
-const SCHEMA_MAP_KEYWORDS = new Set(['properties', 'patternProperties', '$defs'])
-const SCHEMA_VALUE_KEYWORDS = new Set(['items', 'additionalProperties', 'not'])
+//
+// `contains`, `propertyNames` and `dependentSchemas` were added once the
+// keywords became read rather than ignored. They are unreachable today by the
+// same argument the header makes - the compiler drops their refinements, so
+// `z.toJSONSchema` never emits them and no provider sees one - but that
+// argument is about the CURRENT caller, not about the shape of this function.
+// Anything that hands a document's own schema to the walk would otherwise leak
+// a nested `pattern` or `minLength` straight through to a provider.
+const SCHEMA_MAP_KEYWORDS = new Set([
+  'properties', 'patternProperties', '$defs', 'dependentSchemas'
+])
+const SCHEMA_VALUE_KEYWORDS = new Set([
+  'items', 'additionalProperties', 'not', 'contains', 'propertyNames'
+])
 const SCHEMA_LIST_KEYWORDS = new Set(['allOf', 'anyOf', 'oneOf', 'prefixItems'])
 
 /**

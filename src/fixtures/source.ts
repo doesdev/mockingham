@@ -1,5 +1,6 @@
 import type { ZodType } from 'zod'
-import { classify } from '../schema/walk.ts'
+import { classify, negationOf, normalizeNode } from '../schema/walk.ts'
+import type { SchemaNode } from '../schema/walk.ts'
 import type { Compiler } from '../schema/compile.ts'
 import { toJsonSchema, fromZod } from '../schema/json-schema.ts'
 import { fnv1a } from '../generate/rng.ts'
@@ -79,13 +80,29 @@ export function isRecursive(schema: Schema): boolean {
     if (seen.has(node)) return true
     const nested = new Set(seen)
     nested.add(node)
+
+    // A boolean schema position carries no subschema and so cannot cycle.
+    const into = (position: SchemaNode | undefined): boolean => {
+      if (position === undefined) return false
+      const normalized = normalizeNode(position)
+      return normalized !== 'never' && walk(normalized, nested)
+    }
+    const intoMap = (map: Record<string, SchemaNode>): boolean =>
+      Object.keys(map).sort().some((key) => into(map[key]))
+
+    // `not` is read beside a type rather than instead of one, so it is checked
+    // for every kind rather than inside one of the branches below.
+    if (into(negationOf(node))) return true
+
     const kind = classify(node)
     if (kind.kind === 'array') {
-      // Both schema-bearing branches: the tail AND every tuple position.
-      // Following only the tail would let a cycle routed through a
-      // `prefixItems` entry build a request whose JSON Schema self-references.
+      // Every schema-bearing branch: the tail, each tuple position, and the
+      // `contains` subschema. Following only the tail would let a cycle routed
+      // through any of the others build a request whose JSON Schema
+      // self-references.
       if (walk(kind.items, nested)) return true
-      return kind.prefix.some((position) => walk(position, nested))
+      if (kind.prefix.some((position) => walk(position, nested))) return true
+      return into(kind.contains?.schema)
     }
     if (kind.kind === 'union') {
       if (kind.variants.some((variant) => walk(variant, nested))) return true
@@ -96,8 +113,11 @@ export function isRecursive(schema: Schema): boolean {
     if (kind.kind === 'object') {
       const throughProperties = Object.keys(kind.properties)
         .sort()
-        .some((name) => walk(kind.properties[name] as Schema, nested))
+        .some((name) => into(kind.properties[name]))
       if (throughProperties) return true
+      if (intoMap(kind.patternProperties)) return true
+      if (intoMap(kind.dependentSchemas)) return true
+      if (into(kind.propertyNames)) return true
       if (kind.additional === false) return false
       return walk(kind.additional, nested)
     }

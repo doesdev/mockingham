@@ -315,22 +315,26 @@ export function generateValue(
         // `depth`, NOT `depth + 1`: spending a level here made an otherwise
         // identical document truncate one level earlier whenever a union
         // appeared in it.
-        // An ARRAY sibling shape cannot take the object path's overlay below:
-        // there is nothing to spread one array over another with, and the
-        // branches that make this idiom worth supporting (`anyOf: [{minItems:
-        // 2}, {maxItems: 0}]`) declare bounds rather than content. So base and
-        // branch are folded into one effective schema through `foldBranch`,
-        // the same fold the compiler applies to an array base's branches - so
-        // a bound generation honors here is a bound validation enforces there
-        // (invariant 1) - and generated once.
+        // A sibling shape and its chosen branch constrain the SAME instance, so
+        // they are folded into one effective schema and generated once.
         //
-        // `depth`, NOT `depth + 1`, for the same reason the object path uses
-        // `depth`: resolving a union is a decision about what this node is,
-        // not a step down the tree. Spending a level here would truncate an
-        // array-with-union one level earlier than the identical document
-        // without one. `identity` keeps bySchema resolvers pointed at the
-        // component, whose name the folded schema is not registered under.
-        if (base !== undefined && classify(base).kind !== 'object') {
+        // The object path used to generate the two separately and spread the
+        // branch over the base. That works only while a branch contributes
+        // nothing a base already generated - and it stopped being true the
+        // moment generation began emitting `required` names with no declared
+        // property: `anyOf: [{required: ['email']}]` beside a base declaring
+        // `email` generated `{email: null}` for the branch and the spread
+        // clobbered the base's real value with it. An overlay can only ever
+        // lose information the fold keeps, and the fold is what the compiler
+        // already does on this schema (invariant 1), so both container kinds
+        // take it.
+        //
+        // `depth`, NOT `depth + 1`: resolving a union is a decision about what
+        // this node is, not a step down the tree. Spending a level here would
+        // truncate a document with a union one level earlier than the identical
+        // document without one. `identity` keeps bySchema resolvers pointed at
+        // the component, whose name the folded schema is not registered under.
+        if (base !== undefined) {
           return walk(
             foldBranch(base, variant),
             depth,
@@ -342,46 +346,17 @@ export function generateValue(
           )
         }
 
-        if (base === undefined) {
-          return walk(
-            variant,
-            depth,
-            // Deliberately not forwarded, as before: a resolver already saw
-            // this property name at the union node itself.
-            undefined,
-            undefined,
-            undefined,
-            path,
-            unionHops + 1
-          )
-        }
-
-        // With a sibling shape both constrain the same instance: generate the
-        // declared object, then lay the chosen branch's own contribution over
-        // it. `identity` keeps bySchema resolvers pointed at the component,
-        // whose name the derived base is not registered under.
-        const value = walk(
-          base, depth, propertyName, containerName, current, path, unionHops + 1
-        )
-        // Only a branch with an object shape of its own can contribute. A
-        // branch declaring only `required` - the usual "at least one of these"
-        // idiom - now classifies as an object too, since a bare `required` is
-        // an object constraint, and it correctly contributes nothing: it
-        // declares no properties, and every property the base declares is
-        // generated anyway.
-        if (classify(variant).kind !== 'object') return value
-        const extra = walk(
+        return walk(
           variant,
           depth,
-          propertyName,
-          containerName,
+          // Deliberately not forwarded, as before: a resolver already saw
+          // this property name at the union node itself.
+          undefined,
+          undefined,
           undefined,
           path,
           unionHops + 1
         )
-        if (!isRecord(value)) return extra
-        if (!isRecord(extra)) return value
-        return { ...value, ...extra }
       }
       case 'array': {
         const { min, max } = arrayLength(merged)
@@ -605,6 +580,23 @@ export function generateValue(
             continue
           }
           const effective = schemaFor(property)
+          if (effective === undefined) continue
+          out[property] = walk(
+            effective, depth + 1, property, name, undefined, `${path}.${property}`
+          )
+        }
+
+        // A `required` name the document declares no property for. Validation
+        // has always enforced these - `then: { required: ['reason'] }` is the
+        // ordinary way to write one - so skipping them here generated a body
+        // our own validator rejects, which is precisely what one shared
+        // traversal exists to prevent. `schemaFor` already computes what such a
+        // name may hold: a matching pattern, else `additionalProperties`.
+        for (const property of kind.required) {
+          if (Object.hasOwn(out, property)) continue
+          const effective = schemaFor(property)
+          // Where the name cannot legally hold a value at all, the document
+          // contradicts itself and there is nothing to emit (invariant 4).
           if (effective === undefined) continue
           out[property] = walk(
             effective, depth + 1, property, name, undefined, `${path}.${property}`

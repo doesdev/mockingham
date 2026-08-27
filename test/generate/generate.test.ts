@@ -562,6 +562,43 @@ function shapeOf(value: unknown): unknown {
   return typeof value
 }
 
+/**
+ * A live invariant-1 divergence, found while implementing the object keywords
+ * and left alone there because closing it belonged to nobody's task.
+ *
+ * Validation enforces a `required` name that has no `properties` entry - the
+ * `undeclared` check exists precisely because `then: { required: ['reason'] }`
+ * is the ordinary way to write one. Generation skipped it, because its loop is
+ * over `properties`. So the mock generated a body its own validator rejects,
+ * which is the one thing the shared traversal is supposed to make impossible.
+ */
+test('a required name with no declared property is still generated', () => {
+  const schema: Schema = { type: 'object', required: ['ghost'] }
+  for (const seed of ['a', 'b', 'c']) {
+    const value = generateValue(schema, createRng(seed)) as Record<string, unknown>
+    assert.ok(
+      Object.hasOwn(value, 'ghost'),
+      `seed ${seed}: ${JSON.stringify(value)}`
+    )
+  }
+})
+
+test('a generated body satisfies its own required list', () => {
+  // The general statement of the same thing: what we generate must pass what
+  // we validate. Asserted through the compiler rather than by inspection.
+  const schema: Schema = {
+    type: 'object',
+    required: ['declared', 'ghost'],
+    properties: { declared: { type: 'string' } }
+  }
+  const compiled = createCompiler().compile(schema)
+  for (const seed of ['a', 'b', 'c']) {
+    const value = generateValue(schema, createRng(seed))
+    const result = compiled.safeParse(value)
+    assert.equal(result.success, true, `seed ${seed}: ${JSON.stringify(value)}`)
+  }
+})
+
 test('a union beside an object shape costs no level of the depth budget', () => {
   // The control is the identical document with the `anyOf` removed, so the
   // nesting either side of the comparison is the same.

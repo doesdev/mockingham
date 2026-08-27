@@ -100,6 +100,50 @@ test('a cycle expressed through a union sibling base is recursive', () => {
   assert.equal(isRecursive(node), true)
 })
 
+/**
+ * One case per remaining schema-bearing branch.
+ *
+ * `isRecursive` is the guard that stops a self-referencing document reaching an
+ * LLM provider, and it is only as complete as its list of branches to follow.
+ * Every keyword that carries a subschema adds a branch, and a branch nobody
+ * follows is a cycle nobody catches - silently, because a missed branch never
+ * fails a test that does not exist. Four keywords landed at once here, each
+ * adding a branch, and none of the four changes conflicted with this function.
+ *
+ * If you add a keyword that carries a subschema, add a case here.
+ */
+test('a cycle expressed through contains is recursive', () => {
+  const node: Schema = { type: 'object', properties: {} }
+  node.properties = { audit: { type: 'array', contains: node } }
+  assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through patternProperties is recursive', () => {
+  const node: Schema = { type: 'object', patternProperties: {} }
+  node.patternProperties = { '^child_': node }
+  assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through dependentSchemas is recursive', () => {
+  const node: Schema = { type: 'object', properties: { tag: { type: 'string' } } }
+  node.dependentSchemas = { tag: node }
+  assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through not is recursive', () => {
+  const node: Schema = { type: 'object', properties: {} }
+  node.properties = { other: { not: node, type: 'object' } }
+  assert.equal(isRecursive(node), true)
+})
+
+test('a cycle expressed through propertyNames is recursive', () => {
+  // Degenerate as a document, but it is a subschema position like any other,
+  // and the point of this block is that no position is left unfollowed.
+  const node: Schema = { type: 'object' }
+  node.propertyNames = node
+  assert.equal(isRecursive(node), true)
+})
+
 function baseOperation() {
   return {
     method: 'get' as const,
