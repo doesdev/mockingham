@@ -584,7 +584,8 @@ mockingham ./openapi.json --port 4000
 
 Serves the document. `--seed <s>` pins generation, `--fixtures <dir>` serves
 committed fixture files ahead of generation, `--watch` reloads the document
-when it changes on disk, and with no `--port` an ephemeral one is chosen.
+when it changes on disk, `--max-depth <n>` sets the generation depth budget
+(default 12), and with no `--port` an ephemeral one is chosen.
 
 ```sh
 mockingham bake ./openapi.json --fixtures ./fixtures --model llama3.3
@@ -648,6 +649,13 @@ parsed.
 - **Recursive schemas terminate at a configurable `maxDepth`** rather than
   generating forever, and are excluded from LLM-backed fixture generation
   entirely - structured-output APIs can't express a recursive JSON Schema.
+  The budget counts nesting levels and defaults to 12 (`--max-depth <n>` on
+  the CLI, `maxDepth` in `createMock`). Resolving a `oneOf`/`anyOf` costs
+  nothing, so a document truncates in the same place whether its payload sits
+  behind a union or is written inline. When the budget does run out, the
+  container is truncated to `{}` or `[]` - which can leave a 200 response
+  missing properties the document declares `required` - and a warning naming
+  the schema path is emitted once per path, so truncation is never silent.
 - **No stateful CRUD.** A `POST` does not change what a later `GET` returns;
   every response is generated (or served from a fixture) independently.
   Idempotency replay and [response linking](#response-linking) are the two

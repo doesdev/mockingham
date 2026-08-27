@@ -23,6 +23,9 @@ export const USAGE = `mockingham - OpenAPI driven HTTP mock server
   --seed <s>        Generation seed (default: mockingham)
   --fixtures <dir>  Serve committed fixture files from this directory
   --watch           Reload the document when it changes on disk
+  --max-depth <n>   Nesting levels generated before a container is truncated
+                    to {} or [] (default: 12). Raise it for a document deeper
+                    than that; truncation is warned about on stderr.
   --help, -h        Show this message
 
   mockingham bake <document.json> [options]   Generate fixture files
@@ -48,9 +51,14 @@ export interface CliArgs {
   fixtures?: string
   watch: boolean
   help: boolean
+  /**
+   * Left undefined when the flag is absent, so the handler's own default
+   * applies rather than the CLI pinning a second copy of the number.
+   */
+  maxDepth?: number
 }
 
-const NEEDS_VALUE = new Set(['--port', '--seed', '--fixtures'])
+const NEEDS_VALUE = new Set(['--port', '--seed', '--fixtures', '--max-depth'])
 
 export function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
@@ -59,7 +67,8 @@ export function parseArgs(argv: string[]): CliArgs {
     seed: undefined,
     fixtures: undefined,
     watch: false,
-    help: false
+    help: false,
+    maxDepth: undefined
   }
 
   for (let i = 0; i < argv.length; i++) {
@@ -92,6 +101,15 @@ export function parseArgs(argv: string[]): CliArgs {
           throw new Error(`mockingham: --port must be a port number, got "${value}"`)
         }
         args.port = port
+      } else if (name === '--max-depth') {
+        const depth = Number(value)
+        if (!Number.isInteger(depth) || depth < 1) {
+          throw new Error(
+            `mockingham: --max-depth must be a whole number of nesting levels ` +
+              `of at least 1, got "${value}"`
+          )
+        }
+        args.maxDepth = depth
       } else if (name === '--fixtures') {
         args.fixtures = value
       } else {
@@ -169,7 +187,12 @@ export async function startCli(
       fixtures = { store }
     }
 
-    return createHandler(api, { seed: args.seed, fixtures, onWarn: log })
+    return createHandler(api, {
+      seed: args.seed,
+      fixtures,
+      maxDepth: args.maxDepth,
+      onWarn: log
+    })
   }
 
   let current = await build()

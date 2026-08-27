@@ -43,9 +43,48 @@ export interface GenerateOptions {
    * generated. The handler deduplicates and routes it to `onWarn`.
    */
   onUnsupportedPattern?: (pattern: string) => void
+  /**
+   * Called with the schema path of a container the depth budget truncated -
+   * `$.result.payload`, `$.rows[]` - every time one is truncated. The handler
+   * deduplicates and routes it to `onWarn`, exactly as `onUnsupportedPattern`
+   * is routed.
+   *
+   * Truncation is otherwise indistinguishable from success at the HTTP layer:
+   * the status is 200, the media type is right, the body parses, and the top
+   * level keys are present - only the declared `required` properties further
+   * down are missing. This is the only signal that it happened.
+   *
+   * Reporting must never change what is generated. It reads no randomness and
+   * is called after the truncated value is already decided, so invariant 2 is
+   * untouched whether a handler is supplied or not.
+   */
+  onDepthExhausted?: (path: string) => void
 }
 
-const DEFAULT_MAX_DEPTH = 3
+/**
+ * The nesting depth generation walks before it truncates.
+ *
+ * This was 3, which is reached by envelope structure alone: three wrapper
+ * levels around a payload exhaust the budget before the payload's own nesting
+ * begins, and the truncated body then violates the document's own `required`
+ * list while answering 200. Twelve leaves recursion protection fully intact -
+ * a cyclic schema still terminates, which is the only thing the budget exists
+ * for - while clearing every ordinary document. It is a bound on runaway
+ * recursion, not a size limit on honest documents.
+ */
+export const DEFAULT_MAX_DEPTH = 12
+
+/**
+ * How many unions may be resolved in a row before generation gives up.
+ *
+ * Resolving a union no longer spends a level of the depth budget - choosing a
+ * branch is a decision about what this node is, not a step down the tree - so
+ * `maxDepth` alone no longer bounds a schema whose union branch is the union
+ * itself (`Node: { oneOf: [Node, ...] }`). Every other kind still descends
+ * through `depth + 1`, so this only ever bounds a chain of bare unions, and any
+ * non-union resets it.
+ */
+const MAX_UNION_HOPS = 32
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -70,7 +109,11 @@ export function generateValue(
      * derived copy, so a `bySchema` resolver would otherwise stop finding the
      * component the properties were declared on.
      */
-    identity?: Schema
+    identity?: Schema,
+    /** The schema path of this node, for the truncation warning. */
+    path = '$',
+    /** See MAX_UNION_HOPS. Any non-union descent resets it by defaulting. */
+    unionHops = 0
   ): unknown {
     const hook = options.resolvers?.resolve(
       current, propertyName, containerName, options.ctx
@@ -91,9 +134,13 @@ export function generateValue(
     const origin = identity ?? current
     const conditional = conditionalOf(current)
     if (conditional !== undefined) {
-      return branch(conditional, origin, depth, propertyName, containerName)
+      return branch(
+        conditional, origin, depth, propertyName, containerName, path, unionHops
+      )
     }
-    return shape(current, origin, depth, propertyName, containerName)
+    return shape(
+      current, origin, depth, propertyName, containerName, path, unionHops
+    )
   }
 
   /**
@@ -122,17 +169,27 @@ export function generateValue(
     origin: Schema,
     depth: number,
     propertyName?: string,
-    containerName?: string
+    containerName?: string,
+    path = '$',
+    unionHops = 0
   ): unknown {
     const takeThen = rng.bool()
     const when = compileSchema(conditional.when)
 
+    // At the parent's own depth, for the same reason a union is: choosing a
+    // branch says what this node IS, it does not descend into it. `shape` does
+    // not re-enter here, so a conditional chain is bounded by construction and
+    // needs no counterpart to MAX_UNION_HOPS.
     const first = takeThen ? conditional.whenTrue : conditional.whenFalse
-    const candidate = shape(first, origin, depth, propertyName, containerName)
+    const candidate = shape(
+      first, origin, depth, propertyName, containerName, path, unionHops
+    )
     if (when.safeParse(candidate).success === takeThen) return candidate
 
     const second = takeThen ? conditional.whenFalse : conditional.whenTrue
-    const retry = shape(second, origin, depth, propertyName, containerName)
+    const retry = shape(
+      second, origin, depth, propertyName, containerName, path, unionHops
+    )
     if (when.safeParse(retry).success !== takeThen) return retry
 
     // Neither aim landed: a document whose `if` can be neither hit nor missed
@@ -152,7 +209,9 @@ export function generateValue(
     origin: Schema,
     depth: number,
     propertyName?: string,
-    containerName?: string
+    containerName?: string,
+    path = '$',
+    unionHops = 0
   ): unknown {
     const kind = classify(current)
     // `classify` merges `allOf` internally to decide the shape, but the
@@ -182,10 +241,16 @@ export function generateValue(
       case 'null':
         return null
       case 'union': {
-        // A sibling shape makes this node an object as much as a union, so an
-        // exhausted budget yields the empty object the object case would.
+        // Only a chain of bare unions can reach this - see MAX_UNION_HOPS.
+        if (unionHops >= MAX_UNION_HOPS) return null
+        // No `depth >= maxDepth` guard here at all, in either shape. Resolving
+        // a union is a decision about what this node is, not a step down the
+        // tree, so the chosen branch - or the sibling base - hits its own guard
+        // and truncates in kind: `{}` for an object, `[]` for an array, and the
+        // warning reported by whichever case actually truncated. The old guard
+        // returned `null` where the document declared an object, which is a
+        // harder failure for a consumer than an empty one.
         const base = kind.base
-        if (depth >= maxDepth) return base === undefined ? null : {}
         // A requested variant selects its branch directly, which deliberately
         // skips the `rng.pick` call - so a request with a variant produces a
         // different byte stream than one without. The same variant always
@@ -202,13 +267,30 @@ export function generateValue(
         // Named for the variant, not the conditional `branch()` above, which it
         // would otherwise shadow inside this block.
         const variant = chosen ?? rng.pick(kind.variants)
-        if (base === undefined) return walk(variant, depth + 1)
+        // `depth`, NOT `depth + 1`: spending a level here made an otherwise
+        // identical document truncate one level earlier whenever a union
+        // appeared in it.
+        if (base === undefined) {
+          return walk(
+            variant,
+            depth,
+            // Deliberately not forwarded, as before: a resolver already saw
+            // this property name at the union node itself.
+            undefined,
+            undefined,
+            undefined,
+            path,
+            unionHops + 1
+          )
+        }
 
         // With a sibling shape both constrain the same instance: generate the
         // declared object, then lay the chosen branch's own contribution over
         // it. `identity` keeps bySchema resolvers pointed at the component,
         // whose name the derived base is not registered under.
-        const value = walk(base, depth, propertyName, containerName, current)
+        const value = walk(
+          base, depth, propertyName, containerName, current, path, unionHops + 1
+        )
         // Only a branch with an object shape of its own can contribute. A
         // branch declaring only `required` - the usual "at least one of these"
         // idiom - now classifies as an object too, since a bare `required` is
@@ -216,13 +298,20 @@ export function generateValue(
         // declares no properties, and every property the base declares is
         // generated anyway.
         if (classify(variant).kind !== 'object') return value
-        const extra = walk(variant, depth, propertyName, containerName)
+        const extra = walk(
+          variant,
+          depth,
+          propertyName,
+          containerName,
+          undefined,
+          path,
+          unionHops + 1
+        )
         if (!isRecord(value)) return extra
         if (!isRecord(extra)) return value
         return { ...value, ...extra }
       }
       case 'array': {
-        if (depth >= maxDepth) return []
         const { min, max } = arrayLength(merged)
         // A tuple position is the document saying that position exists, so the
         // generated array covers the whole tuple where `maxItems` allows it.
@@ -233,7 +322,19 @@ export function generateValue(
         const low =
           tupleLength > 0 ? Math.min(Math.max(min, tupleLength), max) : min
         const high = tupleLength > 0 && !open ? low : Math.max(low, max)
+        if (depth >= maxDepth) {
+          // `low`, not `min`: a tuple with no `minItems` still declares its
+          // positions, so truncating one drops declared content and is worth
+          // reporting exactly as a `minItems` array is.
+          if (low > 0) options.onDepthExhausted?.(`${path}[]`)
+          return []
+        }
         const count = rng.int(low, high)
+        // A tuple position gets its own path so two positions truncating are
+        // two warnings rather than one - the handler dedupes by path, and
+        // `[]` for every position would silence all but the first.
+        const pathAt = (index: number): string =>
+          index < tupleLength ? `${path}[${index}]` : `${path}[]`
         const items: unknown[] = []
         if (merged.uniqueItems === true) {
           // Drawn WITHOUT replacement. `seen` is only ever probed with `.has`
@@ -250,8 +351,12 @@ export function generateValue(
             // Keyed on the position being FILLED, not the attempt number, so a
             // rejected duplicate redraws from the same tuple position rather
             // than sliding down the tuple.
-            const at = kind.prefix[items.length] ?? kind.items
-            const item = walk(at, depth + 1, propertyName, containerName)
+            const position = items.length
+            const at = kind.prefix[position] ?? kind.items
+            const item = walk(
+              at, depth + 1, propertyName, containerName, undefined,
+              pathAt(position)
+            )
             const key = canonicalKey(item)
             if (seen.has(key)) continue
             seen.add(key)
@@ -261,12 +366,24 @@ export function generateValue(
         }
         for (let i = 0; i < count; i++) {
           const at = kind.prefix[i] ?? kind.items
-          items.push(walk(at, depth + 1, propertyName, containerName))
+          items.push(
+            walk(
+              at, depth + 1, propertyName, containerName, undefined, pathAt(i)
+            )
+          )
         }
         return items
       }
       case 'object': {
-        if (depth >= maxDepth) return {}
+        if (depth >= maxDepth) {
+          // An object with nothing declared on it generates `{}` at any depth,
+          // so there is nothing to report - only a truncation that actually
+          // drops declared properties is worth a warning.
+          if (Object.keys(kind.properties).length > 0) {
+            options.onDepthExhausted?.(path)
+          }
+          return {}
+        }
         const out: Record<string, unknown> = {}
         // The container name is this schema's own component name, so a
         // bySchema entry for `User` addresses the properties declared on User.
@@ -277,7 +394,9 @@ export function generateValue(
           // false } }` is how a branch says "x must be absent" - so it is
           // omitted rather than emitted with some placeholder.
           if (child === 'never') continue
-          out[property] = walk(child, depth + 1, property, name)
+          out[property] = walk(
+            child, depth + 1, property, name, undefined, `${path}.${property}`
+          )
         }
         return out
       }

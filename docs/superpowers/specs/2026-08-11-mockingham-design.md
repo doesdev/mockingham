@@ -250,8 +250,23 @@ a generated value breaks the match.
 > `docs/superpowers/specs/2026-08-15-mockingham-correctness-design.md` §3.
 
 Recursive schemas are detected during `$ref` resolution and generated to a
-configurable `maxDepth` (default 3), then terminated with `null` if nullable or
+configurable `maxDepth` (default 12), then terminated with `null` if nullable or
 an empty object/array otherwise.
+
+> **Corrected 2026-08-27 (consumer report against 0.2.0, findings 2 and 7).**
+> The default was 3, which is reached by envelope structure alone - three
+> wrapper levels around a payload exhaust the budget before the payload's own
+> nesting begins - and the truncated body then violates the document's own
+> `required` list while answering 200. Raised to 12, which leaves the recursion
+> protection the budget exists for fully intact. Two further corrections in the
+> same place: resolving a union no longer spends a level (choosing a branch is a
+> decision about what a node is, not a step down the tree, and a document used
+> to truncate one level earlier merely for having a `oneOf` in it), and an
+> exhausted union now truncates to the chosen branch's own empty value rather
+> than to `null`. Truncation is no longer silent - `onDepthExhausted` reports
+> the schema path and the handler routes it to `onWarn`, once per path, exactly
+> as the unsupported-pattern warning above is routed. `--max-depth <n>` exposes
+> the budget on the CLI.
 
 ---
 
@@ -855,7 +870,7 @@ createMock(doc, {
   validateRequests?: boolean        // default true
   debugHeaders?: boolean            // default false
   errorBody?: 'contract' | 'diagnostic' | ErrorBodyFn
-  maxDepth?: number                 // recursive schema cutoff, default 3
+  maxDepth?: number                 // nesting cutoff, default 12
   baseUrl?: string
   store?: Store
   headers?: Record<string, HeaderValue>

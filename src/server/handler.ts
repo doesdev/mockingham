@@ -5,6 +5,7 @@ import { createVirtualClock } from '../generate/clock.ts'
 import type { Ticker } from '../generate/clock.ts'
 import { compileResolvers } from '../resolve/resolvers.ts'
 import type { GenerateOptions } from '../generate/generate.ts'
+import { DEFAULT_MAX_DEPTH } from '../generate/generate.ts'
 import { parseBody } from '../runtime/body.ts'
 import { renderResponse } from '../runtime/render.ts'
 import { createContext, createCounters } from '../runtime/context.ts'
@@ -174,6 +175,12 @@ export interface Handler {
 
 export interface HandlerOptions {
   seed?: string
+  /**
+   * Nesting levels generated before a container is truncated to `{}` or `[]`.
+   * Defaults to `DEFAULT_MAX_DEPTH` (12) - a bound on runaway recursion, not a
+   * size limit on honest documents. Truncation warns through `onWarn` once per
+   * schema path, since it is otherwise indistinguishable from success.
+   */
   maxDepth?: number
   preferExamples?: boolean
   debugHeaders?: boolean
@@ -366,6 +373,27 @@ export function createHandler(
     )
   }
 
+  // Same shape and same reasoning as the pattern warning above: once per
+  // truncated schema path for the life of the handler, membership only, never
+  // iterated. Truncation is otherwise invisible to a consumer - 200, the right
+  // media type, a body that parses and top-level keys that are present, with
+  // only the declared `required` properties further down missing - so this is
+  // the only signal that the depth budget was reached. `generateValue` calls it
+  // after the truncated value is already decided, so emitting it cannot change
+  // a byte of the response.
+  const warnedDepthPaths = new Set<string>()
+  const onDepthExhausted = (path: string): void => {
+    if (warnedDepthPaths.has(path)) return
+    warnedDepthPaths.add(path)
+    warn(
+      `mockingham: the generated value was truncated at ${path} because the ` +
+        `depth budget (maxDepth ${options.maxDepth ?? DEFAULT_MAX_DEPTH}) ran ` +
+        'out, so declared properties below it are missing from the response. ' +
+        'Raise maxDepth (--max-depth on the CLI) if the document is deeper ' +
+        'than the budget rather than recursive.'
+    )
+  }
+
   // Compiled once. An expression outside the documented subset warns here
   // rather than silently never firing - the same reasoning as `compileTarget`
   // throwing on a target that matches nothing.
@@ -449,7 +477,8 @@ export function createHandler(
     preferExamples: options.preferExamples,
     resolvers,
     schemaNames: api.schemaNames,
-    onUnsupportedPattern
+    onUnsupportedPattern,
+    onDepthExhausted
   }
 
   const webhookConfigs = new Map<string, ResolvedWebhook>()
