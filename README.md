@@ -29,8 +29,12 @@ things as contracts, not happy accidents:
   that generates a response body also compiles the validator an incoming
   request is checked against. Generation and validation cannot quietly
   disagree with each other, because they are not two implementations -
-  they're one, read two ways. (One documented exception: see
-  [Known limitations](#known-limitations).)
+  they're one, read two ways. Where the two are not symmetric they lean one
+  way only: **validation is exact, and generation is what approximates.** A
+  schema mockingham cannot fully satisfy is served as closely as it can be
+  rather than raised as an error, and every case where that happens is named
+  in [Known limitations](#known-limitations). None of them ever loosens what
+  an incoming request is checked against.
 - **Errors stay on-contract.** When an operation declares its own error
   schema - a `422` with a body shape - that's what mockingham emits for it.
   The built-in error envelope is a fallback for operations that declare
@@ -55,6 +59,9 @@ no flag turns off. Every install of 0.2.0 therefore failed on
 `npm run check:install` packs, installs into an empty directory, imports by
 name and runs the bin; CI runs it, because no test inside this repository can
 see that class of defect.
+
+Release history is in [CHANGELOG.md](CHANGELOG.md), which ships with the
+package.
 
 `zod` is the only runtime dependency. `@anthropic-ai/sdk` (for baking
 fixtures against Claude) and `@modelcontextprotocol/sdk` (for the MCP

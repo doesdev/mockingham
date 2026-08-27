@@ -15,6 +15,13 @@ import { readFileSync } from 'node:fs'
 /** Everything npm includes on its own, regardless of `files`. */
 const ALWAYS_INCLUDED = new Set(['package.json', 'README.md', 'LICENSE'])
 
+/**
+ * Listed in `files` rather than included automatically - npm ships a README and
+ * a LICENSE on its own but not a changelog, and someone reading an installed
+ * copy in `node_modules` is exactly who wants to know what changed.
+ */
+const SHIPPED_DOCS = new Set(['CHANGELOG.md'])
+
 interface PackResult {
   files: Array<{ path: string }>
 }
@@ -50,7 +57,8 @@ const unexpected = paths.filter(
   (path) =>
     !path.startsWith('src/') &&
     !path.startsWith('dist/') &&
-    !ALWAYS_INCLUDED.has(path)
+    !ALWAYS_INCLUDED.has(path) &&
+    !SHIPPED_DOCS.has(path)
 )
 
 if (unexpected.length > 0) {
@@ -113,7 +121,7 @@ for (const target of entryTargets) {
 
 const distFiles = paths.filter((path) => path.startsWith('dist/'))
 
-for (const required of ALWAYS_INCLUDED) {
+for (const required of [...ALWAYS_INCLUDED, ...SHIPPED_DOCS]) {
   if (!paths.includes(required)) {
     console.error(`mockingham: the tarball is missing ${required}`)
     process.exit(1)
@@ -123,5 +131,6 @@ for (const required of ALWAYS_INCLUDED) {
 console.log(
   `mockingham: tarball carries ${distFiles.length} built files, ` +
     `${sourceFiles.length} source files (for the maps), ` +
-    `${[...ALWAYS_INCLUDED].sort().join(', ')}, and nothing else`
+    `${[...ALWAYS_INCLUDED, ...SHIPPED_DOCS].sort().join(', ')}, ` +
+    'and nothing else'
 )

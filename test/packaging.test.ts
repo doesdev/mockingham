@@ -56,12 +56,13 @@ test('no subpath exposes the implementation tree', async () => {
   assert.deepEqual(subpaths, ['.', './package.json'])
 })
 
-test('the published file list carries dist and src, and nothing else', async () => {
+test('the published file list carries dist, src and the changelog', async () => {
   // There was no `files` field at all once, so a publish shipped test/, docs/,
   // and every scratch file in the tree. npm always includes README and LICENSE
-  // on its own, so neither needs listing here.
+  // on its own, so neither needs listing here - but not a changelog, which is
+  // why that one is listed explicitly.
   const pkg = await manifest()
-  assert.deepEqual(pkg['files'], ['dist', 'src'])
+  assert.deepEqual(pkg['files'], ['dist', 'src', 'CHANGELOG.md'])
 })
 
 test('packing builds first, so dist cannot go stale or missing', async () => {

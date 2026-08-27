@@ -23,6 +23,15 @@ const DOCUMENTS = [
  */
 const EXEMPT = new Map<string, string>([
   ['CLAUDE.md', 'operating manual for agents working ON this repo, not for its readers'],
+  [
+    'CHANGELOG.md',
+    // Its snippets are schema fragments and error codes, not programs: there is
+    // nothing to run and nothing whose output could drift. The claims that CAN
+    // rot - a default value, a flag name, a keyword being honored - are made in
+    // README.md and the guides, which the harness does execute, so the coverage
+    // that matters is not lost by exempting this.
+    'a release history - it describes past behavior, and executing it would mean running old versions'
+  ],
   ['docs/superpowers', 'design specs, plans, and the deferred-items ledger - internal process records'],
   ['test/docs/fixtures', 'deliberately broken documents that exist to prove the harness rejects them']
 ])

@@ -11,16 +11,32 @@ this file is only the operating manual.
 ```sh
 npm test                 # node --test - runs .ts tests directly, no build
 npm run typecheck        # tsc --noEmit
+npm run build            # tsc -p tsconfig.build.json - emits dist/, run by prepack
 npm run check:package    # what a publish would actually ship
+npm run check:install    # packs, installs the tarball elsewhere, imports it
+npm run determinism      # the script the cross-process test spawns twice
 node --test test/spec/   # scope tests to one directory
 node src/server/cli.ts docs/example.json --port 4000   # run the mock from a document
 ```
 
-CI (`.github/workflows/ci.yml`) runs the first three on Node 24 and current
-LTS, plus an advisory job on the newest Node - this package is built directly
-on native type stripping, so a break in an unreleased line is worth seeing
-early and is not a reason to block a pull request. `npm ci` there will fail if
-the lockfile and `package.json` disagree, which is deliberate.
+Development runs the TypeScript directly under native type stripping; what is
+PUBLISHED is compiled JavaScript, because Node refuses to strip types under
+`node_modules`. `npm run build` is what bridges the two, and `prepack` runs it
+so a publish cannot ship a stale or missing `dist/`.
+
+CI (`.github/workflows/ci.yml`) runs `typecheck` and `test` on Node 24 and
+current LTS, `check:package` and `check:install` in a separate job, and an
+advisory job on the newest Node - development still rides on native type
+stripping, so a break in an unreleased line is worth seeing early and is not a
+reason to block a pull request. `npm ci` there will fail if the lockfile and
+`package.json` disagree, which is deliberate.
+
+**`check:install` is the only check that leaves the repository, and that is the
+point.** Every test here reaches into `src/` by relative path, so a package
+whose published entry points cannot be loaded at all passes the entire suite -
+which is exactly what shipped in 0.2.0. If a defect's precondition is a
+property of the ENVIRONMENT rather than of the code, no in-repo test can see
+it.
 
 ## Non-negotiable invariants
 
