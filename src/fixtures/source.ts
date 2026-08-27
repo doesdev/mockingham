@@ -80,9 +80,18 @@ export function isRecursive(schema: Schema): boolean {
     const nested = new Set(seen)
     nested.add(node)
     const kind = classify(node)
-    if (kind.kind === 'array') return walk(kind.items, nested)
+    if (kind.kind === 'array') {
+      // Both schema-bearing branches: the tail AND every tuple position.
+      // Following only the tail would let a cycle routed through a
+      // `prefixItems` entry build a request whose JSON Schema self-references.
+      if (walk(kind.items, nested)) return true
+      return kind.prefix.some((position) => walk(position, nested))
+    }
     if (kind.kind === 'union') {
-      return kind.variants.some((variant) => walk(variant, nested))
+      if (kind.variants.some((variant) => walk(variant, nested))) return true
+      // The shape declared BESIDE the union carries properties no variant
+      // mentions, so a cycle can live there and nowhere else.
+      return kind.base !== undefined && walk(kind.base, nested)
     }
     if (kind.kind === 'object') {
       const throughProperties = Object.keys(kind.properties)
