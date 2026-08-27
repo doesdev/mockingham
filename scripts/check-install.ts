@@ -123,10 +123,90 @@ try {
     // Expected: ERR_PACKAGE_PATH_NOT_EXPORTED.
   }
 
+  // 4. The TYPES resolve from an installed copy. With one entry point and no
+  //    implementation subpath, a type the root does not re-export is a type a
+  //    consumer cannot name at all - `any` or a local restatement that rots on
+  //    the next release. `test/public-types.test.ts` pins the export list, but
+  //    only from inside the repository, where `src/` is reachable by relative
+  //    path; whether the EMITTED declarations resolve is a property of the
+  //    tarball, and the emitted `.d.ts` re-exports carry `.ts` specifiers that
+  //    a consumer's tsc has to map back to `.d.ts` itself. Same lesson as the
+  //    entry points, one layer up: skipLibCheck is off here deliberately.
+  const typed = join(scratch, 'typed')
+  mkdirSync(typed, { recursive: true })
+  writeFileSync(
+    join(typed, 'package.json'),
+    '{"name":"typed","private":true,"type":"module"}'
+  )
+  npm(['install', '--no-audit', '--no-fund', join(scratch, tarball)], typed)
+  writeFileSync(
+    join(typed, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: {
+        target: 'es2023',
+        lib: ['es2023', 'dom'],
+        module: 'nodenext',
+        moduleResolution: 'nodenext',
+        strict: true,
+        noEmit: true,
+        skipLibCheck: false,
+        types: []
+      },
+      include: ['consumer.ts']
+    })
+  )
+  writeFileSync(
+    join(typed, 'consumer.ts'),
+    [
+      "import { createMock } from 'mockingham'",
+      'import type {',
+      '  Ctx, EmitCtx, Decisions, Resolver, Resolvers, OverrideNode,',
+      '  OperationConfig, StatusConfig, EmitConfig, EmitOptions,',
+      "  FailurePolicy, CircuitPolicy, Directive, Store, HandlerOptions, MockOptions",
+      "} from 'mockingham'",
+      '',
+      'const respond = (ctx: Ctx): Promise<Response> =>',
+      '  ctx.respond(200, { id: ctx.requestId, n: ctx.seq("x") })',
+      'const status: StatusConfig = { body: { ok: true } as OverrideNode, headers: {} }',
+      'const emit: EmitConfig = { webhook: "w", afterMs: (c: EmitCtx) => c.result.status }',
+      'const config: OperationConfig = { respond, emits: [emit], 200: status }',
+      'const byFormat: Resolver = (ctx: Ctx) => ctx.rng.int(1, 9)',
+      'const resolvers: Resolvers = { byFormat: { id: byFormat } }',
+      'const circuit: CircuitPolicy = { after: 2, openFor: 10, then: 503 }',
+      'const failure: FailurePolicy[] = [{ match: "* /**", rate: 0, circuit }]',
+      'const decide = (ctx: Ctx): Directive | undefined =>',
+      '  ctx.decisions.auth === "denied" ? { status: 403 } : undefined',
+      'const options: HandlerOptions =',
+      '  { operations: { "* /**": config }, resolvers, failure, decide }',
+      'const mockOptions: MockOptions = { ...options }',
+      'const mock = createMock({}, mockOptions)',
+      'const store: Store = mock.store',
+      'const emitOptions: EmitOptions = {}',
+      'void store; void emitOptions; void mock',
+      'const decisions: Decisions = {}',
+      'void decisions'
+    ].join('\n')
+  )
+  try {
+    // The repo's own tsc, so this needs no network and no second install.
+    run(
+      process.execPath,
+      [join(repo, 'node_modules', 'typescript', 'bin', 'tsc'), '--noEmit', '-p', 'tsconfig.json'],
+      typed
+    )
+  } catch (error) {
+    fail(
+      'the published types do not resolve from an installed copy',
+      (error as { stdout?: string; stderr?: string }).stdout ??
+        (error as { stderr?: string }).stderr ??
+        error
+    )
+  }
+
   if (!failed) {
     console.log(
-      'mockingham: the installed package imports by name, its bin runs, and ' +
-        'deep imports stay unexported'
+      'mockingham: the installed package imports by name, its bin runs, its ' +
+        'handler types resolve, and deep imports stay unexported'
     )
   }
 } finally {

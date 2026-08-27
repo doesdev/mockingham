@@ -60,6 +60,17 @@ no flag turns off. Every install of 0.2.0 therefore failed on
 name and runs the bin; CI runs it, because no test inside this repository can
 see that class of defect.
 
+The package name is the only import path - `exports` declares `.` and
+`./package.json`, and nothing else, so the module layout stays free to move.
+Every type you need to write a typed handler is re-exported from that one
+entry point: `Ctx` and `EmitCtx` for the value each callback receives,
+`OperationConfig`, `StatusConfig` and `EmitConfig` for what you declare an
+operation with, `Resolver` and `Resolvers`, `OverrideNode`, `FailurePolicy`,
+`CircuitPolicy`, `Directive`, `Store`, `HandlerOptions` and `MockOptions`.
+The two ends of the wire are not library types at all - `ctx.req` is a WHATWG
+`Request` and `ctx.respond()` resolves to a `Response`. There's a worked
+example under [Typed handlers](#typed-handlers).
+
 Release history is in [CHANGELOG.md](CHANGELOG.md), which ships with the
 package.
 
@@ -117,6 +128,40 @@ Notice `currency`: the document declares it `pattern: "^[A-Z]{3}$"`, and
 `"UMQ"` is generated from that pattern rather than in spite of it. Generation
 covers a documented subset of regex - see
 [Known limitations](#known-limitations) for what falls outside it.
+
+## Typed handlers
+
+A handler is an ordinary function of a `Ctx`, and every type its signature
+needs comes from the package root:
+
+```ts
+import type { Ctx, OperationConfig } from 'mockingham'
+
+const listPayments: OperationConfig = {
+  respond: (ctx: Ctx) =>
+    ctx.respond(200, { data: [], nextCursor: null }, { 'x-handled-by': 'test' })
+}
+
+const typed = createMock(doc, { operations: { listPayments } })
+const handled = await typed.fetch(
+  new Request('http://mock/payments', {
+    headers: { authorization: 'Bearer test-token' }
+  })
+)
+console.log(`${handled.status} ${handled.headers.get('x-handled-by')}`)
+await typed.close()
+```
+
+```console
+200 test
+```
+
+`OperationConfig` is keyed by target, so `listPayments` above is an
+`operationId`; `'GET /payments'` and `'* /payments/**'` address the same
+operation by method and path. The other names a typed configuration reaches
+for - `StatusConfig`, `EmitConfig`, `Resolver`, `Resolvers`, `OverrideNode`,
+`FailurePolicy`, `Directive`, `EmitCtx`, `Store` - are exported from the same
+place.
 
 ## Determinism, demonstrated
 

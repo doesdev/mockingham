@@ -7,6 +7,30 @@ follow semver with the usual 0.x caveat that a minor bump may change behavior.
 Releases before 0.2.1 predate this file. 0.2.0 is summarized anyway, because
 anyone who installed it needs to know why it did not work.
 
+## 0.5.0 - 2026-08-27
+
+Types only. Nothing that runs changed, and nothing became newly public - the
+entry point simply names what it already exposed.
+
+### Added
+
+- **The handler types are reachable from the package root.** `exports`
+  declares `.` and `./package.json` only - deliberately - so a type the entry
+  point did not re-export was one a consumer could not name at all, leaving
+  `any` on every handler or a local restatement of our interfaces that rots on
+  the next release. `Ctx`, `EmitCtx`, `Decisions`, `Resolver`, `Resolvers`,
+  `OverrideNode`, `OperationConfig`, `StatusConfig`, `EmitConfig`,
+  `EmitOptions`, `FailurePolicy`, `CircuitPolicy`, `Directive` and `Store` now
+  forward from `index.ts`. Types only - no runtime change, no new subpath, and
+  nothing newly public: `Ctx` was already derivable as
+  `Parameters<NonNullable<HandlerOptions['decide']>>[0]`, which is what made
+  this a forwarding gap rather than a design decision.
+- `check:install` now typechecks a consumer file against the installed
+  tarball, with `skipLibCheck` off. The in-repo test pins the export list, but
+  whether the EMITTED declarations resolve is a property of the package rather
+  than of the source - the same reason the entry-point check has to leave the
+  repository.
+
 ## 0.4.0 - 2026-08-27
 
 Every schema keyword this project previously documented as unread is now read,

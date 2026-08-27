@@ -347,7 +347,28 @@ export function createMock(
 
 export { loadApi } from './spec/load.ts'
 export type { Api, Operation, Schema } from './spec/types.ts'
-export type { HandlerOptions } from './server/handler.ts'
+export type { HandlerOptions, EmitOptions } from './server/handler.ts'
+
+// Writing a typed handler needs these, and `exports` deliberately declares only
+// `.`, so an unexported type is one a consumer cannot name at all - the choice
+// left is `any` or a local restatement that rots on the next release. `Ctx` was
+// reachable by indexed access already
+// (`Parameters<NonNullable<HandlerOptions['decide']>>[0]`), which is proof the
+// gap was forwarding rather than design: nothing here is newly public, it is
+// only newly nameable. Forwarded from the root rather than given an `exports`
+// subpath, which would buy a second public entry point and the module layout
+// commitment that comes with it.
+export type {
+  Ctx, EmitCtx, Decisions, Resolver, Resolvers, OverrideNode
+} from './runtime/types.ts'
+// The value type of the public `HandlerOptions.operations`, plus what its own
+// fields are made of.
+export type {
+  OperationConfig, StatusConfig, EmitConfig
+} from './runtime/config.ts'
+export type { FailurePolicy, CircuitPolicy, Directive } from './runtime/failure.ts'
+// The declared type of `Mock.store`.
+export type { Store } from './runtime/store.ts'
 export type {
   Capabilities, OperationCapabilities, IdempotencyKeySource
 } from './server/handler.ts'
