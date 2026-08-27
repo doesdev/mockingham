@@ -2,7 +2,7 @@ import type { Schema } from '../spec/types.ts'
 import {
   classify, conditionalOf, matchesVariant, mergeAllOf, normalizeNode
 } from '../schema/walk.ts'
-import type { Conditional } from '../schema/walk.ts'
+import type { Conditional, SchemaNode } from '../schema/walk.ts'
 // Not a second interpretation: `compileSchema` is `classify` wearing zod, and
 // it is the only thing in the project that can answer "does this value satisfy
 // this schema". Asking it is what keeps the branch generation TOOK and the
@@ -11,6 +11,10 @@ import type { Conditional } from '../schema/walk.ts'
 import { compileSchema } from '../schema/compile.ts'
 import { canonicalKey } from '../schema/equal.ts'
 import { arrayLength } from './constraints.ts'
+// The one generator of a string from a regex, shared with `pattern`. A
+// property NAME invented for a `patternProperties` entry is drawn from the
+// same documented subset, by the same seeded rng.
+import { generateFromPattern } from './pattern.ts'
 import type { Rng } from './rng.ts'
 import type { Ticker } from './clock.ts'
 import type { ResolverLookup } from '../resolve/resolvers.ts'
@@ -388,16 +392,161 @@ export function generateValue(
         // The container name is this schema's own component name, so a
         // bySchema entry for `User` addresses the properties declared on User.
         const name = options.schemaNames?.get(origin)
-        for (const [property, node] of Object.entries(kind.properties)) {
-          const child = normalizeNode(node)
+
+        // One compiled reading of `propertyNames`, through the same compiler
+        // request validation uses - so a name generation keeps is a name
+        // validation accepts, and there is no second notion of a legal key.
+        const nameSchema =
+          kind.propertyNames === undefined
+            ? undefined
+            : compileSchema(kind.propertyNames)
+        const nameAllowed = (candidate: string): boolean =>
+          nameSchema === undefined || nameSchema.safeParse(candidate).success
+
+        // `Object.entries` order is the ONLY ordering taken from the pattern
+        // map, and it is a pure function of the document - so the members
+        // invented below land in the same order in every process (invariant 2).
+        const patternEntries = Object.entries(kind.patternProperties)
+
+        /**
+         * Every `patternProperties` schema whose regex matches `key`, or
+         * `'never'` when one of them forbids the key outright. An uncompilable
+         * regex is skipped, matching what validation does with it.
+         */
+        const patternsFor = (key: string): Schema[] | 'never' => {
+          const matched: Schema[] = []
+          for (const [source, node] of patternEntries) {
+            let expression: RegExp
+            try {
+              expression = new RegExp(source)
+            } catch {
+              continue
+            }
+            if (!expression.test(key)) continue
+            const member = normalizeNode(node)
+            if (member === 'never') return 'never'
+            matched.push(member)
+          }
+          return matched
+        }
+
+        /**
+         * Everything `key` must satisfy, folded through the one `allOf` merge:
+         * its declared `properties` entry, every matching `patternProperties`
+         * entry, and - when the document says nothing else about it -
+         * `additionalProperties`. `undefined` when the key cannot legally hold
+         * a value at all.
+         */
+        const schemaFor = (key: string): Schema | undefined => {
+          const declared = kind.properties[key]
+          const own = declared === undefined ? undefined : normalizeNode(declared)
+          if (own === 'never') return undefined
+          const matched = patternsFor(key)
+          if (matched === 'never') return undefined
+          const parts: Schema[] = own === undefined ? [] : [own]
+          parts.push(...matched)
+          if (parts.length === 0) {
+            if (kind.additional === false) return undefined
+            parts.push(kind.additional)
+          }
+          return parts.length === 1
+            ? (parts[0] as Schema)
+            : mergeAllOf({ allOf: parts })
+        }
+
+        for (const property of Object.keys(kind.properties)) {
+          const child = normalizeNode(kind.properties[property] as SchemaNode)
           // `false` forbids the key outright - `else: { properties: { x:
           // false } }` is how a branch says "x must be absent" - so it is
           // omitted rather than emitted with some placeholder.
           if (child === 'never') continue
+          // A name `propertyNames` forbids is dropped where it is optional,
+          // so the body we serve is one our own validator accepts. Where the
+          // document marks it `required` the two keywords contradict each
+          // other outright; the property is emitted and the contradiction is
+          // the sacrifice (invariant 4's reasoning - a schema we cannot fully
+          // satisfy is not an error).
+          if (!nameAllowed(property) && !kind.required.includes(property)) {
+            continue
+          }
+          const effective = schemaFor(property)
+          if (effective === undefined) continue
           out[property] = walk(
-            child, depth + 1, property, name, undefined, `${path}.${property}`
+            effective, depth + 1, property, name, undefined, `${path}.${property}`
           )
         }
+
+        // One invented member per pattern no key already covers. The name is
+        // generated by `generateFromPattern` - the same seeded reader of the
+        // documented regex subset that `pattern` uses - so a pattern outside
+        // that subset warns and contributes nothing rather than inventing a
+        // name that would fail validation.
+        for (const [source, node] of patternEntries) {
+          const member = normalizeNode(node)
+          if (member === 'never') continue
+          let expression: RegExp
+          try {
+            expression = new RegExp(source)
+          } catch {
+            continue
+          }
+          if (Object.keys(out).some((key) => expression.test(key))) continue
+          const invented = generateFromPattern(source, rng)
+          if (invented === undefined) {
+            options.onUnsupportedPattern?.(source)
+            continue
+          }
+          // The subset can produce a string the full regex still rejects (an
+          // anchor it dropped, a lookaround it never saw). Emitting one would
+          // put a member in the body our own validator refuses, so it is
+          // skipped instead.
+          if (invented === '' || Object.hasOwn(out, invented)) continue
+          if (!expression.test(invented) || !nameAllowed(invented)) continue
+          out[invented] = walk(
+            member, depth + 1, invented, name, undefined, `${path}.${invented}`
+          )
+        }
+
+        // `dependentSchemas` before `dependentRequired`: the schema a trigger
+        // imposes may itself supply a dependent. One pass in declaration
+        // order, so an entry triggered by a key a LATER entry adds is applied
+        // and one triggered by an EARLIER entry's addition is not - the same
+        // one-level rule `if`/`then`/`else` already follows.
+        for (const [trigger, node] of Object.entries(kind.dependentSchemas)) {
+          if (!Object.hasOwn(out, trigger)) continue
+          const dependent = normalizeNode(node)
+          if (dependent === 'never') continue
+          if (classify(dependent).kind !== 'object') continue
+          // `depth + 1`, not `depth`: a dependent schema that names its own
+          // trigger would otherwise never terminate, and the budget is the
+          // only thing standing between that document and a stack overflow.
+          const extra = walk(
+            dependent, depth + 1, propertyName, containerName, undefined, path
+          )
+          if (!isRecord(extra)) continue
+          for (const key of Object.keys(extra)) out[key] = extra[key]
+        }
+
+        for (const [trigger, names] of Object.entries(kind.dependentRequired)) {
+          if (!Object.hasOwn(out, trigger)) continue
+          for (const dependent of names) {
+            if (Object.hasOwn(out, dependent)) continue
+            const member = schemaFor(dependent)
+            if (member === undefined || !nameAllowed(dependent)) {
+              // The dependent cannot be emitted at all - `additionalProperties:
+              // false` with nothing declared for it, or a name the document
+              // forbids. Dropping an OPTIONAL trigger satisfies the dependency
+              // exactly; where the trigger is `required` the document
+              // contradicts itself and the closest thing is served instead.
+              if (!kind.required.includes(trigger)) delete out[trigger]
+              break
+            }
+            out[dependent] = walk(
+              member, depth + 1, dependent, name, undefined, `${path}.${dependent}`
+            )
+          }
+        }
+
         return out
       }
       default:

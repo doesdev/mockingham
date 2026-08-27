@@ -51,6 +51,24 @@ export interface Schema {
   maxItems?: number
   uniqueItems?: boolean
   additionalProperties?: boolean | Schema
+  /**
+   * Every property NAME must satisfy this schema. The instance handed to it is
+   * the name as a string, so `pattern` and `maxLength` are what documents
+   * actually write here. `false` forbids every key.
+   */
+  propertyNames?: Schema | boolean
+  /**
+   * A key matching one of these regexes must satisfy that entry's schema.
+   * Composes with `properties` - both apply to a key covered by both - and a
+   * matching key is NOT "additional", so `additionalProperties: false` still
+   * admits it. Read through `classify()`; the map's `Object.entries` order is
+   * the only ordering generation is allowed to take from it (invariant 2).
+   */
+  patternProperties?: Record<string, Schema | boolean>
+  /** If the keyed property is present, every name listed must be present too. */
+  dependentRequired?: Record<string, string[]>
+  /** If the keyed property is present, the whole object must satisfy the schema. */
+  dependentSchemas?: Record<string, Schema | boolean>
   description?: string
   /**
    * A mock-only format override, honored when `format` itself must keep a

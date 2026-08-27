@@ -610,13 +610,38 @@ parsed.
 
 ## Known limitations
 
-- **Eight schema keywords are not read at all: `contains`, `minContains`,
-  `maxContains`, `propertyNames`, `patternProperties`, `not`,
-  `dependentRequired`, and `dependentSchemas`.** A document declaring one of
+- **Four schema keywords are not read at all: `contains`, `minContains`,
+  `maxContains`, and `not`.** A document declaring one of
   them is served and validated as though it were absent - generated bodies may
   violate it, and an incoming request that violates it is accepted. Nothing
   warns. Every other keyword named in this README is read by both generation
   and validation, from the one traversal in `src/schema/walk.ts`.
+- **`propertyNames` and `patternProperties` are honored, with two named
+  sacrifices.** Both are read from the shared traversal, so validation enforces
+  them exactly: a key whose name violates `propertyNames` is a 400, and a key
+  matching a `patternProperties` regex must satisfy that entry's schema. A
+  matching key is *not* "additional", so `additionalProperties: false` still
+  admits it, and a key covered by both `properties` and a pattern must satisfy
+  both. Generation invents one member per pattern that no declared property
+  already covers, drawing the *name* from the same documented regex subset
+  `pattern` uses - a pattern outside that subset warns and contributes no
+  member rather than inventing a name validation would reject. The two
+  sacrifices: a declared property whose name `propertyNames` forbids is
+  omitted where it is optional but **emitted anyway where `required` demands
+  it**, since the two keywords then contradict each other outright; and an
+  untyped `propertyNames` subschema (`{ "pattern": ... }`, `{ "maxLength": 4 }`)
+  is read as a string schema, because a property name always is one.
+- **`dependentRequired` and `dependentSchemas` are honored one level deep.**
+  Validation applies both exactly. Generation emits a dependent that is not
+  declared under `properties` - taking its shape from a matching
+  `patternProperties` entry, then from `additionalProperties`, then leaving it
+  unconstrained - and lays a triggered `dependentSchemas` shape over the object
+  it generated. Where a dependent cannot be emitted at all (`additionalProperties:
+  false` with nothing declared for it), an **optional** trigger is dropped
+  instead, which satisfies the dependency exactly; a `required` trigger is kept
+  and the contradiction stands. `dependentSchemas` entries are applied in one
+  pass in declaration order, so an entry triggered by a key an *earlier* entry
+  added is not applied - the same one-level rule `if`/`then`/`else` follows.
 - **`if`/`then`/`else` applies one level deep.** A conditional on a schema is
   honored - generation picks a branch with the seeded PRNG and produces a body
   that satisfies it, and a request violating the branch it lands in is a 400.

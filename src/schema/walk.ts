@@ -13,6 +13,25 @@ export type SchemaKind =
       properties: Record<string, SchemaNode>
       required: string[]
       additional: Schema | false
+      /**
+       * `patternProperties`, in the document's own `Object.entries` order.
+       * Both halves read it from here: generation invents a member for an
+       * entry no declared property covers, validation applies the entry to
+       * every matching key AND treats such a key as non-additional. Empty for
+       * the ordinary object.
+       */
+      patternProperties: Record<string, SchemaNode>
+      /**
+       * `propertyNames` - the schema every property NAME must satisfy - or
+       * `undefined` when the document declares none. A `SchemaNode`, so
+       * `propertyNames: false` reaches `normalizeNode` like any other boolean
+       * schema position rather than becoming a second notion of "no keys".
+       */
+      propertyNames?: SchemaNode
+      /** `dependentRequired`: trigger name -> the names its presence demands. */
+      dependentRequired: Record<string, string[]>
+      /** `dependentSchemas`: trigger name -> the schema its presence imposes. */
+      dependentSchemas: Record<string, SchemaNode>
     }
   | {
       kind: 'array'
@@ -110,6 +129,18 @@ export function mergeAllOf(schema: Schema): Schema {
  * the other direction: a schema reached through two siblings is a diamond, not
  * a cycle, and skipping its second visit would silently drop its contribution.
  */
+/**
+ * The keywords `absorb` accumulates rather than overwrites. Probed with `.has`
+ * and never iterated, so it brings no unordered traversal with it.
+ */
+const ACCUMULATED = new Set([
+  'properties',
+  'required',
+  'patternProperties',
+  'dependentSchemas',
+  'dependentRequired'
+])
+
 function merge(schema: Schema, seen: Set<Schema>): Schema {
   if (!schema.allOf || schema.allOf.length === 0) return schema
 
@@ -122,20 +153,44 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
   const merged: Record<string, unknown> = {}
   const properties: Record<string, SchemaNode> = {}
   const required = new Set<string>()
+  // Accumulated for the same reason `properties` is: `allOf` is a conjunction,
+  // so two members each naming a pattern - or each naming a dependency - both
+  // constrain the instance. Plain last-wins would silently drop one of them.
+  const patternProperties: Record<string, SchemaNode> = {}
+  const dependentSchemas: Record<string, SchemaNode> = {}
+  const dependentRequired: Record<string, string[]> = {}
+
+  const absorbMap = (
+    into: Record<string, SchemaNode>,
+    source: Record<string, unknown>,
+    key: string
+  ): void => {
+    const from = source[key] as Record<string, SchemaNode> | undefined
+    for (const [name, node] of Object.entries(from ?? {})) into[name] = node
+  }
 
   const absorb = (source: Record<string, unknown>): void => {
     for (const [key, value] of Object.entries(source)) {
-      if (key === 'properties' || key === 'required') continue
+      if (ACCUMULATED.has(key)) continue
       merged[key] = value
     }
-    const sourceProps = source['properties'] as
-      | Record<string, SchemaNode>
-      | undefined
-    for (const [name, prop] of Object.entries(sourceProps ?? {})) {
-      properties[name] = prop
-    }
+    absorbMap(properties, source, 'properties')
+    absorbMap(patternProperties, source, 'patternProperties')
+    absorbMap(dependentSchemas, source, 'dependentSchemas')
     for (const name of (source['required'] as string[] | undefined) ?? []) {
       required.add(name)
+    }
+    const dependencies = source['dependentRequired'] as
+      | Record<string, string[]>
+      | undefined
+    for (const [trigger, names] of Object.entries(dependencies ?? {})) {
+      // A union per trigger, in first-seen order - the same shape `required`
+      // takes, and deterministic because it is a pure function of the schema.
+      const existing = dependentRequired[trigger] ?? []
+      dependentRequired[trigger] = [
+        ...existing,
+        ...names.filter((name) => !existing.includes(name))
+      ]
     }
   }
 
@@ -151,6 +206,15 @@ function merge(schema: Schema, seen: Set<Schema>): Schema {
     if (result.type === undefined) result.type = 'object'
   }
   if (required.size > 0) result.required = [...required]
+  if (Object.keys(patternProperties).length > 0) {
+    result.patternProperties = patternProperties
+  }
+  if (Object.keys(dependentSchemas).length > 0) {
+    result.dependentSchemas = dependentSchemas
+  }
+  if (Object.keys(dependentRequired).length > 0) {
+    result.dependentRequired = dependentRequired
+  }
 
   return result
 }
@@ -348,6 +412,36 @@ function siblingBase(schema: Schema, key: Schema): Schema | undefined {
   return result
 }
 
+/**
+ * Cached for the same reason `bases` is: the compiler keys on identity, and a
+ * freshly built schema on every `classify` call would never hit that cache.
+ */
+const nameSchemas = new WeakMap<Schema, Schema>()
+
+/**
+ * The `propertyNames` subschema, with its type supplied.
+ *
+ * The instance handed to it is a property NAME, which is always a string - so
+ * a document writing `propertyNames: { pattern: "^[a-z]+$" }` or
+ * `{ maxLength: 4 }` has written a string schema without saying so, and that is
+ * how essentially every document writes it. Supplying `type: 'string'` HERE,
+ * once, is what lets both halves read the position through the ordinary
+ * `classify` path: without it the subschema classifies as `unknown`, validation
+ * accepts every name, and generation believes every name is legal.
+ *
+ * A boolean passes through untouched - `false` still means "no name is legal" -
+ * and a subschema that states its own `type` is left exactly as written.
+ */
+function nameSchemaOf(node: SchemaNode): SchemaNode {
+  if (typeof node === 'boolean') return node
+  if (node.type !== undefined) return node
+  const cached = nameSchemas.get(node)
+  if (cached) return cached
+  const typed: Schema = { ...node, type: 'string' }
+  nameSchemas.set(node, typed)
+  return typed
+}
+
 export function classify(input: SchemaNode): SchemaKind {
   const node = normalizeNode(input)
   if (node === 'never') return { kind: 'never' }
@@ -381,9 +475,21 @@ export function classify(input: SchemaNode): SchemaKind {
   // A bare `required` with no `properties` and no `type` is still an object
   // schema - `then: { required: ['reason'] }` is the common way to write one -
   // and reading it as `unknown` made such a branch vacuously satisfiable.
+  // `patternProperties`, `propertyNames`, `dependentRequired` and
+  // `dependentSchemas` join `properties` and `required` here for the same
+  // reason: each is an object constraint and nothing else, so a schema whose
+  // only keyword is one of them describes an object. Reading it as `unknown`
+  // made it vacuous in validation and generated `null` where the document
+  // plainly meant a map.
   if (
     primary === 'object' ||
-    (primary === undefined && (schema.properties || schema.required))
+    (primary === undefined &&
+      (schema.properties ||
+        schema.required ||
+        schema.patternProperties ||
+        schema.propertyNames !== undefined ||
+        schema.dependentRequired ||
+        schema.dependentSchemas))
   ) {
     const additional =
       schema.additionalProperties === false
@@ -395,7 +501,13 @@ export function classify(input: SchemaNode): SchemaKind {
       kind: 'object',
       properties: schema.properties ?? {},
       required: schema.required ?? [],
-      additional
+      additional,
+      patternProperties: schema.patternProperties ?? {},
+      ...(schema.propertyNames === undefined
+        ? {}
+        : { propertyNames: nameSchemaOf(schema.propertyNames) }),
+      dependentRequired: schema.dependentRequired ?? {},
+      dependentSchemas: schema.dependentSchemas ?? {}
     }
   }
 

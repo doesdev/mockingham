@@ -152,6 +152,138 @@ export function createCompiler(): Compiler {
   }
 
   /**
+   * The object keywords that constrain the object as a whole rather than one
+   * named key: `patternProperties`, `propertyNames`, `dependentRequired` and
+   * `dependentSchemas` - plus `additionalProperties`, which has to move in
+   * here alongside them because a key matching a pattern is not "additional"
+   * and neither `strictObject` nor `catchall` can be told so.
+   *
+   * Returns `undefined` when the schema declares none of the four, which is
+   * the signal to take the ordinary object path unchanged.
+   *
+   * Every reading here comes from `kind` - the shared `classify` result - so
+   * generation and validation cannot disagree about what was declared
+   * (invariant 1).
+   */
+  function objectExtras(
+    kind: Extract<SchemaKind, { kind: 'object' }>
+  ):
+    | ((
+        value: unknown,
+        context: z.RefinementCtx<Record<string, unknown>>
+      ) => void)
+    | undefined {
+    const patternSources = Object.entries(kind.patternProperties)
+    const dependentRequired = Object.entries(kind.dependentRequired)
+    const dependentSchemaSources = Object.entries(kind.dependentSchemas)
+    if (
+      patternSources.length === 0 &&
+      kind.propertyNames === undefined &&
+      dependentRequired.length === 0 &&
+      dependentSchemaSources.length === 0
+    ) {
+      return undefined
+    }
+
+    const patterns: [RegExp, ZodType][] = []
+    for (const [source, node] of patternSources) {
+      // An uncompilable regex is dropped exactly as an uncompilable `pattern`
+      // is: the remaining constraints still apply and no request becomes a 500
+      // over a rule this runtime cannot express. The entry still counts as
+      // DECLARED above, so `additionalProperties: false` does not silently
+      // start rejecting the keys it was meant to admit.
+      const expression = patternOf(source)
+      if (expression === undefined) continue
+      patterns.push([expression, compile(node)])
+    }
+    const names =
+      kind.propertyNames === undefined ? undefined : compile(kind.propertyNames)
+    const dependentSchemas = dependentSchemaSources.map(
+      ([trigger, node]) => [trigger, compile(node)] as const
+    )
+    const additional =
+      kind.additional === false
+        ? false
+        : Object.keys(kind.additional).length > 0
+          ? compile(kind.additional)
+          : undefined
+
+    return (value, context) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return
+      }
+      const record = value as Record<string, unknown>
+      const report = (
+        result: ReturnType<ZodType['safeParse']>,
+        at: PropertyKey[]
+      ): void => {
+        if (result.success) return
+        for (const issue of result.error.issues) {
+          context.addIssue({
+            code: 'custom',
+            path: [...at, ...issue.path],
+            message: issue.message
+          })
+        }
+      }
+
+      for (const key of Object.keys(record)) {
+        if (names !== undefined && !names.safeParse(key).success) {
+          context.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `Property name "${key}" does not satisfy propertyNames`
+          })
+        }
+        let matched = false
+        for (const [expression, member] of patterns) {
+          if (!expression.test(key)) continue
+          matched = true
+          report(member.safeParse(record[key]), [key])
+        }
+        // A declared property was already checked by the zod shape; a key
+        // matching a pattern is not additional. Either way `additional` has
+        // nothing left to say about it.
+        if (matched || Object.hasOwn(kind.properties, key)) continue
+        if (additional === false) {
+          context.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `Unrecognized key: "${key}"`
+          })
+        } else if (additional !== undefined) {
+          report(additional.safeParse(record[key]), [key])
+        }
+      }
+
+      for (const [trigger, required] of dependentRequired) {
+        if (!Object.hasOwn(record, trigger)) continue
+        for (const name of required) {
+          if (Object.hasOwn(record, name)) continue
+          context.addIssue({
+            code: 'custom',
+            path: [name],
+            message: `Property "${name}" is required when "${trigger}" is present`
+          })
+        }
+      }
+
+      for (const [trigger, member] of dependentSchemas) {
+        if (!Object.hasOwn(record, trigger)) continue
+        const result = member.safeParse(record)
+        if (result.success) continue
+        for (const issue of result.error.issues) {
+          context.addIssue({
+            code: 'custom',
+            path: issue.path,
+            message: `While "${trigger}" is present: ${issue.message}`
+          })
+        }
+      }
+    }
+  }
+
+  /**
    * `if`/`then`/`else`, applied on top of whatever the schema is otherwise.
    * Straight from the JSON Schema rule: a value that satisfies `if` must
    * satisfy `then`, one that does not must satisfy `else`, and a branch the
@@ -295,6 +427,30 @@ export function createCompiler(): Compiler {
         const undeclared = kind.required.filter(
           (name) => !Object.hasOwn(kind.properties, name)
         )
+        // `patternProperties`, `propertyNames`, `dependentRequired` and
+        // `dependentSchemas` all constrain the object as a WHOLE - which keys
+        // may appear, and what the presence of one key demands of the rest -
+        // so none of them can be expressed as a zod shape entry or a catchall.
+        // When any is declared they are checked together in one refinement,
+        // and `additionalProperties` moves in there with them: a key matching
+        // a pattern is not "additional", which `strictObject`/`catchall`
+        // cannot know. A schema declaring none of them takes exactly the path
+        // it always did.
+        const extras = objectExtras(kind)
+        if (extras !== undefined) {
+          return z.looseObject(shape).superRefine((value, context) => {
+            extras(value as Record<string, unknown>, context)
+            for (const name of undeclared) {
+              if (name in value) continue
+              context.addIssue({
+                code: 'custom',
+                message: `Missing required property "${name}"`,
+                path: [name]
+              })
+            }
+          }) as ZodType
+        }
+
         const object =
           kind.additional === false
             ? z.strictObject(shape)
