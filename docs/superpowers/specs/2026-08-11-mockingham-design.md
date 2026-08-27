@@ -250,8 +250,17 @@ a generated value breaks the match.
 > `docs/superpowers/specs/2026-08-15-mockingham-correctness-design.md` §3.
 
 Recursive schemas are detected during `$ref` resolution and generated to a
-configurable `maxDepth` (default 12), then terminated with `null` if nullable or
-an empty object/array otherwise.
+configurable `maxDepth` (default 12), then terminated with an empty object or
+array - `{}` where the document declares an object, `[]` where it declares an
+array.
+
+> **Corrected 2026-08-27.** This said "terminated with `null` if nullable or an
+> empty object/array otherwise". Nullability has never been special-cased at
+> truncation: `generate.ts` has always returned `{}`/`[]` regardless. The clause
+> described behavior no code ever had, and it was the wrong behavior to want -
+> a `null` where an object is declared is a harder failure for a consumer than
+> an empty one, which is the same reasoning that removed the union case's
+> `return null` under finding 7.
 
 > **Corrected 2026-08-27 (consumer report against 0.2.0, findings 2 and 7).**
 > The default was 3, which is reached by envelope structure alone - three
