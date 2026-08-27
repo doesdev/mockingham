@@ -373,6 +373,41 @@ export function createCompiler(): Compiler {
           }
         }
 
+        // Applied on BOTH array paths for the same reason `checkUnique` is:
+        // the tuple branch returns before the list branch is ever reached, so
+        // a check that lives in only one of them is silently unenforced on the
+        // other. `contains` is counted, not mapped - the members that do not
+        // match are unconstrained by it, which is exactly what separates it
+        // from `items`.
+        const contains = kind.contains
+        const member = contains === undefined ? undefined : compile(contains.schema)
+        const checkContains = (
+          items: unknown[],
+          context: z.RefinementCtx<unknown[]>
+        ): void => {
+          if (contains === undefined || member === undefined) return
+          let matched = 0
+          for (const item of items) {
+            if (member.safeParse(item).success) matched++
+          }
+          if (matched < contains.min) {
+            context.addIssue({
+              code: 'custom',
+              message:
+                `Expected at least ${contains.min} item(s) to match \`contains\`, ` +
+                `${matched} did`
+            })
+          }
+          if (contains.max !== undefined && matched > contains.max) {
+            context.addIssue({
+              code: 'custom',
+              message:
+                `Expected at most ${contains.max} item(s) to match \`contains\`, ` +
+                `${matched} did`
+            })
+          }
+        }
+
         // A tuple is checked position by position rather than with `z.tuple`,
         // which requires every position to be present. `prefixItems` does not:
         // it constrains a position only when the array reaches it, and
@@ -386,6 +421,7 @@ export function createCompiler(): Compiler {
           if (merged.maxItems !== undefined) tuple = tuple.max(merged.maxItems)
           return tuple.superRefine((value, context) => {
             if (merged.uniqueItems === true) checkUnique(value, context)
+            checkContains(value, context)
             value.forEach((entry, index) => {
               const at = positions[index] ?? tail
               if (at === undefined) {
@@ -411,8 +447,12 @@ export function createCompiler(): Compiler {
         let out = z.array(compile(kind.items))
         if (merged.minItems !== undefined) out = out.min(merged.minItems)
         if (merged.maxItems !== undefined) out = out.max(merged.maxItems)
-        if (merged.uniqueItems !== true) return out
-        return out.superRefine(checkUnique) as ZodType
+        const unique = merged.uniqueItems === true
+        if (!unique && contains === undefined) return out
+        return out.superRefine((value, context) => {
+          if (unique) checkUnique(value, context)
+          checkContains(value, context)
+        }) as ZodType
       }
       case 'object': {
         const shape: Record<string, ZodType> = {}

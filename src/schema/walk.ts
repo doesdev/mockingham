@@ -7,6 +7,25 @@ import type { Schema } from '../spec/types.ts'
  */
 export type SchemaNode = Schema | boolean
 
+/**
+ * The `contains` family as one answer: the subschema, and how many members
+ * must and may match it.
+ *
+ * `min` is always resolved - absent `minContains` defaults to 1, which is the
+ * plain reading of a bare `contains`. `min: 0` is the one value that changes
+ * the rule qualitatively: it makes `contains` vacuously satisfiable, so an
+ * array matching nothing is valid and generation aims for nothing in
+ * particular. `max` is `undefined` when the document sets no upper bound.
+ */
+export interface ArrayContains {
+  /** The subschema a member must satisfy to count. May be a boolean schema. */
+  schema: SchemaNode
+  /** `minContains`, defaulted to 1. */
+  min: number
+  /** `maxContains`, when declared. */
+  max?: number
+}
+
 export type SchemaKind =
   | {
       kind: 'object'
@@ -49,6 +68,18 @@ export type SchemaKind =
       prefix: Schema[]
       /** `items: false` - no position past the tuple is allowed at all. */
       closed: boolean
+      /**
+       * `contains` with `minContains`/`maxContains` already folded in, or
+       * `undefined` when the document declares no `contains` - the two count
+       * keywords say nothing on their own, since they only ever modify it.
+       *
+       * Carried here for the same reason `items` and `prefix` are: both halves
+       * must read one answer. Generation draws `min` members from `schema`
+       * (intersected with whatever `items` or the tuple position also demands),
+       * and compilation counts how many members `schema` accepts. Reading the
+       * raw keywords in either consumer is how the two drift apart.
+       */
+      contains?: ArrayContains
     }
   | { kind: 'string' }
   | { kind: 'number' }
@@ -442,6 +473,29 @@ function nameSchemaOf(node: SchemaNode): SchemaNode {
   return typed
 }
 
+/**
+ * Reads the `contains` family off an already-merged schema.
+ *
+ * `minContains`/`maxContains` are ignored without a `contains` to modify -
+ * that is the 2020-12 rule, not a shortcut: they are defined as adjusting the
+ * `contains` assertion and assert nothing by themselves. A non-integer or
+ * negative count is clamped rather than rejected, since a malformed bound must
+ * not stop the mock from serving (invariant 4's reasoning).
+ */
+function containsOf(schema: Schema): ArrayContains | undefined {
+  const node = schema.contains
+  if (node === undefined) return undefined
+
+  const count = (value: number | undefined): number | undefined =>
+    typeof value === 'number' && Number.isFinite(value)
+      ? Math.max(0, Math.floor(value))
+      : undefined
+
+  const min = count(schema.minContains) ?? 1
+  const max = count(schema.maxContains)
+  return { schema: node, min, ...(max === undefined ? {} : { max }) }
+}
+
 export function classify(input: SchemaNode): SchemaKind {
   const node = normalizeNode(input)
   if (node === 'never') return { kind: 'never' }
@@ -514,15 +568,21 @@ export function classify(input: SchemaNode): SchemaKind {
   const prefixItems = Array.isArray(schema.prefixItems) ? schema.prefixItems : []
   if (
     primary === 'array' ||
-    (primary === undefined && (schema.items || prefixItems.length > 0))
+    // A bare `contains` is an array constraint with no other spelling, exactly
+    // as a bare `items` or `prefixItems` is - reading it as `unknown` would
+    // leave the keyword unenforced in both directions.
+    (primary === undefined &&
+      (schema.items || prefixItems.length > 0 || schema.contains !== undefined))
   ) {
+    const contains = containsOf(schema)
     return {
       kind: 'array',
       items: schema.items === false || schema.items === undefined
         ? {}
         : schema.items,
       prefix: prefixItems,
-      closed: schema.items === false
+      closed: schema.items === false,
+      ...(contains === undefined ? {} : { contains })
     }
   }
 

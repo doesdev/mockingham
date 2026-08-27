@@ -22,6 +22,17 @@ export interface Schema {
   items?: Schema | false
   /** 2020-12 tuple positions: `prefixItems[i]` applies to index `i`. */
   prefixItems?: Schema[]
+  /**
+   * At least one member must match - NOT `items`, which constrains every
+   * member. A boolean is allowed here as anywhere a schema is: `true` is
+   * satisfied by any member, `false` by none. Read through `classify()` in
+   * `src/schema/walk.ts`, which folds `minContains`/`maxContains` into it.
+   */
+  contains?: Schema | boolean
+  /** How many members must match `contains`. Defaults to 1; 0 makes it vacuous. */
+  minContains?: number
+  /** How many members may match `contains`. Unbounded when absent. */
+  maxContains?: number
   enum?: unknown[]
   const?: unknown
   default?: unknown

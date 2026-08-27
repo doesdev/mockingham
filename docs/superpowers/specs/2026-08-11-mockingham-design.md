@@ -226,7 +226,10 @@ Producers for: `date-time`, `date`, `time`, `duration`, `uuid`, `email`, `uri`,
 `float`/`double` numerics. Constraints honored: `minLength`, `maxLength`,
 `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`,
 `minItems`, `maxItems`, `uniqueItems`, `prefixItems` (tuple positions, with
-`items` - or `items: false` - governing anything past them), `enum`, `const`,
+`items` - or `items: false` - governing anything past them),
+`contains`/`minContains`/`maxContains` (a counted assertion over the members,
+composed with `items` and the tuple positions rather than replacing them; the
+array's own bounds win where the two cannot both hold), `enum`, `const`,
 `nullable`,
 `oneOf`/`anyOf` (seeded pick, discriminator-aware), `allOf` (merged).
 
