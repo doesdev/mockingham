@@ -37,6 +37,10 @@ export interface GenerateOptions {
 
 const DEFAULT_MAX_DEPTH = 3
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export function generateValue(
   schema: Schema,
   rng: Rng,
@@ -49,7 +53,14 @@ export function generateValue(
     current: Schema,
     depth: number,
     propertyName?: string,
-    containerName?: string
+    containerName?: string,
+    /**
+     * The schema whose component name this node answers to, when it is not
+     * `current` itself. Only a union's sibling base passes it: the base is a
+     * derived copy, so a `bySchema` resolver would otherwise stop finding the
+     * component the properties were declared on.
+     */
+    identity?: Schema
   ): unknown {
     const hook = options.resolvers?.resolve(
       current, propertyName, containerName, options.ctx
@@ -90,7 +101,10 @@ export function generateValue(
       case 'null':
         return null
       case 'union': {
-        if (depth >= maxDepth) return null
+        // A sibling shape makes this node an object as much as a union, so an
+        // exhausted budget yields the empty object the object case would.
+        const base = kind.base
+        if (depth >= maxDepth) return base === undefined ? null : {}
         // A requested variant selects its branch directly, which deliberately
         // skips the `rng.pick` call - so a request with a variant produces a
         // different byte stream than one without. The same variant always
@@ -104,7 +118,22 @@ export function generateValue(
               )
         // An unmatched name falls through to the seeded pick rather than
         // failing, matching `Prefer: status` (src/runtime/select.ts).
-        return walk(chosen ?? rng.pick(kind.variants), depth + 1)
+        const branch = chosen ?? rng.pick(kind.variants)
+        if (base === undefined) return walk(branch, depth + 1)
+
+        // With a sibling shape both constrain the same instance: generate the
+        // declared object, then lay the chosen branch's own contribution over
+        // it. `identity` keeps bySchema resolvers pointed at the component,
+        // whose name the derived base is not registered under.
+        const value = walk(base, depth, propertyName, containerName, current)
+        // A branch declaring only `required` - the usual "at least one of
+        // these" idiom - adds nothing: every declared property is generated
+        // anyway. Only a branch with a shape of its own contributes.
+        if (classify(branch).kind !== 'object') return value
+        const extra = walk(branch, depth, propertyName, containerName)
+        if (!isRecord(value)) return extra
+        if (!isRecord(extra)) return value
+        return { ...value, ...extra }
       }
       case 'array': {
         if (depth >= maxDepth) return []
@@ -121,7 +150,7 @@ export function generateValue(
         const out: Record<string, unknown> = {}
         // The container name is this schema's own component name, so a
         // bySchema entry for `User` addresses the properties declared on User.
-        const name = options.schemaNames?.get(current)
+        const name = options.schemaNames?.get(identity ?? current)
         for (const [property, schema] of Object.entries(kind.properties)) {
           out[property] = walk(schema, depth + 1, property, name)
         }

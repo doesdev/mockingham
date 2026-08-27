@@ -169,3 +169,76 @@ test('variant selection is deterministic', () => {
   // the seeded pick that selection was supposed to override.
   assert.equal((first as Record<string, unknown>).outcome, 'created')
 })
+
+const contact: Schema = {
+  type: 'object',
+  required: ['name'],
+  properties: {
+    name: { type: 'string' },
+    email: { type: 'string' },
+    phone: { type: 'string' }
+  },
+  anyOf: [{ required: ['email'] }, { required: ['phone'] }]
+}
+
+test('an anyOf declared beside an object shape generates the object', () => {
+  // The sibling keywords constrain the same instance, so the shape still
+  // applies. This used to collapse the whole subtree to null.
+  const value = generateValue(contact, createRng('repro'), { maxDepth: 12 })
+  assert.equal(typeof value, 'object')
+  assert.notEqual(value, null)
+  const record = value as Record<string, unknown>
+  assert.equal(typeof record.name, 'string')
+  assert.equal(typeof record.email, 'string')
+  assert.equal(typeof record.phone, 'string')
+})
+
+test('a sibling union generates identically across processes for one seed', () => {
+  const first = generateValue(contact, createRng('repro'), { maxDepth: 12 })
+  const second = generateValue(contact, createRng('repro'), { maxDepth: 12 })
+  assert.deepEqual(first, second)
+})
+
+test('a sibling union merges the chosen branch contribution over the base', () => {
+  // A branch that declares its own shape adds to the object rather than
+  // replacing it: the base properties survive AND the branch's do.
+  const schema: Schema = {
+    type: 'object',
+    required: ['id'],
+    properties: { id: { type: 'string' } },
+    oneOf: [
+      {
+        type: 'object',
+        properties: { kind: { const: 'card' }, last4: { type: 'string' } }
+      },
+      {
+        type: 'object',
+        properties: { kind: { const: 'bank' }, routing: { type: 'string' } }
+      }
+    ]
+  }
+  const value = generateValue(schema, createRng('merge')) as Record<string, unknown>
+  assert.equal(typeof value.id, 'string')
+  assert.ok(value.kind === 'card' || value.kind === 'bank')
+  if (value.kind === 'card') assert.equal(typeof value.last4, 'string')
+  else assert.equal(typeof value.routing, 'string')
+})
+
+test('a requested variant still selects the branch of a sibling union', () => {
+  const schema: Schema = {
+    type: 'object',
+    properties: { id: { type: 'string' } },
+    oneOf: [
+      { type: 'object', properties: { kind: { const: 'card' } } },
+      { type: 'object', properties: { kind: { const: 'bank' } } }
+    ]
+  }
+  const value = generateValue(schema, createRng('v'), { variant: 'bank' }) as Record<string, unknown>
+  assert.equal(value.kind, 'bank')
+  assert.equal(typeof value.id, 'string')
+})
+
+test('a union with no sibling shape still generates a bare branch', () => {
+  const schema: Schema = { oneOf: [{ type: 'string' }, { type: 'string' }] }
+  assert.equal(typeof generateValue(schema, createRng('bare')), 'string')
+})

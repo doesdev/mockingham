@@ -261,3 +261,56 @@ test('matchesVariant honors a formal discriminator exclusively', () => {
   assert.equal(matchesVariant(branch, 'kind', 'refund'), true)
   assert.equal(matchesVariant(branch, 'kind', 'pending'), false)
 })
+
+test('a union declared beside an object shape keeps the object shape as its base', () => {
+  // JSON Schema applies sibling keywords to the SAME instance: an `anyOf`
+  // saying "at least one contact method" does not erase the object the
+  // properties describe. Classifying this as a bare union discards the shape
+  // for generation and for validation alike.
+  const contact: Schema = {
+    type: 'object',
+    required: ['name'],
+    properties: {
+      name: { type: 'string' },
+      email: { type: 'string' },
+      phone: { type: 'string' }
+    },
+    anyOf: [{ required: ['email'] }, { required: ['phone'] }]
+  }
+
+  const kind = classify(contact)
+  assert.equal(kind.kind, 'union')
+  if (kind.kind !== 'union') return
+  assert.equal(kind.mode, 'any')
+  assert.notEqual(kind.base, undefined)
+
+  const base = classify(kind.base as Schema)
+  assert.equal(base.kind, 'object')
+  if (base.kind !== 'object') return
+  assert.deepEqual(Object.keys(base.properties).sort(), ['email', 'name', 'phone'])
+  assert.deepEqual(base.required, ['name'])
+})
+
+test('a union with no sibling shape has no base', () => {
+  // The purely alternative case must be completely unaffected.
+  const kind = classify({ oneOf: [{ type: 'string' }, { type: 'integer' }] })
+  assert.equal(kind.kind, 'union')
+  if (kind.kind !== 'union') return
+  assert.equal(kind.base, undefined)
+})
+
+test('the base of a sibling union is stable across calls', () => {
+  // The compiler caches on schema identity, so a base rebuilt on every
+  // `classify` would defeat the cache and the recursion guard with it.
+  const schema: Schema = {
+    type: 'object',
+    properties: { id: { type: 'string' } },
+    anyOf: [{ required: ['id'] }]
+  }
+  const first = classify(schema)
+  const second = classify(schema)
+  if (first.kind !== 'union' || second.kind !== 'union') {
+    assert.fail('expected a union')
+  }
+  assert.equal(first.base, second.base)
+})
