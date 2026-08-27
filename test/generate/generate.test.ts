@@ -4,6 +4,7 @@ import { createRng } from '../../src/generate/rng.ts'
 import { generateValue } from '../../src/generate/generate.ts'
 import type { Schema } from '../../src/spec/types.ts'
 import { compileResolvers } from '../../src/resolve/resolvers.ts'
+import { createCompiler } from '../../src/schema/compile.ts'
 
 test('generates an object with all required properties', () => {
   const schema: Schema = {
@@ -159,6 +160,82 @@ test('an unmatched variant falls through to the seeded pick', () => {
   const seeded = generateValue(variantUnion, createRng('s'), {})
   const unmatched = generateValue(variantUnion, createRng('s'), { variant: 'nonexistent' })
   assert.deepEqual(unmatched, seeded)
+})
+
+test('generates each tuple position from its prefixItems schema', () => {
+  const schema: Schema = {
+    type: 'array',
+    minItems: 2,
+    maxItems: 2,
+    prefixItems: [{ type: 'number' }, { type: 'number' }]
+  }
+  const value = generateValue(schema, createRng('tuple')) as unknown[]
+  assert.equal(value.length, 2)
+  assert.equal(typeof value[0], 'number')
+  assert.equal(typeof value[1], 'number')
+})
+
+test('a single-position tuple generates that one position', () => {
+  const schema: Schema = { type: 'array', prefixItems: [{ type: 'string' }] }
+  const value = generateValue(schema, createRng('one')) as unknown[]
+  assert.equal(value.length, 1)
+  assert.equal(typeof value[0], 'string')
+})
+
+test('positions past the tuple are generated from items', () => {
+  const schema: Schema = {
+    type: 'array',
+    minItems: 3,
+    maxItems: 3,
+    prefixItems: [{ type: 'number' }],
+    items: { type: 'string' }
+  }
+  const value = generateValue(schema, createRng('tail')) as unknown[]
+  assert.equal(value.length, 3)
+  assert.equal(typeof value[0], 'number')
+  assert.equal(typeof value[1], 'string')
+  assert.equal(typeof value[2], 'string')
+})
+
+test('a closed tuple generates exactly its positions', () => {
+  const schema: Schema = {
+    type: 'array',
+    prefixItems: [{ type: 'integer' }, { type: 'boolean' }],
+    items: false
+  }
+  const value = generateValue(schema, createRng('closed')) as unknown[]
+  assert.equal(value.length, 2)
+  assert.equal(typeof value[0], 'number')
+  assert.equal(typeof value[1], 'boolean')
+})
+
+test('tuple generation is deterministic', () => {
+  const schema: Schema = {
+    type: 'array',
+    prefixItems: [{ type: 'number' }, { type: 'string' }]
+  }
+  assert.deepEqual(
+    generateValue(schema, createRng('det')),
+    generateValue(schema, createRng('det'))
+  )
+})
+
+test('a generated tuple validates against its own schema', () => {
+  // Invariant 1 in one assertion: what we generate is what we accept.
+  const schema: Schema = {
+    type: 'object',
+    required: ['coordinates'],
+    properties: {
+      coordinates: {
+        type: 'array',
+        minItems: 2,
+        maxItems: 2,
+        prefixItems: [{ type: 'number' }, { type: 'number' }]
+      }
+    }
+  }
+  const value = generateValue(schema, createRng('reading'))
+  assert.equal(createCompiler().compile(schema).safeParse(value).success, true)
 })
 
 test('variant selection is deterministic', () => {

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { coerce, validateRequest } from '../../src/runtime/validate.ts'
 import type { Ctx } from '../../src/runtime/types.ts'
-import type { Operation } from '../../src/spec/types.ts'
+import type { Operation, Schema } from '../../src/spec/types.ts'
 
 function ctx(partial: Partial<Ctx>): Ctx {
   return {
@@ -180,6 +180,58 @@ test('a missing required body is reported', () => {
 test('a missing optional body is fine', () => {
   const operation = op([], { 'application/json': { schema: { type: 'object' } } })
   assert.deepEqual(validateRequest(ctx({ body: undefined }), operation), { ok: true })
+})
+
+const reading: Schema = {
+  type: 'object',
+  required: ['coordinates'],
+  properties: {
+    coordinates: {
+      type: 'array',
+      minItems: 2,
+      maxItems: 2,
+      prefixItems: [{ type: 'number' }, { type: 'number' }]
+    }
+  }
+}
+
+test('a body whose tuple positions hold the wrong type is rejected', () => {
+  const operation = op([], { 'application/json': { schema: reading } })
+  for (const coordinates of [['a', 'b'], [null, null]]) {
+    const result = validateRequest(ctx({ body: { coordinates } }), operation)
+    assert.equal(result.ok, false, `expected ${JSON.stringify(coordinates)} to fail`)
+    if (!result.ok) {
+      assert.equal(result.errors[0]?.path, 'body.coordinates.0')
+    }
+  }
+})
+
+test('a body with well-typed tuple positions passes', () => {
+  const operation = op([], { 'application/json': { schema: reading } })
+  assert.deepEqual(
+    validateRequest(ctx({ body: { coordinates: [1, 2] } }), operation),
+    { ok: true }
+  )
+})
+
+test('a tuple query parameter is coerced per position', () => {
+  // Wire values are strings. Each position must be coerced against ITS schema,
+  // or a legal `?point=1&point=2` would be rejected as two strings.
+  const operation = op([
+    {
+      name: 'point',
+      location: 'query',
+      required: true,
+      schema: {
+        type: 'array',
+        prefixItems: [{ type: 'number' }, { type: 'string' }]
+      }
+    }
+  ])
+  assert.deepEqual(
+    validateRequest(ctx({ query: { point: ['1', 'north'] } }), operation),
+    { ok: true }
+  )
 })
 
 test('a suffix JSON body is validated', () => {

@@ -91,6 +91,75 @@ test('the payload is generated from the declared schema', async () => {
   assert.equal(delivery.outcome, 'delivered')
 })
 
+test('a one-position tuple in a webhook body carries a generated value', async () => {
+  // The whole payload used to be lost here: `prefixItems` was unread, so the
+  // single position generated as null and the receiver got a well-formed
+  // delivery carrying nothing.
+  const tupleApi = loadApi({
+    openapi: '3.1.0',
+    webhooks: {
+      onReading: {
+        post: {
+          requestBody: {
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['params'],
+                  properties: {
+                    params: {
+                      type: 'array',
+                      minItems: 1,
+                      maxItems: 1,
+                      prefixItems: [
+                        {
+                          type: 'object',
+                          required: ['coordinates'],
+                          properties: {
+                            coordinates: {
+                              type: 'array',
+                              minItems: 2,
+                              maxItems: 2,
+                              prefixItems: [{ type: 'number' }, { type: 'number' }]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          responses: { '200': { description: 'ok' } }
+        }
+      }
+    },
+    paths: {}
+  })
+
+  const h = harness()
+  const delivery = await emitWebhook({
+    ...baseInput,
+    api: tupleApi,
+    generateOptions: { schemaNames: tupleApi.schemaNames, maxDepth: 5 },
+    name: 'onReading',
+    config: resolveWebhook({ url: 'http://hooks.test/x' }),
+    store: createMemoryStore(),
+    rng: createRng('t'),
+    fetch: h.fetch,
+    sleep: h.sleep
+  })
+
+  const body = JSON.parse(delivery.body) as { params: Array<{ coordinates: unknown[] }> }
+  assert.equal(body.params.length, 1)
+  const coordinates = body.params[0]?.coordinates
+  assert.ok(Array.isArray(coordinates), 'the tuple position generated no object')
+  assert.equal(coordinates?.length, 2)
+  assert.equal(typeof coordinates?.[0], 'number')
+  assert.equal(typeof coordinates?.[1], 'number')
+})
+
 test('a body override layers over the generated payload', async () => {
   const h = harness()
   const delivery = await emitWebhook({

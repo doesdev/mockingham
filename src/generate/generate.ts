@@ -224,7 +224,16 @@ export function generateValue(
       case 'array': {
         if (depth >= maxDepth) return []
         const { min, max } = arrayLength(merged)
-        const count = rng.int(min, max)
+        // A tuple position is the document saying that position exists, so the
+        // generated array covers the whole tuple where `maxItems` allows it.
+        // It stops there unless `items` says what a further position holds -
+        // inventing unconstrained values past a tuple only produces nulls.
+        const tupleLength = kind.prefix.length
+        const open = !kind.closed && Object.keys(kind.items).length > 0
+        const low =
+          tupleLength > 0 ? Math.min(Math.max(min, tupleLength), max) : min
+        const high = tupleLength > 0 && !open ? low : Math.max(low, max)
+        const count = rng.int(low, high)
         const items: unknown[] = []
         if (merged.uniqueItems === true) {
           // Drawn WITHOUT replacement. `seen` is only ever probed with `.has`
@@ -247,7 +256,8 @@ export function generateValue(
           return items
         }
         for (let i = 0; i < count; i++) {
-          items.push(walk(kind.items, depth + 1, propertyName, containerName))
+          const at = kind.prefix[i] ?? kind.items
+          items.push(walk(at, depth + 1, propertyName, containerName))
         }
         return items
       }

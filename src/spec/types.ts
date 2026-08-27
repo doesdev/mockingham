@@ -15,7 +15,13 @@ export interface Schema {
    */
   properties?: Record<string, Schema | boolean>
   required?: string[]
-  items?: Schema
+  /**
+   * The schema for every position not covered by `prefixItems`. `false` - the
+   * 2020-12 spelling for "no further positions are allowed" - closes a tuple.
+   */
+  items?: Schema | false
+  /** 2020-12 tuple positions: `prefixItems[i]` applies to index `i`. */
+  prefixItems?: Schema[]
   enum?: unknown[]
   const?: unknown
   default?: unknown

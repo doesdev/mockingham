@@ -271,3 +271,65 @@ test('oneOf still accepts a value matching exactly one variant', () => {
   assert.equal(parse(schema, 1).success, true)
   assert.equal(parse(schema, true).success, false)
 })
+
+const coordinates: Schema = {
+  type: 'array',
+  minItems: 2,
+  maxItems: 2,
+  prefixItems: [{ type: 'number' }, { type: 'number' }]
+}
+
+test('validates each tuple position against its prefixItems schema', () => {
+  assert.equal(parse(coordinates, [1, 2]).success, true)
+  assert.equal(parse(coordinates, ['a', 'b']).success, false)
+  assert.equal(parse(coordinates, [null, null]).success, false)
+  // The length rules that already worked must keep working.
+  assert.equal(parse(coordinates, [1]).success, false)
+  assert.equal(parse(coordinates, [1, 2, 3]).success, false)
+})
+
+test('a failing tuple position is reported at its index', () => {
+  const result = parse(coordinates, [1, 'b'])
+  assert.equal(result.success, false)
+  if (!result.success) {
+    assert.deepEqual(result.error.issues[0]?.path, [1])
+  }
+})
+
+test('a single-position tuple validates that position', () => {
+  const schema: Schema = { type: 'array', prefixItems: [{ type: 'integer' }] }
+  assert.equal(parse(schema, [7]).success, true)
+  assert.equal(parse(schema, ['seven']).success, false)
+})
+
+test('positions past the tuple fall through to items', () => {
+  const schema: Schema = {
+    type: 'array',
+    prefixItems: [{ type: 'number' }],
+    items: { type: 'string' }
+  }
+  assert.equal(parse(schema, [1, 'a', 'b']).success, true)
+  assert.equal(parse(schema, [1, 2]).success, false)
+})
+
+test('items: false rejects anything past the tuple', () => {
+  const schema: Schema = {
+    type: 'array',
+    prefixItems: [{ type: 'number' }],
+    items: false
+  }
+  assert.equal(parse(schema, [1]).success, true)
+  assert.equal(parse(schema, [1, 2]).success, false)
+})
+
+test('prefixItems alone does not require the position to be present', () => {
+  // JSON Schema applies a tuple position only when the position exists; a
+  // shorter array is legal without `minItems`, and validation must not be
+  // stricter than the document.
+  const schema: Schema = {
+    type: 'array',
+    prefixItems: [{ type: 'number' }, { type: 'number' }]
+  }
+  assert.equal(parse(schema, []).success, true)
+  assert.equal(parse(schema, [1]).success, true)
+})
