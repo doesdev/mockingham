@@ -40,18 +40,19 @@ const doc = (title: string) => JSON.stringify({
 test('parseArgs reads a document path and defaults', () => {
   assert.deepEqual(parseArgs(['api.json']), {
     document: 'api.json', port: 0, seed: undefined, fixtures: undefined,
-    watch: false, help: false
+    watch: false, help: false, maxDepth: undefined
   })
 })
 
 test('parseArgs reads every flag', () => {
   assert.deepEqual(
     parseArgs([
-      'api.json', '--port', '4000', '--seed', 's', '--fixtures', './fx', '--watch'
+      'api.json', '--port', '4000', '--seed', 's', '--fixtures', './fx',
+      '--watch', '--max-depth', '20'
     ]),
     {
       document: 'api.json', port: 4000, seed: 's', fixtures: './fx',
-      watch: true, help: false
+      watch: true, help: false, maxDepth: 20
     }
   )
 })
@@ -73,11 +74,64 @@ test('parseArgs rejects an unknown flag', () => {
   assert.throws(() => parseArgs(['api.json', '--colour']), /--colour/)
 })
 
+test('parseArgs reads --max-depth', () => {
+  assert.equal(parseArgs(['api.json', '--max-depth', '20']).maxDepth, 20)
+  assert.equal(parseArgs(['api.json', '--max-depth=20']).maxDepth, 20)
+  // Absent means "use the built-in default", not zero.
+  assert.equal(parseArgs(['api.json']).maxDepth, undefined)
+})
+
+test('parseArgs rejects a max depth that is not a positive whole number', () => {
+  assert.throws(() => parseArgs(['api.json', '--max-depth', 'deep']), /--max-depth must be/)
+  assert.throws(() => parseArgs(['api.json', '--max-depth', '0']), /--max-depth must be/)
+  assert.throws(() => parseArgs(['api.json', '--max-depth', '2.5']), /--max-depth must be/)
+})
+
 test('startCli refuses a YAML document with a useful message', async () => {
   await assert.rejects(
     startCli(['api.yaml'], { readFile: async () => '', log: () => {} }),
     /YAML/
   )
+})
+
+test('--max-depth reaches the served body', async () => {
+  const nest = (levels: number): Record<string, unknown> =>
+    levels === 0
+      ? { type: 'string' }
+      : {
+          type: 'object',
+          required: ['next'],
+          properties: { next: nest(levels - 1) }
+        }
+  const deep = JSON.stringify({
+    openapi: '3.1.0',
+    info: { title: 'deep', version: '1.0.0' },
+    paths: {
+      '/deep': {
+        get: {
+          operationId: 'deep',
+          responses: {
+            '200': {
+              description: 'ok',
+              content: { 'application/json': { schema: nest(20) } }
+            }
+          }
+        }
+      }
+    }
+  })
+
+  const dir = await mkdtemp(join(tmpdir(), 'mock-depth-'))
+  const path = join(dir, 'api.json')
+  await writeFile(path, deep)
+
+  // 20 levels is past the default of 12, so this only reaches the bottom if
+  // the flag is honored.
+  const handle = await startCli([path, '--max-depth', '25'], { log: () => {} })
+  let body = (await (await fetch(`${handle.url}/deep`)).json()) as any
+  for (let i = 0; i < 20; i++) body = body.next
+  assert.equal(typeof body, 'string')
+  await handle.close()
 })
 
 test('startCli refuses a missing document argument', async () => {
@@ -236,7 +290,7 @@ test('a broken edit leaves the previous document serving', async () => {
 })
 
 test('USAGE names every flag', () => {
-  for (const flag of ['--port', '--seed', '--watch', '--help']) {
+  for (const flag of ['--port', '--seed', '--watch', '--max-depth', '--help']) {
     assert.ok(USAGE.includes(flag), `USAGE is missing ${flag}`)
   }
 })

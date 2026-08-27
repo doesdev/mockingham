@@ -495,6 +495,76 @@ test('an accepted seedTime keeps ids ordered across several requests', async () 
   }
 })
 
+const deepDoc = {
+  openapi: '3.1.0',
+  info: { title: 'deep', version: '1' },
+  paths: {
+    '/deep': {
+      get: {
+        operationId: 'getDeep',
+        responses: {
+          '200': {
+            description: 'ok',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  required: ['a'],
+                  properties: {
+                    a: {
+                      type: 'object',
+                      required: ['b'],
+                      properties: {
+                        b: {
+                          type: 'object',
+                          required: ['c'],
+                          properties: {
+                            c: {
+                              type: 'object',
+                              required: ['label'],
+                              properties: { label: { type: 'string' } }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+test('the default depth budget serves a four-level document whole', async () => {
+  const handle = createHandler(loadApi(deepDoc), { seed: 'repro' }).fetch
+  const body = (await (await handle(new Request('http://x/deep'))).json()) as any
+  assert.equal(typeof body.a.b.c.label, 'string')
+})
+
+test('a truncated body warns once, naming the schema path and the option', async () => {
+  const warnings: string[] = []
+  const handle = createHandler(loadApi(deepDoc), {
+    seed: 'repro',
+    maxDepth: 2,
+    onWarn: (message) => warnings.push(message)
+  }).fetch
+
+  const body = (await (await handle(new Request('http://x/deep'))).json()) as any
+  assert.deepEqual(body.a.b, {})
+  assert.equal(warnings.length, 1)
+  assert.match(warnings[0] as string, /\$\.a\.b/)
+  assert.match(warnings[0] as string, /maxDepth/)
+
+  // Deduplicated for the life of the handler, exactly as the unsupported
+  // pattern warning is - a per-request warning for a hot path is noise.
+  await handle(new Request('http://x/deep'))
+  assert.equal(warnings.length, 1)
+})
+
 test('a seedTime with no room for later blocks is rejected', async () => {
   // 2**48 - 1 fits the field but leaves no headroom: block 1 wraps to near
   // zero and every later id sorts BEFORE the first. Rejected at construction
